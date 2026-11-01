@@ -79,7 +79,11 @@ _WEAK_SECRET_MARKERS = ("dev-only", "change-me", "changeme", "secret-key-test", 
 def get_settings() -> Settings:
     settings = Settings()
     if settings.app_env in ("staging", "production"):
-        weak = any(m in settings.secret_key.lower() for m in _WEAK_SECRET_MARKERS) or len(set(settings.secret_key)) < 12
+        key = settings.secret_key
+        repeated = len(key) >= 8 and any(
+            key == key[:n] * (len(key) // n) for n in range(1, len(key) // 2 + 1) if len(key) % n == 0
+        )
+        weak = any(m in key.lower() for m in _WEAK_SECRET_MARKERS) or len(key) < 32 or len(set(key)) < 16 or repeated
         if weak:
             raise RuntimeError("SECRET_KEY is a placeholder or low-entropy value; set a random 64-character secret")
     return settings

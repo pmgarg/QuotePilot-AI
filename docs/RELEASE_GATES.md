@@ -27,6 +27,15 @@ Reviewer decision and findings (recorded by the orchestrator without alteration 
 - Confirmed fixed in code: D2/SEC-04, D4, D5/SEC-03/O1, D6/SEC-13, D7/SEC-06 (per field), D8, O2, O4, SEC-01, SEC-02 (policies exist), SEC-08/09/10/11/15/16/17/18/19.
 - Required retest: format + green CI; fix H-1, M-1..M-4 with regression tests; independent QA and security re-runs on the new HEAD; docs fixes; fresh review.
 
+## Re-verification after fix round 2 (independent, on ff99762)
+- QA re-verification (`qa-stage1-reverify-2026-11-01.md`): 252/252 pre-existing API tests and 16/16 browser tests green;
+  28 new API + 5 browser tests; defects **R-3 High** (line removal 500), R-4, R-1, R-2 Medium, R-5 Low; H-1, M-1, M-4, L-3,
+  L-4, L-5, L-10, X-05 and D1–D8 confirmed fixed.
+- Security re-verification (`security-stage1-reverify-2026-11-01.md`): SEC-01..22 fixed/partial table; 12 new findings
+  NEW-1..NEW-12 (5 Medium incl. a Dockerfile exec-form bug), G-1 CI red (semgrep on the ops script).
+- Fix round 3 (`implementer-fixes3-stage1-2026-11-01.md`): all R-*/NEW-* items fixed or documented; 293 API tests and
+  21 browser tests green locally. Gate remains **INCOMPLETE** until CI is green on the new HEAD and release review 2 passes.
+
 ## Human actions required
 - Enable branch protection on `main` requiring checks `api`, `web`, `e2e`, `security` and one review (repository settings → Branches).
 - Sign any risk acceptance in this file with name, date and rationale.

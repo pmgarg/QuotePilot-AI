@@ -116,8 +116,8 @@ def test_member_role_escalation_guards(app, tenant_a: Tenant) -> None:  # type: 
     sales_m = members[tenant_a.users["sales"]]
     owner_m = members[tenant_a.users["owner"]]
     # admin cannot promote self (or anyone) to owner
-    assert admin.patch(f"/org/members/{admin_m['id']}", json={"role": "owner"}).status_code == 422
-    assert admin.patch(f"/org/members/{sales_m['id']}", json={"role": "owner"}).status_code == 422
+    assert admin.patch(f"/org/members/{admin_m['id']}", json={"role": "owner"}).status_code == 403
+    assert admin.patch(f"/org/members/{sales_m['id']}", json={"role": "owner"}).status_code == 403
     # admin cannot create an owner
     assert (
         admin.post(
@@ -129,7 +129,7 @@ def test_member_role_escalation_guards(app, tenant_a: Tenant) -> None:  # type: 
                 "password": "Long-Enough-Pass-1",
             },
         ).status_code
-        == 422
+        == 403
     )
     # non-privileged users cannot touch memberships at all, including their own row
     for ac, m in ((sales, sales_m), (approver, members[tenant_a.users["approver"]])):
@@ -141,7 +141,7 @@ def test_member_role_escalation_guards(app, tenant_a: Tenant) -> None:  # type: 
     assert admin.patch(f"/org/members/{owner_m['id']}", json={"is_active": False}).status_code in (409, 422)
     assert owner.patch(f"/org/members/{owner_m['id']}", json={"is_active": False}).status_code == 409
     # only an owner may enable self-approval (admin may manage other org settings)
-    assert admin.patch("/org", json={"allow_self_approval": True}).status_code == 422
+    assert admin.patch("/org", json={"allow_self_approval": True}).status_code == 403
     assert admin.patch("/org", json={"min_margin_pct": "20"}).status_code == 200
     assert owner.patch("/org", json={"allow_self_approval": True}).status_code == 200
 

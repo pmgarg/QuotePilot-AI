@@ -19,7 +19,8 @@ make web-run      # next dev on :3000 (proxies /api → :8000)
 ```
 
 ## Production topology (documented, not provisioned)
-Reverse proxy (Caddy/Nginx) with TLS + HSTS → web (Next standalone, `WEB_TRUST_FORWARDED_HEADERS=true` only here) → api (uvicorn workers ×2 per vCPU, `FORWARDED_ALLOW_IPS=<web/ingress ip>`; never publish the API port directly) → managed
+Reverse proxy (Caddy/Nginx) with TLS + HSTS → web (Next standalone, `WEB_TRUST_FORWARDED_HEADERS=true` only here) → api (uvicorn workers ×2 per vCPU, `FORWARDED_ALLOW_IPS=<comma-separated IPs of EVERY proxy hop: TLS proxy and web container>` — uvicorn walks
+`X-Forwarded-For` from the right and stops at the first untrusted hop, so a missing hop attributes all traffic to that hop; never publish the API port directly) → managed
 PostgreSQL 16 (daily base backup + WAL/PITR, 30 d), S3-compatible private bucket (SSE, versioning, lifecycle),
 Redis (Stage 2+), worker container (Stage 2+). Separate `staging` and `production` environments with distinct secrets.
 

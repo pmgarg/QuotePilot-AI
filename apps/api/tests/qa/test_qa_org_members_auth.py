@@ -111,10 +111,10 @@ def test_only_owner_grants_owner_role(app, tenant_a: Tenant) -> None:  # type: i
     admin = login_as(app, tenant_a.users["admin"])
     owner = login_as(app, tenant_a.users["owner"])
     sm = _member(admin, "sales")
-    assert admin.patch(f"/org/members/{sm['id']}", json={"role": "owner"}).status_code == 422
+    assert admin.patch(f"/org/members/{sm['id']}", json={"role": "owner"}).status_code == 403
     assert owner.patch(f"/org/members/{sm['id']}", json={"role": "owner"}).status_code == 200
     # two owners now; an admin still may not demote an owner
-    assert admin.patch(f"/org/members/{sm['id']}", json={"role": "sales"}).status_code in (409, 422)
+    assert admin.patch(f"/org/members/{sm['id']}", json={"role": "sales"}).status_code in (403, 409)
     assert owner.patch(f"/org/members/{sm['id']}", json={"role": "sales"}).status_code == 200
 
 
@@ -214,13 +214,15 @@ def test_org_settings_role_gates_and_audit(app, tenant_a: Tenant) -> None:  # ty
     assert q["valid_until"] == (date.today() + timedelta(days=45)).isoformat()
     from decimal import Decimal
 
-    assert Decimal(q["current_version"]["pricing_snapshot"]["min_margin_pct"]) == Decimal("15")
+    assert "min_margin_pct" not in q["current_version"]["pricing_snapshot"]  # R-2: floor hidden from sales
+    admin_view = login_as(app, tenant_a.users["admin"]).get(f"/quotes/{q['id']}").json()
+    assert Decimal(admin_view["current_version"]["pricing_snapshot"]["min_margin_pct"]) == Decimal("15")
 
 
 def test_self_approval_setting_is_owner_only_and_audited(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
     admin = login_as(app, tenant_a.users["admin"])
     owner = login_as(app, tenant_a.users["owner"])
-    assert admin.patch("/org", json={"allow_self_approval": True}).status_code == 422
+    assert admin.patch("/org", json={"allow_self_approval": True}).status_code == 403
     assert owner.get("/org").json()["allow_self_approval"] is False
     assert owner.patch("/org", json={"allow_self_approval": True}).status_code == 200
     assert admin.get("/org").json()["allow_self_approval"] is True

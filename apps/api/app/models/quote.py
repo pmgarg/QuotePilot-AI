@@ -25,7 +25,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base, TenantMixin, TimestampMixin, UUIDPrimaryKeyMixin
 
 QUOTE_STATUSES = ("draft", "pending_approval", "approved", "withdrawn", "expired")
-VERSION_STATUSES = ("draft", "pending_approval", "approved", "rejected", "superseded")
+VERSION_STATUSES = ("draft", "pending_approval", "approved", "rejected", "superseded", "withdrawn")
 
 
 class Quote(UUIDPrimaryKeyMixin, TenantMixin, TimestampMixin, Base):

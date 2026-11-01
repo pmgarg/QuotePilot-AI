@@ -47,6 +47,7 @@ def _version_out(principal: Principal, quote: Quote, version: object) -> QuoteVe
         out.lines = lines  # type: ignore[assignment]
     else:
         out.lines = [QuoteLineOut.model_validate(ln) for ln in version.lines]  # type: ignore[attr-defined]
+        out.pricing_snapshot = {k: v for k, v in out.pricing_snapshot.items() if k != "min_margin_pct"}  # R-2
     return out
 
 

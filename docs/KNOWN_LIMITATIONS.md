@@ -32,5 +32,15 @@
 - Manual prices (custom lines or typed-over catalog prices) require an owner/admin confirmation with a reason before
   submission (policy adopted after review 1 finding M-4); approvers alone cannot clear that blocker.
 
+- The per-account login limiter (50 failures / 5 min across all addresses) can be used to lock a known address out
+  for five minutes; accepted over unlimited distributed guessing until the Redis limiter with progressive delays.
+- At most 4 documents parse concurrently per API process; extra uploads wait up to the parse timeout (bounded, not queued).
+- `X-Forwarded-Proto` from clients is dropped by the proxy; the API derives nothing from it today.
+
+- Manual-price confirmations are per version (a new version copies prices but requires re-confirmation); the audit
+  action is still named `quote.margin_override` for backward compatibility of the history view.
+- H-1 immutability evidence rests on byte-identity of stored PDFs (PDF streams are compressed, so plain-text
+  "not in bytes" checks are not meaningful).
+
 ## Stage 2–4
 Not implemented; designs and backlogs exist (ROADMAP.md, PRD.md, LLD.md).

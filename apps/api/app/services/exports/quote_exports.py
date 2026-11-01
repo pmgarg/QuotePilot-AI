@@ -93,6 +93,8 @@ def _version_valid_until(quote: Quote, version: QuoteVersion) -> date | None:
 def _check_exportable(quote: Quote, version: QuoteVersion) -> None:
     """Approved versions of withdrawn or expired quotes must not be exported as current documents (S1-A15).
     Expiry is judged on the version's own frozen validity, so later header edits cannot revive it (H-1)."""
+    if version.status == "withdrawn":
+        raise StateError("This approved version was withdrawn; it is no longer exportable")
     if version.status == "approved":
         if quote.status == "withdrawn":
             raise StateError("Quote was withdrawn; the approved document is no longer exportable as current")

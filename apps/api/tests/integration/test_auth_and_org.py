@@ -73,7 +73,7 @@ def test_org_settings_role_gates(app, tenant_a: Tenant) -> None:  # type: ignore
     r = admin.patch("/org", json={"name": "Alpha Renamed", "default_tax_rate": "7.5", "brand_color": "#00aa00"})
     assert r.status_code == 200 and r.json()["name"] == "Alpha Renamed" and r.json()["default_tax_rate"] == "7.5"
     assert admin.patch("/org", json={"default_currency": "XXX"}).status_code == 422
-    assert admin.patch("/org", json={"allow_self_approval": True}).status_code == 422  # owner only
+    assert admin.patch("/org", json={"allow_self_approval": True}).status_code == 403  # owner only (role denial → 403)
     owner = login_as(app, tenant_a.users["owner"])
     assert owner.patch("/org", json={"allow_self_approval": True}).status_code == 200
 
@@ -104,7 +104,7 @@ def test_members_crud_and_last_owner_guard(app, tenant_a: Tenant) -> None:  # ty
                 "password": "Another-Long-Pass-77",
             },
         ).status_code
-        == 422
+        == 403
     )
     assert (
         admin.post(

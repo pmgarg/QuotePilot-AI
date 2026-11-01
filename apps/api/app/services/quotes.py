@@ -396,7 +396,7 @@ def update_draft(
                 line = QuoteLine(
                     organization_id=org.id,
                     quote_version_id=version.id,
-                    line_no=n,
+                    line_no=-(1000 + n),  # parked; renumbered after removals are flushed
                     description="",
                     quantity=Decimal("1"),
                     unit="EA",
@@ -407,7 +407,6 @@ def update_draft(
                     unit_mismatch_confirmed=False,
                 )
                 db.add(line)
-            line.line_no = n
             before_price, before_discount, before_product = line.unit_price, line.discount_pct, line.product_id
             before_qty = line.quantity
             if "product_id" in payload:
@@ -451,7 +450,11 @@ def update_draft(
             if "is_custom" in payload and payload["is_custom"] is not None:
                 line.is_custom = bool(payload["is_custom"])
                 if line.is_custom:
+                    # a custom line never carries catalog pricing or cost (NEW-4): the typed price is manual
                     line.product_id = None
+                    line.cost_price = None
+                    if line.unit_price is not None:
+                        line.price_source = "manual"
             if line.product_id is None and not line.is_custom and line.price_source == "manual":
                 line.is_custom = True
             errors = validate_line(
@@ -502,6 +505,14 @@ def update_draft(
             if line not in new_lines:
                 line_changes.append({"line_no": line.line_no, "removed": True})
                 db.delete(line)
+        db.flush()
+        # unique (version, line_no): park every surviving line on a negative number before the final renumbering so
+        # reordering/removal never collides with a row that has not moved yet (R-3/R-4)
+        for idx, line in enumerate(new_lines, start=1):
+            line.line_no = -idx
+        db.flush()
+        for idx, line in enumerate(new_lines, start=1):
+            line.line_no = idx
         db.flush()
         db.expire(version, ["lines"])
     _recompute(version, org, quote.currency)
@@ -695,6 +706,8 @@ def withdraw(
     now = utcnow()
     if version.status == "pending_approval":
         version.status = "superseded"  # a withdrawn pending version can never be approved/rejected
+    elif version.status == "approved":
+        version.status = "withdrawn"  # the approved document is withdrawn for good (NEW-1): never exportable again
     quote.status = "withdrawn"
     quote.withdrawn_reason = reason.strip()[:2000]
     db.add(

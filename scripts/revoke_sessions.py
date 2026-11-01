@@ -33,18 +33,25 @@ def main() -> int:
             return 1
     eng = create_engine(url, future=True)
     with eng.begin() as conn:
-        base = "UPDATE sessions SET revoked_at = now() WHERE revoked_at IS NULL"
+        if args.org:  # audit_events FORCEs RLS even for the owner role: bind the tenant for this transaction
+            conn.execute(text("SELECT set_config('app.current_org', :o, true)"), {"o": args.org})
         if args.org:
-            res = conn.execute(text(base + " AND organization_id = :o"), {"o": args.org})
+            res = conn.execute(
+                text("UPDATE sessions SET revoked_at = now() WHERE revoked_at IS NULL AND organization_id = :o"),
+                {"o": args.org},
+            )
             scope = "org"
         elif args.user_email:
             res = conn.execute(
-                text(base + " AND user_id = (SELECT id FROM users WHERE email = :e)"),
+                text(
+                    "UPDATE sessions SET revoked_at = now() WHERE revoked_at IS NULL "
+                    "AND user_id = (SELECT id FROM users WHERE email = :e)"
+                ),
                 {"e": args.user_email.strip().lower()},
             )
             scope = "user"
         else:
-            res = conn.execute(text(base))
+            res = conn.execute(text("UPDATE sessions SET revoked_at = now() WHERE revoked_at IS NULL"))
             scope = "all"
         conn.execute(
             text(

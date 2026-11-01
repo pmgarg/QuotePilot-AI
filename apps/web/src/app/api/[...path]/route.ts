@@ -28,7 +28,7 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }
     if (FORWARDING.has(k) && !trustForwarded) return;
     headers.set(key, value);
   });
-  if (!trustForwarded) headers.set("x-forwarded-proto", req.nextUrl.protocol.replace(":", ""));
+  // no synthesised forwarding headers either: the API must not infer client facts from this hop (NEW-8)
   const hasBody = !["GET", "HEAD"].includes(req.method);
   let upstream: Response;
   try {

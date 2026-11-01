@@ -6,7 +6,7 @@ from fastapi import APIRouter
 from sqlalchemy import select
 
 from app.api.deps import DB, PrincipalDep
-from app.core.errors import ConflictError, NotFoundError, ValidationFailed
+from app.core.errors import ConflictError, ForbiddenError, NotFoundError, ValidationFailed
 from app.core.security import hash_password
 from app.models.org import Membership, Organization, User
 from app.schemas.common import (
@@ -46,17 +46,19 @@ def update_org(payload: OrganizationUpdate, principal: PrincipalDep, db: DB) -> 
         if not is_supported_currency(data["default_currency"]):
             raise ValidationFailed("Unsupported currency", field="default_currency")
     if "allow_self_approval" in data and data["allow_self_approval"] and principal.role != "owner":
-        raise ValidationFailed("Only an owner can enable self-approval", field="allow_self_approval")
+        raise ForbiddenError("Only an owner can enable self-approval", action="allow_self_approval")
     consent = data.pop("ai_processing_consent", None)
+    before: dict[str, object] = {}
     if consent is not None:
+        before["ai_processing_consent"] = org.ai_processing_consented_at is not None
         if principal.role != "owner":
-            raise ValidationFailed("Only an owner can change AI processing consent", field="ai_processing_consent")
+            raise ForbiddenError("Only an owner can change AI processing consent", action="ai_processing_consent")
         from app.db.base import utcnow
 
         org.ai_processing_consented_at = utcnow() if consent else None
         org.ai_processing_consented_by = principal.user.id if consent else None
         data["ai_processing_consent"] = consent
-    before = {k: _jsonable(getattr(org, k)) for k in data if hasattr(org, k)}
+    before.update({k: _jsonable(getattr(org, k)) for k in data if hasattr(org, k)})
     for k, v in data.items():
         if hasattr(org, k):
             setattr(org, k, v)
@@ -88,7 +90,7 @@ def list_members(principal: PrincipalDep, db: DB) -> list[MemberOut]:
 def create_member(payload: MemberCreate, principal: PrincipalDep, db: DB) -> MemberOut:
     principal.require(Permission.MANAGE_MEMBERS)
     if payload.role == "owner" and principal.role != "owner":
-        raise ValidationFailed("Only an owner can create another owner", field="role")
+        raise ForbiddenError("Only an owner can create another owner", action="grant_owner")
     email = payload.email.strip().lower()
     if "@" not in email:
         raise ValidationFailed("Invalid email", field="email")
@@ -138,11 +140,11 @@ def update_member(member_id: uuid.UUID, payload: MemberUpdate, principal: Princi
     changes: dict[str, object] = {}
     if payload.role is not None and payload.role != membership.role:
         if payload.role == "owner" and principal.role != "owner":
-            raise ValidationFailed("Only an owner can grant the owner role", field="role")
+            raise ForbiddenError("Only an owner can grant the owner role", action="grant_owner")
         if membership.role == "owner" and membership.is_active and len(owners) <= 1:
             raise ConflictError("Cannot change the role of the last owner")
         if membership.role == "owner" and principal.role != "owner":
-            raise ValidationFailed("Only an owner can change another owner's role", field="role")
+            raise ForbiddenError("Only an owner can change another owner's role", action="change_owner")
         membership.role = payload.role
         changes["role"] = payload.role
         revoke_user_sessions(db, membership.user_id, principal.org_id)
@@ -150,8 +152,8 @@ def update_member(member_id: uuid.UUID, payload: MemberUpdate, principal: Princi
         # activation is per membership (tenant-scoped); the global user row is never touched here
         if not payload.is_active and membership.role == "owner" and len(owners) <= 1:
             raise ConflictError("Cannot deactivate the last owner")
-        if not payload.is_active and membership.role == "owner" and principal.role != "owner":
-            raise ValidationFailed("Only an owner can deactivate another owner", field="is_active")
+        if membership.role == "owner" and principal.role != "owner":
+            raise ForbiddenError("Only an owner can activate or deactivate an owner", action="change_owner")
         if membership.user_id == principal.user.id and not payload.is_active:
             raise ConflictError("You cannot deactivate yourself")
         membership.is_active = payload.is_active

@@ -263,7 +263,7 @@ def test_l1_users_and_sessions_rls_scopes(tenant_a: Tenant, tenant_b: Tenant) ->
 def test_x05_ai_consent_is_owner_only_and_recorded(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
     admin = login_as(app, tenant_a.users["admin"])
     owner = login_as(app, tenant_a.users["owner"])
-    assert admin.patch("/org", json={"ai_processing_consent": True}).status_code == 422
+    assert admin.patch("/org", json={"ai_processing_consent": True}).status_code == 403
     r = owner.patch("/org", json={"ai_processing_consent": True})
     assert r.status_code == 200 and r.json()["ai_processing_consented_at"]
     from app.services.ai.provider import ai_enabled_for

@@ -155,7 +155,10 @@ def test_new_version_from_withdrawn_quote(app, tenant_a: Tenant) -> None:  # typ
     assert r.status_code == 201, r.text
     body = r.json()
     assert body["status"] == "draft" and body["current_version_no"] == 2 and body["withdrawn_reason"] is None
-    assert [v["status"] for v in body["versions"]] == ["approved", "draft"]
+    assert [v["status"] for v in body["versions"]] == [
+        "withdrawn",
+        "draft",
+    ]  # NEW-1/R-1: withdrawal is frozen on the version
     assert len(body["versions"][1]["lines"]) == len(body["versions"][0]["lines"])
     assert body["versions"][1]["lines"][0]["unit_price"] == body["versions"][0]["lines"][0]["unit_price"]
     # the original approved version keeps its decision trail

@@ -12,4 +12,6 @@ RUN mkdir -p /data/storage && chown -R app:app /app /data
 USER app
 ENV PATH="/app/.venv/bin:$PATH" STORAGE_DIR=/data/storage
 EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", "--no-server-header"]  # proxy headers trusted from 127.0.0.1 only; set FORWARDED_ALLOW_IPS=<ingress ip> behind your proxy
+# Forwarded headers are trusted from 127.0.0.1 only (uvicorn default). Behind a reverse proxy set
+# FORWARDED_ALLOW_IPS to EVERY proxy hop IP (comma separated) — see docs/OPERATIONS_RUNBOOK.md.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", "--no-server-header"]

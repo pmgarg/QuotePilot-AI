@@ -187,7 +187,7 @@ export default function RFQReviewPage() {
           </div>
         )}
       </Card>
-      <p className="mt-3 text-xs text-slate-500">Quantities shown: {rfq.items.map((i) => qty(i.quantity)).join(", ")}. <Link href="/catalog" className="text-brand hover:underline">Manage catalog</Link></p>
+      <p className="mt-3 text-xs text-slate-500">Quantities shown: {rfq.items.map((i) => qty(i.quantity)).join(", ")}. <Link href="/catalog" className="text-brand underline">Manage catalog</Link></p>
     </>
   );
 }
