@@ -54,6 +54,17 @@ class Settings(BaseSettings):
 
     demo_password: str | None = None
 
+    # Stage 2 — follow-up assistant
+    token_encryption_key: str | None = None  # base64 32-byte key for provider secrets (AES-256-GCM)
+    mail_provider_default: Literal["simulator", "smtp"] = "simulator"
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_use_tls: bool = True
+    smtp_from_email: str | None = None
+    followup_worker_id: str = "worker-1"
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _split_origins(cls, v: object) -> object:

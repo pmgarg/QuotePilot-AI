@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.api.routers import auth, catalogs, customers, files, health, org, quotes, rfqs
+from app.api.routers import auth, catalogs, customers, files, followup, health, org, quotes, rfqs
 from app.core.config import get_settings
 from app.core.errors import AppError
 from app.core.logging import configure_logging, log_event, request_id_var
@@ -83,6 +83,19 @@ def create_app() -> FastAPI:
         body.update(exc.extra)
         return JSONResponse(status_code=exc.status_code, content=body)
 
+    from app.services.comms.providers import ProviderError
+
+    @app.exception_handler(ProviderError)
+    async def provider_error_handler(request: Request, exc: ProviderError) -> JSONResponse:
+        return JSONResponse(
+            status_code=503 if exc.retryable else 400,
+            content={
+                "error": "provider_unavailable" if exc.retryable else "provider_rejected",
+                "detail": str(exc),
+                "request_id": request_id_var.get(),
+            },
+        )
+
     @app.exception_handler(RequestValidationError)
     async def validation_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
         errors = [{"loc": [str(x) for x in e.get("loc", [])], "msg": e.get("msg", "")} for e in exc.errors()]
@@ -130,6 +143,7 @@ def create_app() -> FastAPI:
         rfqs.router,
         quotes.router,
         files.router,
+        followup.router,
     ):
         app.include_router(r, prefix=API_PREFIX)
     return app

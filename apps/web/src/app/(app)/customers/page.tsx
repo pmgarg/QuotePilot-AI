@@ -5,6 +5,7 @@ import { api, describeError } from "@/lib/api";
 import type { Customer } from "@/lib/types";
 import { useSession } from "@/components/session";
 import { Alert, Button, Card, Empty, Field, inputClass, Loading, PageHeader } from "@/components/ui";
+import { ContactsPanel } from "@/components/contacts";
 
 export default function CustomersPage() {
   const { can } = useSession();
@@ -12,6 +13,7 @@ export default function CustomersPage() {
   const [q, setQ] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Customer | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   async function load(query = q) {
     try {
@@ -59,12 +61,13 @@ export default function CustomersPage() {
                 {customers.map((c) => (
                   <tr key={c.id}>
                     <td>{c.name}</td><td>{c.reference ?? "—"}</td><td>{c.email ?? "—"}</td><td>{c.default_currency ?? "—"}</td>
-                    <td>{can("edit_quotes") && <Button variant="ghost" onClick={() => setEditing(c)}>Edit</Button>}</td>
+                    <td>{can("edit_quotes") && <Button variant="ghost" onClick={() => setEditing(c)}>Edit</Button>} <Button variant="ghost" onClick={() => setExpanded(expanded === c.id ? null : c.id)} testId={`contacts-${c.reference ?? c.id}`}>{expanded === c.id ? "Hide contacts" : "Contacts"}</Button></td>
                   </tr>
                 ))}
               </tbody>
             </table>
           )}
+          {expanded && <ContactsPanel key={expanded} customerId={expanded} />}
         </Card>
         {can("edit_quotes") && (
           <Card title={editing ? `Edit ${editing.name}` : "New customer"}>

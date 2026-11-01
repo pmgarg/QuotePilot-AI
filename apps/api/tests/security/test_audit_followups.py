@@ -226,6 +226,16 @@ def test_rls_enabled_and_forced_on_every_tenant_table() -> None:
         "organizations",
         "memberships",
         "audit_events",
+        # Stage 2 (migration 0004): follow-up assistant tables
+        "contacts",
+        "follow_up_policies",
+        "message_templates",
+        "quote_status_events",
+        "follow_up_schedules",
+        "communication_drafts",
+        "communication_events",
+        "integration_connections",
+        "job_runs",
     }
     with get_sessionmaker()() as db:
         rows = db.execute(
@@ -245,9 +255,10 @@ def test_rls_enabled_and_forced_on_every_tenant_table() -> None:
                 )
             ).all()
         }
-        # `sessions` carries organization_id but is resolved by token hash before any tenant context exists;
-        # it is intentionally outside RLS (documented under SEC-02 together with `users`).
+        # `sessions` carries organization_id and has its own (ENABLE, not FORCE) policies since migration 0002,
+        # because it is resolved by token hash before any tenant context exists.
         assert org_tables - {"sessions"} <= tenant_tables, org_tables - tenant_tables - {"sessions"}
+        assert db.execute(text("SELECT relrowsecurity FROM pg_class WHERE relname = 'sessions'")).scalar() is True
         db.rollback()
 
 
