@@ -17,5 +17,13 @@
 - Catalog header detection for import expects the header on the first row; RFQ spreadsheets may have the header lower.
 - Quote PDFs are regenerated on download for drafts; approved PDFs are stored and byte-identical on repeat.
 
+- Web CSP keeps `script-src 'unsafe-inline'` (Next.js inline runtime); a nonce-based policy is a follow-up.
+- The login limiter is per API process (`--workers 2` doubles the budget); in the Docker topology all users share the
+  web container's IP, so 10 wrong passwords for one address temporarily lock that address (5 min) — a deliberate
+  brute-force trade-off until the Redis-backed limiter (Stage 2).
+- `GET …/pdf` renders, stores (approved versions) and audits the download; the write is idempotent (same bytes/hash).
+- Audit of `quote.update` records per-line pricing deltas (max 50 per save); description-only edits are summarised.
+- Timing of login responses is equalised with a dummy Argon2 verification but not formally measured under load.
+
 ## Stage 2–4
 Not implemented; designs and backlogs exist (ROADMAP.md, PRD.md, LLD.md).

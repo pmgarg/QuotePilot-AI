@@ -11,13 +11,13 @@ Tenant-miss → 404. Role denial → 403. State/concurrency → 409. Validation 
 | GET | /health | public | liveness `{status:"ok"}`; `/health/ready` checks DB |
 | GET | /auth/csrf | public | issues `qp_csrf` cookie, returns token |
 | POST | /auth/login | public (+csrf) | `{email,password}` → `{user, organization, role}`; sets session cookie; rate limited |
-| POST | /auth/logout | any | revokes session |
+| POST | /auth/logout | any (+csrf) | revokes session |
 | GET | /auth/me | any | current user, org, role, csrf token |
 | GET | /org | any | organization settings (brand, currency, tax, rounding, margin floor hidden for sales/readonly) |
 | PATCH | /org | owner, admin | update settings (`expected_updated_at` optional) |
 | GET | /org/members | owner, admin | list members |
-| POST | /org/members | owner, admin | create local user + membership `{email, full_name, role, password}` (local invite) |
-| PATCH | /org/members/{id} | owner, admin | change role / deactivate; last-owner guard |
+| POST | /org/members | owner, admin | create a NEW local user + membership `{email, full_name, role, password}`; 409 (generic) if the address is already registered anywhere |
+| PATCH | /org/members/{id} | owner, admin | change role / (de)activate the **membership** (tenant-scoped; revokes that tenant's sessions); last-active-owner guard; owner-only for owner rows |
 | GET/POST | /customers | any / sales+ | list/create |
 | GET/PATCH | /customers/{id} | any / sales+ | detail/update |
 | GET | /catalogs | any | catalogs with versions summary |

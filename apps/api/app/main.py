@@ -31,7 +31,7 @@ def create_app() -> FastAPI:
         version="0.1.0",
         docs_url=f"{API_PREFIX}/docs" if not settings.is_production else None,
         redoc_url=None,
-        openapi_url=f"{API_PREFIX}/openapi.json",
+        openapi_url=f"{API_PREFIX}/openapi.json" if not settings.is_production else None,
     )
 
     if settings.cors_origins:
@@ -47,6 +47,7 @@ def create_app() -> FastAPI:
     async def request_context(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
         incoming = request.headers.get("x-request-id", "")
         rid = incoming if _SAFE_REQUEST_ID.match(incoming) else uuid.uuid4().hex
+        request.state.request_id = rid
         token = request_id_var.set(rid)
         try:
             response = await call_next(request)
@@ -107,14 +108,17 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(Exception)
     async def unhandled_handler(request: Request, exc: Exception) -> JSONResponse:
-        logger.exception("unhandled error")
+        # runs in Starlette's outermost ServerErrorMiddleware, after the request context var was reset
+        rid = getattr(request.state, "request_id", None) or request_id_var.get()
+        token = request_id_var.set(rid)
+        try:
+            logger.exception("unhandled error")
+        finally:
+            request_id_var.reset(token)
         return JSONResponse(
             status_code=500,
-            content={
-                "error": "internal_error",
-                "detail": "Unexpected error",
-                "request_id": request_id_var.get(),
-            },
+            content={"error": "internal_error", "detail": "Unexpected error", "request_id": rid},
+            headers={"X-Request-ID": rid, "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"},
         )
 
     for r in (

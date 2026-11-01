@@ -121,6 +121,16 @@ function Members() {
     }
   }
 
+  async function deactivate(m: Member) {
+    setError(null);
+    try {
+      await api(`/org/members/${m.id}`, { method: "PATCH", json: { is_active: false } });
+      await load();
+    } catch (err) {
+      setError(describeError(err));
+    }
+  }
+
   async function changeRole(m: Member, role: Role) {
     setError(null);
     try {
@@ -151,7 +161,7 @@ function Members() {
                     {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
                   </select>
                 </td>
-                <td><Badge value={m.user.is_active ? "active" : "archived"} /></td>
+                <td><Badge value={m.is_active ? "active" : "archived"} />{m.is_active && m.user.id !== session?.user.id && <Button variant="ghost" onClick={() => void deactivate(m)}>Deactivate</Button>}</td>
               </tr>
             ))}
           </tbody>

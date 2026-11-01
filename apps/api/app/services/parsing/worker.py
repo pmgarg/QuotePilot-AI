@@ -14,15 +14,17 @@ import sys
 from typing import Any
 
 
-def _apply_limits(mem_bytes: int, cpu_seconds: int) -> None:
+def _apply_limits(mem_bytes: int, cpu_seconds: int) -> bool:
+    """Apply resource limits; returns False when the platform refused them (reported to the parent)."""
     try:
         import resource
 
         resource.setrlimit(resource.RLIMIT_AS, (mem_bytes, mem_bytes))
         resource.setrlimit(resource.RLIMIT_CPU, (cpu_seconds, cpu_seconds + 2))
         resource.setrlimit(resource.RLIMIT_NOFILE, (64, 64))
+        return True
     except (ImportError, ValueError, OSError):
-        pass
+        return False
 
 
 def _cell(v: Any) -> Any:
@@ -135,7 +137,7 @@ def main(argv: list[str]) -> int:
         int(argv[5]),
         int(argv[6]),
     )
-    _apply_limits(mem, cpu)
+    limits_ok = _apply_limits(mem, cpu)
     try:
         if kind == "csv":
             out = parse_csv(path, max_rows)
@@ -157,6 +159,7 @@ def main(argv: list[str]) -> int:
             "error_code": "parser_error",
             "message": f"Parser failed ({type(exc).__name__}).",
         }
+    out["limits_applied"] = limits_ok
     sys.stdout.write(json.dumps(out, ensure_ascii=False))
     return 0
 

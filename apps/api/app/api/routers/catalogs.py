@@ -6,7 +6,7 @@ import uuid
 from fastapi import APIRouter, File, Form, Query, UploadFile
 from sqlalchemy import func, or_, select
 
-from app.api.deps import DB, PrincipalDep, SettingsDep
+from app.api.deps import DB, PrincipalDep, SettingsDep, clean_param
 from app.core.errors import NotFoundError, PayloadTooLarge, ValidationFailed
 from app.models.catalog import Catalog, CatalogVersion, Product
 from app.schemas.common import CatalogOut, CatalogVersionOut, Page, ProductOut, ProductPrivileged
@@ -99,6 +99,7 @@ def products(
     if version is None:
         raise NotFoundError("Catalog version not found")
     stmt = select(Product).where(Product.catalog_version_id == version.id, Product.organization_id == principal.org_id)
+    q = clean_param(q)
     if q:
         like = f"%{q.replace('%', r'\%').replace('_', r'\_')}%"
         stmt = stmt.where(or_(Product.sku.ilike(like, escape="\\"), Product.description.ilike(like, escape="\\")))

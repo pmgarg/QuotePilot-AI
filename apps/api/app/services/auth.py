@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.errors import RateLimited, UnauthorizedError
-from app.core.security import generate_token, hash_token, verify_password
+from app.core.security import generate_token, hash_password, hash_token, verify_password
 from app.db.base import utcnow
 from app.models.org import Membership, Organization, User, UserSession
 from app.services import audit
@@ -46,6 +46,7 @@ class LoginRateLimiter:
             self._hits.clear()
 
 
+_DUMMY_HASH = hash_password("timing-equalisation-dummy-password")
 _settings = get_settings()
 login_limiter = LoginRateLimiter(_settings.login_rate_limit_attempts, _settings.login_rate_limit_window_seconds)
 
@@ -70,7 +71,13 @@ def login(db: Session, *, email: str, password: str, ip: str | None, user_agent:
     settings = get_settings()
     key = f"{ip or '-'}|{email.lower()}"
     login_limiter.check(key)
-    user = db.scalar(select(User).where(User.email == email.strip().lower()))
+    from app.db.session import set_auth_scope, set_tenant
+
+    normalized = email.strip().lower()
+    set_auth_scope(db, login_email=normalized)
+    user = db.scalar(select(User).where(User.email == normalized))
+    if user is None:
+        verify_password(password, _DUMMY_HASH)  # equalise timing for unknown accounts (ASVS V2.2)
     ok = user is not None and user.is_active and verify_password(password, user.password_hash)
     if not ok:
         login_limiter.hit(key)
@@ -84,12 +91,14 @@ def login(db: Session, *, email: str, password: str, ip: str | None, user_agent:
         )
         db.commit()
         raise UnauthorizedError("Invalid email or password")
-    assert user is not None
-    from app.db.session import set_tenant
-
+    if user is None:  # pragma: no cover - guarded by `ok`
+        raise UnauthorizedError("Invalid email or password")
     set_tenant(db, None, user.id)  # memberships are RLS-visible to the user before an org is chosen
     membership = db.scalar(
-        select(Membership).where(Membership.user_id == user.id).order_by(Membership.created_at).limit(1)
+        select(Membership)
+        .where(Membership.user_id == user.id, Membership.is_active.is_(True))
+        .order_by(Membership.created_at)
+        .limit(1)
     )
     if membership is None:
         raise UnauthorizedError("Invalid email or password")
@@ -129,7 +138,11 @@ def resolve_session(db: Session, token: str | None) -> UserSession | None:
     if not token:
         return None
     settings = get_settings()
-    session = db.scalar(select(UserSession).where(UserSession.token_hash == hash_token(token)))
+    from app.db.session import set_auth_scope
+
+    token_hash = hash_token(token)
+    set_auth_scope(db, session_token_hash=token_hash)
+    session = db.scalar(select(UserSession).where(UserSession.token_hash == token_hash))
     if session is None or session.revoked_at is not None:
         return None
     now = utcnow()
@@ -155,8 +168,12 @@ def logout(db: Session, session: UserSession, ip: str | None) -> None:
     )
 
 
-def revoke_user_sessions(db: Session, user_id: uuid.UUID) -> int:
-    rows = db.scalars(select(UserSession).where(UserSession.user_id == user_id, UserSession.revoked_at.is_(None))).all()
+def revoke_user_sessions(db: Session, user_id: uuid.UUID, organization_id: uuid.UUID | None = None) -> int:
+    """Revoke a user's sessions; scoped to one organisation when given (membership-level actions)."""
+    stmt = select(UserSession).where(UserSession.user_id == user_id, UserSession.revoked_at.is_(None))
+    if organization_id is not None:
+        stmt = stmt.where(UserSession.organization_id == organization_id)
+    rows = db.scalars(stmt).all()
     for s in rows:
         s.revoked_at = utcnow()
     return len(rows)

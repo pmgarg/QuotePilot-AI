@@ -8,6 +8,10 @@ import { NextRequest, NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 
 const HOP_BY_HOP = new Set(["connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade", "host", "content-length"]);
+// Client-controlled forwarding headers are never trusted. Set WEB_TRUST_FORWARDED_HEADERS=true only when this app
+// runs behind your own TLS reverse proxy that overwrites X-Forwarded-For (see docs/OPERATIONS_RUNBOOK.md).
+const FORWARDING = new Set(["x-forwarded-for", "x-forwarded-proto", "x-forwarded-host", "x-real-ip", "forwarded"]);
+const trustForwarded = process.env.WEB_TRUST_FORWARDED_HEADERS === "true";
 
 function apiOrigin(): string {
   return (process.env.API_INTERNAL_URL ?? "http://localhost:8000").replace(/\/$/, "");
@@ -19,10 +23,12 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }
   target.search = req.nextUrl.search;
   const headers = new Headers();
   req.headers.forEach((value, key) => {
-    if (!HOP_BY_HOP.has(key.toLowerCase())) headers.set(key, value);
+    const k = key.toLowerCase();
+    if (HOP_BY_HOP.has(k)) return;
+    if (FORWARDING.has(k) && !trustForwarded) return;
+    headers.set(key, value);
   });
-  headers.set("x-forwarded-for", req.headers.get("x-forwarded-for") ?? "");
-  headers.set("x-forwarded-proto", req.nextUrl.protocol.replace(":", ""));
+  if (!trustForwarded) headers.set("x-forwarded-proto", req.nextUrl.protocol.replace(":", ""));
   const hasBody = !["GET", "HEAD"].includes(req.method);
   let upstream: Response;
   try {

@@ -77,20 +77,17 @@ def create_member(payload: MemberCreate, principal: PrincipalDep, db: DB) -> Mem
     email = payload.email.strip().lower()
     if "@" not in email:
         raise ValidationFailed("Invalid email", field="email")
-    user = db.scalar(select(User).where(User.email == email))
-    if user is None:
-        user = User(
-            email=email,
-            password_hash=hash_password(payload.password),
-            full_name=payload.full_name.strip(),
-        )
-        db.add(user)
-        db.flush()
-    existing = db.scalar(
-        select(Membership).where(Membership.organization_id == principal.org_id, Membership.user_id == user.id)
-    )
-    if existing is not None:
-        raise ConflictError("User is already a member")
+    # SEC-01: an admin may only create NEW local accounts. Attaching an existing account (possibly another
+    # tenant's user) would reuse that user's credentials and leak its profile; the response is deliberately
+    # the same whether the address belongs to this organisation or to anyone else (no enumeration oracle).
+    from app.db.session import set_auth_scope
+
+    set_auth_scope(db, login_email=email)
+    if db.scalar(select(User.id).where(User.email == email)) is not None:
+        raise ConflictError("This email address cannot be used for a new member")
+    user = User(email=email, password_hash=hash_password(payload.password), full_name=payload.full_name.strip())
+    db.add(user)
+    db.flush()
     membership = Membership(organization_id=principal.org_id, user_id=user.id, role=payload.role)
     db.add(membership)
     db.flush()
@@ -116,31 +113,34 @@ def update_member(member_id: uuid.UUID, payload: MemberUpdate, principal: Princi
     )
     if membership is None:
         raise NotFoundError("Member not found")
-    owners = db.scalars(
-        select(Membership).where(Membership.organization_id == principal.org_id, Membership.role == "owner")
+    owners = db.scalars(  # only ACTIVE owner memberships count for the last-owner guards
+        select(Membership).where(
+            Membership.organization_id == principal.org_id, Membership.role == "owner", Membership.is_active.is_(True)
+        )
     ).all()
     changes: dict[str, object] = {}
     if payload.role is not None and payload.role != membership.role:
         if payload.role == "owner" and principal.role != "owner":
             raise ValidationFailed("Only an owner can grant the owner role", field="role")
-        if membership.role == "owner" and len(owners) <= 1:
+        if membership.role == "owner" and membership.is_active and len(owners) <= 1:
             raise ConflictError("Cannot change the role of the last owner")
         if membership.role == "owner" and principal.role != "owner":
             raise ValidationFailed("Only an owner can change another owner's role", field="role")
         membership.role = payload.role
         changes["role"] = payload.role
-        revoke_user_sessions(db, membership.user_id)
-    if payload.is_active is not None:
-        user = db.get(User, membership.user_id)
-        assert user is not None
+        revoke_user_sessions(db, membership.user_id, principal.org_id)
+    if payload.is_active is not None and payload.is_active != membership.is_active:
+        # activation is per membership (tenant-scoped); the global user row is never touched here
         if not payload.is_active and membership.role == "owner" and len(owners) <= 1:
             raise ConflictError("Cannot deactivate the last owner")
-        if user.id == principal.user.id and not payload.is_active:
+        if not payload.is_active and membership.role == "owner" and principal.role != "owner":
+            raise ValidationFailed("Only an owner can deactivate another owner", field="is_active")
+        if membership.user_id == principal.user.id and not payload.is_active:
             raise ConflictError("You cannot deactivate yourself")
-        user.is_active = payload.is_active
+        membership.is_active = payload.is_active
         changes["is_active"] = payload.is_active
         if not payload.is_active:
-            revoke_user_sessions(db, user.id)
+            revoke_user_sessions(db, membership.user_id, principal.org_id)
     db.flush()
     audit.record(
         db,

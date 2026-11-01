@@ -5,7 +5,7 @@ import uuid
 from fastapi import APIRouter, Query
 from sqlalchemy import or_, select
 
-from app.api.deps import DB, PrincipalDep
+from app.api.deps import DB, PrincipalDep, clean_param
 from app.core.errors import NotFoundError, ValidationFailed
 from app.models.customer import Customer
 from app.schemas.common import CustomerIn, CustomerOut
@@ -21,6 +21,7 @@ def list_customers(
     principal: PrincipalDep, db: DB, q: str | None = Query(default=None, max_length=100)
 ) -> list[CustomerOut]:
     stmt = select(Customer).where(Customer.organization_id == principal.org_id)
+    q = clean_param(q)
     if q:
         like = f"%{q.replace('%', r'\%').replace('_', r'\_')}%"
         stmt = stmt.where(or_(Customer.name.ilike(like, escape="\\"), Customer.reference.ilike(like, escape="\\")))

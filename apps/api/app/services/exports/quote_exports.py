@@ -62,6 +62,17 @@ def build_pdf_model(db: Session, org: Organization, quote: Quote, version: Quote
     )
 
 
+def _check_exportable(quote: Quote, version: QuoteVersion) -> None:
+    """Approved versions of withdrawn or expired quotes must not be exported as current documents (S1-A15)."""
+    from app.services.quotes import effective_status
+
+    if version.status == "approved":
+        if quote.status == "withdrawn":
+            raise StateError("Quote was withdrawn; the approved document is no longer exportable as current")
+        if effective_status(quote) == "expired":
+            raise StateError("Quote validity has expired; create a new version before exporting")
+
+
 def render_and_store_pdf(
     db: Session,
     *,
@@ -71,8 +82,7 @@ def render_and_store_pdf(
     quote: Quote,
     version: QuoteVersion,
 ) -> tuple[bytes, str]:
-    if quote.status == "withdrawn" and version.status == "approved":
-        raise StateError("Quote was withdrawn; the approved PDF is no longer exportable as current")
+    _check_exportable(quote, version)
     model = build_pdf_model(db, org, quote, version)
     data = render_quote_pdf(model)
     sha = hashlib.sha256(data).hexdigest()
@@ -107,6 +117,7 @@ def render_csv(
     version: QuoteVersion,
     include_costs: bool,
 ) -> bytes:
+    _check_exportable(quote, version)
     header = [
         "line_no",
         "sku",

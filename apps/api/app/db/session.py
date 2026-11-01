@@ -57,6 +57,14 @@ def set_tenant(db: Session, organization_id: uuid.UUID | None, user_id: uuid.UUI
     )
 
 
+def set_auth_scope(db: Session, *, login_email: str | None = None, session_token_hash: str | None = None) -> None:
+    """Transaction-local settings consumed by the RLS policies on users/sessions during authentication."""
+    db.execute(
+        text("SELECT set_config('app.login_email', :email, true), set_config('app.session_token_hash', :tok, true)"),
+        {"email": login_email or "", "tok": session_token_hash or ""},
+    )
+
+
 def get_db() -> Generator[Session, None, None]:
     db = get_sessionmaker()()
     try:

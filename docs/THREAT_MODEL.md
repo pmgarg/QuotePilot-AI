@@ -43,6 +43,14 @@ B6 worker ↔ mail/ERP providers (Stage 2/3) · B7 tenant ↔ tenant inside shar
 9. Missing/incorrect CSRF header on state change → 403.
 10. Synthetic secret strings committed accidentally → gitleaks rule set in CI.
 
+## Audit round 1 (2026-11-01)
+Independent security audit findings SEC-01…SEC-22 (`docs/evidence/security-stage1-2026-11-01.md`) were remediated
+in commit 2 of the Stage 1 branch: tenant-scoped membership activation + RLS on users/sessions (SEC-01/02), forwarded
+header trust boundary in the web proxy (SEC-05), open-redirect guard (SEC-09), numeric bounds (SEC-06), NUL-safe
+search params (SEC-08), timing equalisation (SEC-10), cross-currency cost (SEC-11), request id on 500s (SEC-16), richer
+update audit (SEC-17), server banner/openapi off in production (SEC-15), parser formula flag/limits reporting/concurrency
+cap (SEC-18/19), logout CSRF (SEC-13), expired export (SEC-22). Accepted as Low with documentation: SEC-12, SEC-14, SEC-21.
+
 ## Residual risks (tracked in KNOWN_LIMITATIONS.md)
 Single-process in-memory login rate limiter (Redis-backed in multi-replica deployments); no WAF; encryption at rest is a
 deployment responsibility; PDF parser library CVEs require dependency scanning cadence; LLM provider terms require

@@ -345,6 +345,7 @@ def update_draft(
         version.notes = notes  # type: ignore[assignment]
     if terms is not unset:
         version.terms = terms  # type: ignore[assignment]
+    line_changes: list[dict[str, Any]] = []
     if lines is not None:
         existing = {str(line.id): line for line in version.lines}
         new_lines: list[QuoteLine] = []
@@ -366,6 +367,8 @@ def update_draft(
                 )
                 db.add(line)
             line.line_no = n
+            before_price, before_discount, before_product = line.unit_price, line.discount_pct, line.product_id
+            before_qty = line.quantity
             if "product_id" in payload:
                 pid = payload["product_id"]
                 if pid is None:
@@ -383,7 +386,8 @@ def update_draft(
                     if not payload.get("description"):
                         line.description = product.description
                     line.unit = product.unit
-                    line.cost_price = product.cost_price
+                    # cost is only meaningful in the quote currency (no cross-currency margins)
+                    line.cost_price = product.cost_price if product.currency == quote.currency else None
                     line.is_custom = False
                     if product.currency == quote.currency and payload.get("unit_price") is None:
                         line.unit_price = product.list_price
@@ -422,13 +426,40 @@ def update_draft(
                 errors.append("description is required")
             if errors:
                 raise ValidationFailed(f"Line {n}: " + "; ".join(errors), line_no=n)
-            # any price/discount edit invalidates a previous margin override
-            if line.margin_override_reason and any(k in payload for k in ("unit_price", "discount_pct", "product_id")):
+            # a real change to price, discount or product invalidates a previous margin override (re-sending the
+            # same values, as the editor does on every save, must not silently drop an audited override)
+            if line.margin_override_reason and (
+                line.unit_price != before_price
+                or line.discount_pct != before_discount
+                or line.product_id != before_product
+            ):
                 line.margin_override_reason = None
                 line.margin_override_by = None
+            if (line.unit_price, line.discount_pct, line.product_id, line.quantity) != (
+                before_price,
+                before_discount,
+                before_product,
+                before_qty,
+            ):
+                line_changes.append(
+                    {
+                        "line_no": n,
+                        "unit_price": [
+                            str(before_price) if before_price is not None else None,
+                            str(line.unit_price) if line.unit_price is not None else None,
+                        ],
+                        "discount_pct": [str(before_discount), str(line.discount_pct)],
+                        "quantity": [str(before_qty), str(line.quantity)],
+                        "product_id": [
+                            str(before_product) if before_product else None,
+                            str(line.product_id) if line.product_id else None,
+                        ],
+                    }
+                )
             new_lines.append(line)
         for line in version.lines:
             if line not in new_lines:
+                line_changes.append({"line_no": line.line_no, "removed": True})
                 db.delete(line)
         db.flush()
         db.expire(version, ["lines"])
@@ -442,7 +473,14 @@ def update_draft(
         entity_type="quote",
         entity_id=quote.id,
         ip=ip,
-        summary={"version_no": version.version_no, "line_count": len(version.lines)},
+        summary={
+            "version_no": version.version_no,
+            "line_count": len(version.lines),
+            "line_changes": line_changes[:50],
+            "header_changes": [
+                k for k, v in (("valid_until", valid_until), ("notes", notes), ("terms", terms)) if v is not unset
+            ],
+        },
     )
     return quote
 
@@ -496,6 +534,8 @@ def approve(
 ) -> Quote:
     if not has_permission(role, Permission.APPROVE_QUOTE):
         raise ForbiddenError("Role may not approve quotes", action="approve_quote")
+    if quote.status == "withdrawn":
+        raise StateError("Quote was withdrawn; create a new version instead")
     version = current_version(quote)
     if version.status != "pending_approval":
         raise StateError(f"Version is '{version.status}', not pending approval")
@@ -552,6 +592,8 @@ def reject(
 ) -> Quote:
     if not has_permission(role, Permission.APPROVE_QUOTE):
         raise ForbiddenError("Role may not reject quotes", action="approve_quote")
+    if quote.status == "withdrawn":
+        raise StateError("Quote was withdrawn; create a new version instead")
     version = current_version(quote)
     if version.status != "pending_approval":
         raise StateError(f"Version is '{version.status}', not pending approval")
@@ -605,6 +647,8 @@ def withdraw(
     _check_lock(db, quote, expected_lock_version)
     version = current_version(quote)
     now = utcnow()
+    if version.status == "pending_approval":
+        version.status = "superseded"  # a withdrawn pending version can never be approved/rejected
     quote.status = "withdrawn"
     quote.withdrawn_reason = reason.strip()[:2000]
     db.add(

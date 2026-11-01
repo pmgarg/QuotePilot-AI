@@ -35,7 +35,7 @@ method, headers (minus hop-by-hop), body and `Set-Cookie` to `API_INTERNAL_URL`.
 1. `RequestIdMiddleware` assigns `X-Request-ID` (uuid4 unless a safe incoming one is present).
 2. `SecurityHeadersMiddleware`: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`,
    `Cache-Control: no-store` on `/api`, `Content-Security-Policy: default-src 'none'` for API responses.
-3. Dependency `current_session`: reads `qp_session` cookie → `sessions` by SHA-256 → expiry/idle check → touches
+3. Dependency `current_session`: reads `qp_session` cookie → sets `app.session_token_hash` (RLS scope) → `sessions` by SHA-256 → expiry/idle check → touches
    `last_seen_at` (at most once per 60 s). `current_membership` loads membership for the session's org and calls
    `set_tenant(db, org_id, user_id)` which executes `SELECT set_config('app.current_org', :o, true), set_config('app.current_user', :u, true)`
    inside the request transaction. All later queries are RLS-scoped.
@@ -66,6 +66,7 @@ the matrix in USER_JOURNEYS.md). Object lookups use `get_or_404(model, id)` whic
 ## RFQ parsing
 - Accept: `text/csv`, `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, `application/pdf`, or JSON
   `{"text": "..."}` (≤ 100 kB). Magic-byte sniffing: `%PDF-` / `PK\x03\x04` + `[Content_Types].xml` / text heuristics.
+- Login sets `app.login_email` before the user lookup and performs a dummy Argon2 verification for unknown accounts (timing equalisation).
 - Sandbox (`sandbox.run_parser(path, kind)`): `subprocess.run([sys.executable, "-I", "-m", "app.services.parsing.worker", kind, path])`,
   `timeout=PARSE_TIMEOUT_SECONDS` (20), child sets `RLIMIT_AS` (768 MB) and `RLIMIT_CPU`, output JSON on stdout
   (≤ 2 MB), stderr discarded from logs except first 500 chars of a generic error class.
@@ -140,6 +141,7 @@ remains. Pricing snapshot (currency, rounding, tax default, min margin, catalog 
 | MAX_CATALOG_ROWS | 50 000 |
 | MAX_RFQ_ROWS / MAX_PDF_PAGES | 2 000 / 50 |
 | PARSE_TIMEOUT_SECONDS | 20 |
+| MAX_CONCURRENT_PARSERS (per API process) | 4 (503-style `busy` failure beyond) |
 | XLSX_MAX_UNCOMPRESSED_BYTES | 60 MiB |
 | LOGIN_RATE_LIMIT | 10 / 5 min per (ip, email) |
 | SESSION_IDLE / ABSOLUTE | 12 h / 7 d |

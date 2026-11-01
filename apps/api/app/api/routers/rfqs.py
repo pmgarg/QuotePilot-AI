@@ -5,7 +5,7 @@ import uuid
 from fastapi import APIRouter, File, Form, Query, Request, UploadFile
 from sqlalchemy import select
 
-from app.api.deps import DB, PrincipalDep, SettingsDep
+from app.api.deps import DB, PrincipalDep, SettingsDep, clean_param
 from app.api.routers.catalogs import read_upload
 from app.core.errors import NotFoundError, UnsupportedMedia, ValidationFailed
 from app.models.catalog import Product
@@ -188,8 +188,10 @@ def list_rfqs(
     q: str | None = Query(default=None, max_length=100),
 ) -> list[RFQSummary]:
     stmt = select(RFQ).where(RFQ.organization_id == principal.org_id)
+    status = clean_param(status)
     if status:
         stmt = stmt.where(RFQ.status == status)
+    q = clean_param(q)
     if q:
         like = f"%{q.replace('%', r'\%').replace('_', r'\_')}%"
         stmt = stmt.where(RFQ.reference.ilike(like, escape="\\"))

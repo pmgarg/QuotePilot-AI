@@ -42,6 +42,14 @@ class Principal:
         require_permission(self.role, permission)
 
 
+def clean_param(value: str | None) -> str | None:
+    """Strip NUL bytes (rejected by PostgreSQL text) and surrounding whitespace from query parameters."""
+    if value is None:
+        return None
+    cleaned = value.replace("\x00", "").strip()
+    return cleaned or None
+
+
 def client_ip(request: Request) -> str | None:
     return request.client.host if request.client else None
 
@@ -84,7 +92,7 @@ def current_principal(
     )
     user = db.get(User, session.user_id)
     organization = db.get(Organization, session.organization_id)
-    if membership is None or user is None or organization is None or not user.is_active:
+    if membership is None or user is None or organization is None or not user.is_active or not membership.is_active:
         raise UnauthorizedError("Session is no longer valid")
     return Principal(
         user=user,

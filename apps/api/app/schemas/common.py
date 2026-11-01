@@ -72,6 +72,7 @@ class OrganizationUpdate(BaseModel):
 class MemberOut(ORMModel):
     id: uuid.UUID
     role: str
+    is_active: bool
     user: UserOut
 
 
@@ -223,7 +224,7 @@ class RFQSummary(ORMModel):
 
 
 class RFQTextIn(BaseModel):
-    text: str = Field(min_length=1, max_length=200_000)
+    text: str = Field(min_length=1, max_length=2_000_000)  # service enforces the configurable 100k limit → 413
     customer_id: uuid.UUID | None = None
     reference: str | None = Field(default=None, max_length=100)
     currency: str | None = Field(default=None, min_length=3, max_length=3)
@@ -232,7 +233,7 @@ class RFQTextIn(BaseModel):
 class RFQItemUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     selected_product_id: uuid.UUID | None = None
-    quantity: Decimal | None = None
+    quantity: Decimal | None = Field(default=None, le=Decimal("10000000"), decimal_places=3)
     unit: str | None = Field(default=None, max_length=32)
     description: str | None = Field(default=None, max_length=1000)
     unit_confirmed: bool | None = None
@@ -243,7 +244,7 @@ class RFQItemUpdate(BaseModel):
 
 class RFQItemCreate(BaseModel):
     description: str = Field(min_length=1, max_length=1000)
-    quantity: Decimal = Field(gt=0)
+    quantity: Decimal = Field(gt=0, le=Decimal("10000000"), decimal_places=3)
     unit: str | None = Field(default=None, max_length=32)
     sku_hint: str | None = Field(default=None, max_length=100)
 
@@ -253,9 +254,9 @@ class QuoteLineIn(BaseModel):
     product_id: uuid.UUID | None = None
     sku: str | None = Field(default=None, max_length=100)
     description: str | None = Field(default=None, max_length=2000)
-    quantity: Decimal | None = Field(default=None, gt=0, le=Decimal("1000000000"))
+    quantity: Decimal | None = Field(default=None, gt=0, le=Decimal("10000000"), decimal_places=3)
     unit: str | None = Field(default=None, max_length=16)
-    unit_price: Decimal | None = Field(default=None, ge=0, le=Decimal("1000000000"))
+    unit_price: Decimal | None = Field(default=None, ge=0, le=Decimal("10000000"), decimal_places=6)
     discount_pct: Decimal | None = Field(default=None, ge=0, le=100)
     tax_rate_pct: Decimal | None = Field(default=None, ge=0, le=100)
     is_custom: bool | None = None

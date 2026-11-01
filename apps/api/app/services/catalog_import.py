@@ -376,7 +376,7 @@ def active_version_for_org(db: Session, organization_id: uuid.UUID) -> CatalogVe
     catalog = db.scalar(
         select(Catalog)
         .where(Catalog.organization_id == organization_id, Catalog.active_version_id.is_not(None))
-        .order_by(Catalog.created_at)
+        .order_by(Catalog.updated_at.desc())  # most recently activated catalog wins when several exist
     )
     if catalog is None or catalog.active_version_id is None:
         return None

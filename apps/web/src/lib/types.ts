@@ -7,7 +7,7 @@ export interface Organization {
   pdf_footer: string | null; allow_self_approval: boolean; min_margin_pct?: string;
 }
 export interface SessionInfo { user: User; organization: Organization; role: Role; csrf_token: string; permissions: string[] }
-export interface Member { id: string; role: Role; user: User }
+export interface Member { id: string; role: Role; is_active: boolean; user: User }
 export interface Customer { id: string; name: string; reference: string | null; email: string | null; default_currency: string | null; notes: string | null; created_at: string }
 export interface CatalogVersion {
   id: string; catalog_id: string; version_no: number; status: string; row_count: number; created_at: string;

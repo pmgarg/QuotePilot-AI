@@ -5,6 +5,17 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { describeError, login } from "@/lib/api";
 import { Alert, Button, Field, inputClass } from "@/components/ui";
 
+// Only same-origin absolute paths are accepted (blocks //evil, /\evil, javascript:, absolute URLs).
+function safeNext(raw: string | null): string {
+  if (!raw || !/^\/[A-Za-z0-9_\-./?=&%]*$/.test(raw) || raw.startsWith("//") || raw.includes("\\")) return "/dashboard";
+  try {
+    const u = new URL(raw, window.location.origin);
+    return u.origin === window.location.origin ? u.pathname + u.search : "/dashboard";
+  } catch {
+    return "/dashboard";
+  }
+}
+
 function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
@@ -19,8 +30,7 @@ function LoginForm() {
     setError(null);
     try {
       await login(email, password);
-      const next = params.get("next");
-      router.replace(next && next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard");
+      router.replace(safeNext(params.get("next")));
     } catch (err) {
       setError(describeError(err));
     } finally {

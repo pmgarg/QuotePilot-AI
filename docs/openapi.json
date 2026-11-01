@@ -633,6 +633,10 @@
             "title": "Id",
             "type": "string"
           },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
           "role": {
             "title": "Role",
             "type": "string"
@@ -644,6 +648,7 @@
         "required": [
           "id",
           "role",
+          "is_active",
           "user"
         ],
         "title": "MemberOut",
@@ -1136,7 +1141,7 @@
             "anyOf": [
               {
                 "exclusiveMinimum": 0.0,
-                "maximum": 1000000000.0,
+                "maximum": 10000000.0,
                 "type": "number"
               },
               {
@@ -1191,7 +1196,7 @@
           "unit_price": {
             "anyOf": [
               {
-                "maximum": 1000000000.0,
+                "maximum": 10000000.0,
                 "minimum": 0.0,
                 "type": "number"
               },
@@ -1820,6 +1825,7 @@
             "anyOf": [
               {
                 "exclusiveMinimum": 0.0,
+                "maximum": 10000000.0,
                 "type": "number"
               },
               {
@@ -2066,6 +2072,7 @@
           "quantity": {
             "anyOf": [
               {
+                "maximum": 10000000.0,
                 "type": "number"
               },
               {

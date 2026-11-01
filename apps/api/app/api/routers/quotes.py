@@ -7,7 +7,7 @@ from fastapi import APIRouter, Query
 from fastapi.responses import Response
 from sqlalchemy import or_, select
 
-from app.api.deps import DB, Principal, PrincipalDep
+from app.api.deps import DB, Principal, PrincipalDep, clean_param
 from app.models.audit import AuditEvent
 from app.models.customer import Customer
 from app.models.quote import Quote
@@ -95,10 +95,12 @@ def list_quotes(
         .outerjoin(Customer, Customer.id == Quote.customer_id)
         .where(Quote.organization_id == principal.org_id)
     )
+    status = clean_param(status)
     if status:
         stmt = stmt.where(Quote.status == status)
     if customer_id:
         stmt = stmt.where(Quote.customer_id == customer_id)
+    q = clean_param(q)
     if q:
         like = f"%{q.replace('%', r'\%').replace('_', r'\_')}%"
         stmt = stmt.where(or_(Quote.number.ilike(like, escape="\\"), Customer.name.ilike(like, escape="\\")))

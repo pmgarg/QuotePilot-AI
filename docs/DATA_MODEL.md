@@ -1,8 +1,12 @@
 # Data Model
 
 All tenant tables: `id UUID PK`, `organization_id UUID NOT NULL FK → organizations`, `created_at`, `updated_at`,
-RLS policy `organization_id = current_setting('app.current_org', true)::uuid` (SELECT/INSERT/UPDATE/DELETE),
-composite index on `(organization_id, <lookup column>)`. Global auth tables (`users`, `sessions`) are not tenant-scoped.
+RLS policy `organization_id = current_setting('app.current_org', true)::uuid` (SELECT/INSERT/UPDATE/DELETE, FORCED),
+composite index on `(organization_id, <lookup column>)`. The global auth tables `users` and `sessions` also carry RLS
+(migration 0002): a user row is visible only as the acting user, the account being logged in (`app.login_email`) or a
+member of the current organisation; a session row only by its presented token hash (`app.session_token_hash`), its own
+user or its organisation. Membership activation (`memberships.is_active`) is per tenant; `users.is_active` is a global
+platform flag never toggled by tenant admins.
 
 ## ERD — Stage 1 (implemented)
 ```mermaid
@@ -28,7 +32,7 @@ erDiagram
 
   organizations { uuid id PK; text name; text legal_name; text address; char3 default_currency; numeric default_tax_rate; text rounding_mode; numeric min_margin_pct; int default_validity_days; bool allow_self_approval; text brand_color; text pdf_footer; int quote_seq; timestamptz created_at }
   users { uuid id PK; citext email UK; text password_hash; text full_name; bool is_active; timestamptz created_at }
-  memberships { uuid id PK; uuid organization_id FK; uuid user_id FK; text role; UK organization_id_user_id }
+  memberships { uuid id PK; uuid organization_id FK; uuid user_id FK; text role; bool is_active; UK organization_id_user_id }
   sessions { uuid id PK; uuid user_id FK; uuid organization_id; text token_hash UK; timestamptz expires_at; timestamptz last_seen_at; text ip; text user_agent }
   customers { uuid id PK; uuid organization_id FK; text name; text reference; text email; char3 default_currency; text notes }
   catalogs { uuid id PK; uuid organization_id FK; text name; uuid active_version_id }

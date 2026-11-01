@@ -79,6 +79,7 @@ class Membership(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         index=True,
     )
     role: Mapped[str] = mapped_column(String(16), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
 
     organization: Mapped[Organization] = relationship(back_populates="memberships")
     user: Mapped[User] = relationship(back_populates="memberships")

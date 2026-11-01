@@ -63,7 +63,7 @@ MEASUREMENT = re.compile(
 )
 _UNIT_WORDS = sorted(UNIT_ALIASES.keys(), key=len, reverse=True)
 _UNIT_RE = "|".join(re.escape(u) for u in _UNIT_WORDS)
-ITEM_PREFIX = r"(?:[-•*·]\s*)?(?:(?:item|line|pos|sl|no|#)\.?\s*\d{1,3}\s*[:.)\-]\s*|\d{1,3}[.)]\s+)?"
+ITEM_PREFIX = r"(?:[-•*·]\s+)?(?:(?:item|line|pos|sl|no|#)\.?\s*\d{1,3}\s*[:.)\-]\s*|\d{1,3}[.)]\s+)?"
 QTY_LEAD = re.compile(
     rf"^\s*{ITEM_PREFIX}(?P<qty>-?\d+(?:[.,]\d+)?)\s*(?:x|×)?\s*(?P<unit>{_UNIT_RE})?\.?\s+(?P<desc>.+?)\s*$",
     re.IGNORECASE,
@@ -250,6 +250,8 @@ def items_from_text_lines(text: str, source: dict[str, Any]) -> list[ParsedItem]
         if item.quantity is not None and item.quantity <= 0:
             item.flags.append("quantity_not_positive")
             item.quantity = None
+        if s[:1] in ("=", "+", "@") or s[:2] in ("\t=", "\r="):
+            item.flags.append("formula_like")
         tokens = [t for t in SKU_TOKEN.findall(item.description) if looks_like_sku(t)]
         if tokens:
             item.sku_hint = tokens[0][:100]

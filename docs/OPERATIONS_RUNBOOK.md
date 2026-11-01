@@ -26,7 +26,8 @@ Redis (Stage 2+), worker container (Stage 2+). Separate `staging` and `productio
 ### Environment variables (see `.env.example`)
 `APP_ENV`, `SECRET_KEY`, `DATABASE_URL` (app role), `DATABASE_ADMIN_URL` (migrations), `STORAGE_BACKEND=local|s3`,
 `STORAGE_DIR`, `S3_*`, `AI_PROVIDER=disabled|anthropic`, `ANTHROPIC_API_KEY` (server only), `CORS_ORIGINS`,
-`COOKIE_SECURE`, limits.
+`COOKIE_SECURE`, limits. Web: `API_INTERNAL_URL`, `WEB_TRUST_FORWARDED_HEADERS` (set `true` only behind your own
+reverse proxy that overwrites `X-Forwarded-For`; the API container runs uvicorn with `--proxy-headers`).
 
 ### Migrations
 `alembic upgrade head` as `DATABASE_ADMIN_URL` before deploying new API images; migrations are additive within a

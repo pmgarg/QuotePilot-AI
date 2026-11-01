@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request, Response
 
-from app.api.deps import DB, PrincipalDep, SettingsDep, client_ip, current_session
+from app.api.deps import DB, PrincipalDep, SettingsDep, client_ip, csrf_protect, current_session
 from app.core.config import Settings
 from app.core.errors import ForbiddenError
 from app.core.security import constant_time_equals, csrf_token_for, generate_token
@@ -96,6 +96,7 @@ def logout(
     db: DB,
     settings: SettingsDep,
     session: UserSession = Depends(current_session),
+    _csrf: None = Depends(csrf_protect),
 ) -> dict[str, str]:
     set_tenant(db, session.organization_id, session.user_id)  # audit row must carry the tenant under RLS
     auth_service.logout(db, session, client_ip(request))
