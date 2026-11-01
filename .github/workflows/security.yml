@@ -26,7 +26,7 @@ jobs:
       - name: bandit (fail on medium+)
         run: cd apps/api && uv run bandit -r app -q -ll
       - name: ruff security rules
-        run: cd apps/api && uv run ruff check app --select S
+        run: cd apps/api && uv run ruff check app  # project config enables flake8-bandit (S*) rules
       - name: npm audit (production deps fail on high)
         run: cd apps/web && npm ci && npm audit --omit=dev --audit-level=high
       - name: semgrep
