@@ -8,7 +8,7 @@ async function csrf(page: import("@playwright/test").Page) {
 
 test.describe("Release review 1 regressions", () => {
   test("SEC-09: post-login redirect never leaves the origin", async ({ page }) => {
-    for (const next of ["/\\evil.com", "//evil.com", "https://evil.com/x", "javascript:alert(1)", "/%5Cevil.com"]) {
+    for (const next of ["/\\evil.com", "//evil.com", "https://evil.com/x", "javascript:alert(1)", "/%5Cevil.com", "/..//evil.com", "/%2e%2e/%2e%2e//evil.com", "/quotes/..//evil.com/x"]) {
       await page.goto(`/login?next=${encodeURIComponent(next)}`);
       await page.getByTestId("login-email").fill(USERS.sales);
       await page.getByTestId("login-password").fill(process.env.DEMO_PASSWORD ?? "E2E-Demo-Password-2026!");

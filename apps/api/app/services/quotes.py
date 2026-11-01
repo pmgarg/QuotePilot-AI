@@ -263,6 +263,17 @@ def build_document_snapshot(db: Session, org: Organization, quote: Quote, versio
     }
 
 
+def _pricing_catalog_version_id(db: Session, org: Organization, version: QuoteVersion) -> uuid.UUID | None:
+    """The catalog version a quote prices from: the one frozen in its pricing snapshot, else the active version."""
+    from app.services.catalog_import import active_version_for_org
+
+    raw = (version.pricing_snapshot or {}).get("catalog_version_id")
+    if raw:
+        return uuid.UUID(str(raw))
+    active = active_version_for_org(db, org.id)
+    return active.id if active else None
+
+
 def _snapshot(org: Organization, currency: str, rfq: RFQ | None) -> dict[str, Any]:
     return {
         "currency": currency,
@@ -421,17 +432,30 @@ def update_draft(
                     product = db.scalar(select(Product).where(Product.id == pid, Product.organization_id == org.id))
                     if product is None:
                         raise NotFoundError("Product not found")
+                    # N2-1 variant B: only products of the pricing catalog version may be linked (no archived or
+                    # merely-imported versions; inactive price lists are never a price authority)
+                    allowed_version = _pricing_catalog_version_id(db, org, version)
+                    if allowed_version is None or product.catalog_version_id != allowed_version:
+                        raise ValidationFailed(
+                            "Product is not in the active catalog version used for this quote", line_no=n
+                        )
                     line.product_id = product.id
                     line.sku = product.sku
                     if not payload.get("description"):
                         line.description = product.description
                     line.unit = product.unit
-                    # cost is only meaningful in the quote currency (no cross-currency margins)
-                    line.cost_price = product.cost_price if product.currency == quote.currency else None
                     line.is_custom = False
-                    if product.currency == quote.currency and payload.get("unit_price") is None:
-                        line.unit_price = product.list_price
-                        line.price_source = "catalog"
+                    if product.currency == quote.currency:
+                        line.cost_price = product.cost_price
+                        if payload.get("unit_price") is None:
+                            line.unit_price = product.list_price
+                            line.price_source = "catalog"
+                    else:
+                        # N2-1 variant A: a product priced in another currency carries no price or cost into the
+                        # quote; the user must enter (and an owner/admin confirm) a manual price
+                        line.cost_price = None
+                        line.unit_price = None
+                        line.price_source = "none"
             if "description" in payload and payload["description"] is not None:
                 line.description = str(payload["description"]).strip()[:2000]
             if "sku" in payload and line.product_id is None:
@@ -697,29 +721,42 @@ def withdraw(
 ) -> Quote:
     if not has_permission(role, Permission.WITHDRAW_QUOTE):
         raise ForbiddenError("Role may not withdraw quotes", action="withdraw_quote")
-    if quote.status not in ("approved", "pending_approval"):
-        raise StateError(f"Only approved or pending quotes can be withdrawn (status '{quote.status}')")
+    approved_versions = [v for v in quote.versions if v.status == "approved"]
+    if quote.status not in ("approved", "pending_approval") and not approved_versions:
+        raise StateError(
+            "Only approved or pending quotes (or quotes with an approved version) can be withdrawn "
+            f"(status '{quote.status}')"
+        )
     if not reason or not reason.strip():
         raise ValidationFailed("A withdrawal reason is required", field="reason")
     _check_lock(db, quote, expected_lock_version)
     version = current_version(quote)
     now = utcnow()
+    reason_text = reason.strip()[:2000]
+    affected: list[QuoteVersion] = []
     if version.status == "pending_approval":
         version.status = "superseded"  # a withdrawn pending version can never be approved/rejected
-    elif version.status == "approved":
-        version.status = "withdrawn"  # the approved document is withdrawn for good (NEW-1): never exportable again
-    quote.status = "withdrawn"
-    quote.withdrawn_reason = reason.strip()[:2000]
-    db.add(
-        ApprovalDecision(
-            organization_id=org.id,
-            quote_version_id=version.id,
-            decision="withdrawn",
-            reason=quote.withdrawn_reason,
-            decided_by=actor_user_id,
-            decided_at=now,
+        affected.append(version)
+    for v in approved_versions:  # N2-2: every approved document is withdrawn, not only the current one
+        v.status = "withdrawn"
+        affected.append(v)
+    if version.status == "draft" and approved_versions:
+        # withdrawing the approved documents while a new draft is being prepared: the draft stays editable
+        quote.withdrawn_reason = reason_text
+    else:
+        quote.status = "withdrawn"
+        quote.withdrawn_reason = reason_text
+    for v in affected or [version]:
+        db.add(
+            ApprovalDecision(
+                organization_id=org.id,
+                quote_version_id=v.id,
+                decision="withdrawn",
+                reason=reason_text,
+                decided_by=actor_user_id,
+                decided_at=now,
+            )
         )
-    )
     db.flush()
     audit.record(
         db,
@@ -729,7 +766,7 @@ def withdraw(
         entity_type="quote",
         entity_id=quote.id,
         ip=ip,
-        summary={"version_no": version.version_no},
+        summary={"version_no": version.version_no, "withdrawn_versions": [v.version_no for v in affected]},
     )
     return quote
 

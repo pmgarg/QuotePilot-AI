@@ -2,7 +2,7 @@
 
 Companion to ``test_audit_followups.py``. Each test names the finding / ASVS 5.0 item it covers
 (see docs/evidence/security-stage1-reverify-2026-11-01.md). Tests that reproduce an OPEN finding are marked
-``xfail(strict=True)`` with the finding id (markers removed once each finding was fixed; they fail hard if a defect
+(markers removed once each finding was fixed; the tests now assert the fixed behaviour and fail hard if a defect
 failure ("XPASS strict") the moment the defect is fixed, so the marker must be removed together with the fix.
 """
 

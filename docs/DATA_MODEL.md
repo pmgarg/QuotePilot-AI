@@ -53,7 +53,8 @@ erDiagram
 ### Key constraints and indexes (Stage 1)
 - `products`: UNIQUE `(catalog_version_id, sku_normalized)`; INDEX `(organization_id, catalog_version_id, sku_normalized)`; GIN trigram on `description` optional (pg_trgm) for search.
 - `quotes`: UNIQUE `(organization_id, number)`; INDEX `(organization_id, status)`, `(organization_id, customer_id)`.
-- `quote_versions`: UNIQUE `(quote_id, version_no)`.
+- `quote_versions`: UNIQUE `(quote_id, version_no)`; `status ∈ draft | pending_approval | approved | rejected | superseded | withdrawn`
+  (`superseded`: a pending version made obsolete by withdrawal; `withdrawn`: an approved document withdrawn for good — never exportable).
 - `rfq_items`: UNIQUE `(rfq_id, line_no)`; `quantity > 0` CHECK when not null.
 - `quote_lines`: CHECK `quantity > 0`, `discount_pct BETWEEN 0 AND 100`, `tax_rate_pct BETWEEN 0 AND 100`.
 - `memberships`: UNIQUE `(organization_id, user_id)`; role CHECK in (owner, admin, sales, approver, readonly).

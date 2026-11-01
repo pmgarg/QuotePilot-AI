@@ -36,6 +36,16 @@ Reviewer decision and findings (recorded by the orchestrator without alteration 
 - Fix round 3 (`implementer-fixes3-stage1-2026-11-01.md`): all R-*/NEW-* items fixed or documented; 293 API tests and
   21 browser tests green locally. Gate remains **INCOMPLETE** until CI is green on the new HEAD and release review 2 passes.
 
+## Review 2 — Stage 1 @60adb00 (2026-11-01) — verdict FAIL / BLOCKED
+Full report: `docs/evidence/release-review-2-stage1-2026-11-01.md`. All review-1 items verified fixed; CI green;
+blocked on N2-1 (editor product re-link pricing bypass) and N2-2 (withdrawal of older approved versions) — both fixed
+in round 4 (`implementer-fixes4-stage1-2026-11-01.md`) pending release review 3.
+
 ## Human actions required
 - Enable branch protection on `main` requiring checks `api`, `web`, `e2e`, `security` and one review (repository settings → Branches).
-- Sign any risk acceptance in this file with name, date and rationale.
+- Sign any risk acceptance in this file with name, date and rationale. Documented Lows awaiting acknowledgement:
+  L-2 (member-create e-mail existence), L-6 (parser has no OS-level isolation), NEW-11/12 (secret heuristic, limiter
+  lockout primitive, parser concurrency wait), SEC-12 (GET renders/audits PDF), SEC-14 (CSP `unsafe-inline`), SEC-21
+  (per-process limiter), L2-3 (blocker reveals cost ratio). None is Critical or High.
+- Decide whether running the Docker Compose topology (never executed in the development container) is required before
+  calling Stage 1 released.

@@ -39,15 +39,16 @@ services:
     build: { context: ../apps/api, dockerfile: Dockerfile }
     env_file: ../.env
     environment:
+      # runtime role only — the owner role (migrations) is never given to the API container (review 2, L2-2)
       DATABASE_URL: postgresql+psycopg://quotepilot_app:${QP_APP_PASSWORD:-quotepilot_app}@postgres:5432/quotepilot
-      DATABASE_ADMIN_URL: postgresql+psycopg://quotepilot_owner:${QP_OWNER_PASSWORD:-quotepilot_owner}@postgres:5432/quotepilot
+      DATABASE_ADMIN_URL: ""
       STORAGE_DIR: /data/storage
       CORS_ORIGINS: http://localhost:3000
     volumes:
       - storage:/data/storage
     depends_on:
       migrate: { condition: service_completed_successfully }
-    # not published: the API is reached only through the web proxy (set API_PUBLISH_PORT to expose it locally)
+    # not published: the API is reached only through the web proxy (add a `ports:` mapping locally if you need it)
     expose: ["8000"]
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8000/api/v1/health')\""]

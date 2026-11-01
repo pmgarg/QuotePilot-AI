@@ -39,7 +39,7 @@ Tenant-miss → 404. Role denial → 403. State/concurrency → 409. Validation 
 | POST | /quotes/{id}/submit | sales+ | `{expected_lock_version}` → pending_approval or 409 blockers |
 | POST | /quotes/{id}/approve | owner, admin, approver | `{expected_lock_version, reason?}`; SoD enforced |
 | POST | /quotes/{id}/reject | owner, admin, approver | `{expected_lock_version, reason}` |
-| POST | /quotes/{id}/withdraw | owner, admin, approver | `{expected_lock_version, reason}` |
+| POST | /quotes/{id}/withdraw | owner, admin, approver | `{expected_lock_version, reason}` — withdraws EVERY approved version (status `withdrawn`, never exportable); allowed while a newer draft is open (the draft stays editable) |
 | POST | /quotes/{id}/versions | sales+ | new draft version from approved |
 | POST | /quotes/{id}/lines/{line_id}/price-override | owner, admin | `{expected_lock_version, reason}` — confirms a manually entered price or accepts a below-floor margin (clears `manual_price_unconfirmed` / `below_min_margin`); `/margin-override` kept as alias |
 | GET | /quotes/{id}/history | any | versions, decisions, audit events |

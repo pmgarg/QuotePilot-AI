@@ -42,5 +42,8 @@
 - H-1 immutability evidence rests on byte-identity of stored PDFs (PDF streams are compressed, so plain-text
   "not in bytes" checks are not meaningful).
 
+- The margin blocker itself reveals *that* a price is below the floor; a Sales user probing discounts can infer the
+  cost/(1 − floor) ratio for a line. Inherent to showing the blocker; accepted as Low.
+
 ## Stage 2–4
 Not implemented; designs and backlogs exist (ROADMAP.md, PRD.md, LLD.md).
