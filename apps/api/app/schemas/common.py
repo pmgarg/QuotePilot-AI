@@ -1,0 +1,386 @@
+from __future__ import annotations
+
+import uuid
+from datetime import date, datetime
+from decimal import Decimal
+from typing import Annotated, Any
+
+from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, SerializeAsAny
+
+
+def _dec(v: Decimal) -> str:
+    """Decimal → plain string without exponent or trailing zeros ("425.000" → "425", "0.850000" → "0.85")."""
+    return format(v.normalize(), "f")
+
+
+Money = Annotated[Decimal, PlainSerializer(_dec, return_type=str, when_used="json")]
+OptMoney = Annotated[
+    Decimal | None, PlainSerializer(lambda v: None if v is None else _dec(v), return_type=str | None, when_used="json")
+]
+
+
+class ORMModel(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ErrorResponse(BaseModel):
+    error: str
+    detail: Any = None
+    request_id: str | None = None
+
+
+class UserOut(ORMModel):
+    id: uuid.UUID
+    email: str
+    full_name: str
+    is_active: bool
+
+
+class OrganizationPublic(ORMModel):
+    id: uuid.UUID
+    name: str
+    legal_name: str | None
+    address: str | None
+    default_currency: str
+    default_tax_rate: Money
+    rounding_mode: str
+    default_validity_days: int
+    brand_color: str
+    pdf_footer: str | None
+    allow_self_approval: bool
+
+
+class OrganizationPrivileged(OrganizationPublic):
+    min_margin_pct: Money
+    updated_at: datetime
+
+
+class OrganizationUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    legal_name: str | None = Field(default=None, max_length=200)
+    address: str | None = Field(default=None, max_length=1000)
+    default_currency: str | None = Field(default=None, min_length=3, max_length=3)
+    default_tax_rate: Decimal | None = Field(default=None, ge=0, le=100)
+    rounding_mode: str | None = Field(default=None, pattern="^(HALF_UP|HALF_EVEN)$")
+    min_margin_pct: Decimal | None = Field(default=None, ge=0, le=100)
+    default_validity_days: int | None = Field(default=None, ge=1, le=365)
+    allow_self_approval: bool | None = None
+    brand_color: str | None = Field(default=None, pattern="^#[0-9a-fA-F]{6}$")
+    pdf_footer: str | None = Field(default=None, max_length=500)
+
+
+class MemberOut(ORMModel):
+    id: uuid.UUID
+    role: str
+    user: UserOut
+
+
+class MemberCreate(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    full_name: str = Field(min_length=1, max_length=200)
+    role: str = Field(pattern="^(owner|admin|sales|approver|readonly)$")
+    password: str = Field(min_length=12, max_length=256)
+
+
+class MemberUpdate(BaseModel):
+    role: str | None = Field(default=None, pattern="^(owner|admin|sales|approver|readonly)$")
+    is_active: bool | None = None
+
+
+class LoginRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=1, max_length=256)
+
+
+class SessionInfo(BaseModel):
+    user: UserOut
+    organization: OrganizationPublic
+    role: str
+    csrf_token: str
+    permissions: list[str]
+
+
+class CustomerIn(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    reference: str | None = Field(default=None, max_length=100)
+    email: str | None = Field(default=None, max_length=320)
+    default_currency: str | None = Field(default=None, min_length=3, max_length=3)
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class CustomerOut(ORMModel):
+    id: uuid.UUID
+    name: str
+    reference: str | None
+    email: str | None
+    default_currency: str | None
+    notes: str | None
+    created_at: datetime
+
+
+class CatalogVersionOut(ORMModel):
+    id: uuid.UUID
+    catalog_id: uuid.UUID
+    version_no: int
+    status: str
+    row_count: int
+    import_report: dict[str, Any]
+    column_mapping: dict[str, Any]
+    created_at: datetime
+
+
+class CatalogOut(ORMModel):
+    id: uuid.UUID
+    name: str
+    active_version_id: uuid.UUID | None
+    versions: list[CatalogVersionOut]
+
+
+class ProductOut(ORMModel):
+    id: uuid.UUID
+    sku: str
+    description: str
+    unit: str
+    currency: str
+    list_price: Money
+    stock_qty: OptMoney
+    valid_from: date | None
+    valid_to: date | None
+    flags: list[str]
+
+
+class ProductPrivileged(ProductOut):
+    cost_price: OptMoney
+
+
+class Page(BaseModel):
+    items: list[Any]
+    total: int
+    page: int
+    page_size: int
+
+
+class CandidateOut(BaseModel):
+    product_id: uuid.UUID
+    sku: str
+    description: str
+    unit: str
+    currency: str
+    list_price: Money
+    category: str
+    score: Money
+    reason: str
+    matched_on: str
+    rank: int
+
+
+class RFQItemOut(ORMModel):
+    id: uuid.UUID
+    line_no: int
+    raw_text: str
+    source_ref: dict[str, Any]
+    sku_hint: str | None
+    description: str
+    quantity: OptMoney
+    unit_raw: str | None
+    unit_normalized: str | None
+    match_status: str
+    selected_product_id: uuid.UUID | None
+    unit_mismatch: bool
+    unit_confirmed: bool
+    is_duplicate: bool
+    duplicate_confirmed: bool
+    is_custom: bool
+    flags: list[str]
+    notes: str | None
+    candidates: list[CandidateOut] = []
+
+
+class RFQOut(ORMModel):
+    id: uuid.UUID
+    customer_id: uuid.UUID | None
+    reference: str | None
+    source_kind: str
+    source_file_id: uuid.UUID | None
+    status: str
+    failure_reason: str | None
+    currency: str
+    catalog_version_id: uuid.UUID | None
+    parse_meta: dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+    items: list[RFQItemOut] = []
+
+
+class RFQSummary(ORMModel):
+    id: uuid.UUID
+    customer_id: uuid.UUID | None
+    reference: str | None
+    source_kind: str
+    status: str
+    currency: str
+    created_at: datetime
+
+
+class RFQTextIn(BaseModel):
+    text: str = Field(min_length=1, max_length=200_000)
+    customer_id: uuid.UUID | None = None
+    reference: str | None = Field(default=None, max_length=100)
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
+
+
+class RFQItemUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    selected_product_id: uuid.UUID | None = None
+    quantity: Decimal | None = None
+    unit: str | None = Field(default=None, max_length=32)
+    description: str | None = Field(default=None, max_length=1000)
+    unit_confirmed: bool | None = None
+    duplicate_confirmed: bool | None = None
+    is_custom: bool | None = None
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class RFQItemCreate(BaseModel):
+    description: str = Field(min_length=1, max_length=1000)
+    quantity: Decimal = Field(gt=0)
+    unit: str | None = Field(default=None, max_length=32)
+    sku_hint: str | None = Field(default=None, max_length=100)
+
+
+class QuoteLineIn(BaseModel):
+    id: uuid.UUID | None = None
+    product_id: uuid.UUID | None = None
+    sku: str | None = Field(default=None, max_length=100)
+    description: str | None = Field(default=None, max_length=2000)
+    quantity: Decimal | None = Field(default=None, gt=0, le=Decimal("1000000000"))
+    unit: str | None = Field(default=None, max_length=16)
+    unit_price: Decimal | None = Field(default=None, ge=0, le=Decimal("1000000000"))
+    discount_pct: Decimal | None = Field(default=None, ge=0, le=100)
+    tax_rate_pct: Decimal | None = Field(default=None, ge=0, le=100)
+    is_custom: bool | None = None
+
+
+class QuoteCreate(BaseModel):
+    customer_id: uuid.UUID | None = None
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
+
+
+class QuoteUpdate(BaseModel):
+    expected_lock_version: int = Field(ge=0)
+    valid_until: date | None = None
+    notes: str | None = Field(default=None, max_length=4000)
+    terms: str | None = Field(default=None, max_length=4000)
+    lines: list[QuoteLineIn] | None = Field(default=None, max_length=500)
+
+
+class LockedAction(BaseModel):
+    expected_lock_version: int = Field(ge=0)
+    reason: str | None = Field(default=None, max_length=2000)
+
+
+class QuoteLineOut(ORMModel):
+    id: uuid.UUID
+    line_no: int
+    product_id: uuid.UUID | None
+    rfq_item_id: uuid.UUID | None
+    sku: str | None
+    description: str
+    quantity: Money
+    unit: str
+    unit_price: OptMoney
+    price_source: str
+    discount_pct: Money
+    tax_rate_pct: Money
+    line_subtotal: Money
+    discount_amount: Money
+    tax_amount: Money
+    line_total: Money
+    is_custom: bool
+    unit_mismatch_confirmed: bool
+    margin_override_reason: str | None
+
+
+class QuoteLinePrivileged(QuoteLineOut):
+    cost_price: OptMoney
+    margin_pct: OptMoney = None
+
+
+class DecisionOut(ORMModel):
+    id: uuid.UUID
+    decision: str
+    reason: str | None
+    decided_by: uuid.UUID | None
+    decided_at: datetime
+
+
+class QuoteVersionOut(ORMModel):
+    id: uuid.UUID
+    version_no: int
+    status: str
+    notes: str | None
+    terms: str | None
+    subtotal: Money
+    discount_total: Money
+    tax_total: Money
+    grand_total: Money
+    pricing_snapshot: dict[str, Any]
+    submitted_by: uuid.UUID | None
+    submitted_at: datetime | None
+    approved_by: uuid.UUID | None
+    approved_at: datetime | None
+    pdf_sha256: str | None
+    created_at: datetime
+    lines: list[SerializeAsAny[QuoteLineOut]] = []
+    decisions: list[DecisionOut] = []
+
+
+class QuoteOut(ORMModel):
+    id: uuid.UUID
+    number: str
+    customer_id: uuid.UUID | None
+    rfq_id: uuid.UUID | None
+    currency: str
+    status: str
+    effective_status: str
+    current_version_no: int
+    lock_version: int
+    valid_until: date | None
+    withdrawn_reason: str | None
+    created_by: uuid.UUID | None
+    created_at: datetime
+    updated_at: datetime
+    current_version: QuoteVersionOut
+    blockers: list[dict[str, Any]] = []
+    versions: list[QuoteVersionOut] = []
+
+
+class QuoteSummary(ORMModel):
+    id: uuid.UUID
+    number: str
+    customer_id: uuid.UUID | None
+    customer_name: str | None = None
+    currency: str
+    status: str
+    effective_status: str
+    current_version_no: int
+    grand_total: Money
+    valid_until: date | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class AuditOut(ORMModel):
+    id: int
+    actor_user_id: uuid.UUID | None
+    action: str
+    entity_type: str | None
+    entity_id: uuid.UUID | None
+    request_id: str | None
+    summary: dict[str, Any]
+    created_at: datetime
+
+
+class HistoryOut(BaseModel):
+    versions: list[QuoteVersionOut]
+    audit: list[AuditOut]
