@@ -45,7 +45,6 @@
 - The margin blocker itself reveals *that* a price is below the floor; a Sales user probing discounts can infer the
   cost/(1 − floor) ratio for a line. Inherent to showing the blocker; accepted as Low.
 
-## Stage 2–4
 ## Stage 2 (implemented on `claude/stage2-followup-assistant`, gate pending)
 - Providers: the simulator (default) and SMTP are implemented; Gmail and Microsoft Graph adapters are designed and
   the OAuth setup is documented, but intentionally not shipped untested (the API rejects connecting them).
