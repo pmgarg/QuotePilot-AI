@@ -119,6 +119,7 @@ class CustomerOut(ORMModel):
     default_currency: str | None
     notes: str | None
     created_at: datetime
+    deleted_at: datetime | None = None
 
 
 class CatalogVersionOut(ORMModel):
@@ -580,3 +581,214 @@ class IntegrationCreate(BaseModel):
     provider: str = Field(pattern="^(simulator|smtp|gmail|msgraph)$")
     account_email: str | None = Field(default=None, max_length=320)
     secret: str | None = Field(default=None, max_length=4000)  # encrypted at rest; never returned
+
+
+# ---------------------------------------------------------------- Stage 3
+class OrderLineOut(ORMModel):
+    id: uuid.UUID
+    line_no: int
+    product_id: uuid.UUID | None
+    sku: str | None
+    description: str
+    quantity: Money
+    unit: str
+    unit_price: Money
+    tax_rate_pct: Money
+    line_total: Money
+
+
+class OrderLinePrivileged(OrderLineOut):
+    cost_price: OptMoney
+
+
+class OrderEventOut(ORMModel):
+    id: uuid.UUID
+    kind: str
+    detail: str | None
+    actor_user_id: uuid.UUID | None
+    source: str
+    occurred_at: datetime
+
+
+class OrderOut(ORMModel):
+    id: uuid.UUID
+    number: str
+    customer_id: uuid.UUID | None
+    quote_id: uuid.UUID | None
+    quote_version_no: int | None
+    currency: str
+    status: str
+    source: str
+    external_ref: str | None
+    subtotal: Money
+    tax_total: Money
+    grand_total: Money
+    confirmed_at: datetime | None
+    confirmed_by: uuid.UUID | None
+    created_by: uuid.UUID | None
+    notes: str | None
+    created_at: datetime
+    lines: SerializeAsAny[list[OrderLineOut]] = []
+    events: list[OrderEventOut] = []
+
+
+class OrderSummary(ORMModel):
+    id: uuid.UUID
+    number: str
+    customer_id: uuid.UUID | None
+    quote_id: uuid.UUID | None
+    currency: str
+    status: str
+    source: str
+    grand_total: Money
+    created_at: datetime
+    confirmed_at: datetime | None
+
+
+class OrderFromQuoteIn(BaseModel):
+    version_no: int | None = Field(default=None, ge=1)
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class OrderTransitionIn(BaseModel):
+    reason: str | None = Field(default=None, max_length=2000)
+
+
+class ProposalOut(ORMModel):
+    id: uuid.UUID
+    customer_id: uuid.UUID
+    kind: str
+    status: str
+    lines: list[dict[str, Any]]
+    evidence: list[str]
+    currency: str
+    decided_by: uuid.UUID | None
+    decided_at: datetime | None
+    decision_reason: str | None
+    order_id: uuid.UUID | None
+    created_at: datetime
+
+
+class DecisionIn(BaseModel):
+    reason: str | None = Field(default=None, max_length=2000)
+
+
+class FxRateIn(BaseModel):
+    base_currency: str = Field(min_length=3, max_length=3)
+    quote_currency: str = Field(min_length=3, max_length=3)
+    rate: Decimal = Field(gt=0, le=Decimal("1000000"))
+    as_of: date
+    source: str = Field(default="manual", max_length=64)
+
+
+class FxRateOut(ORMModel):
+    id: uuid.UUID
+    base_currency: str
+    quote_currency: str
+    rate: Money
+    as_of: date
+    source: str
+    created_at: datetime
+
+
+class ConnectorIn(BaseModel):
+    kind: str = Field(min_length=1, max_length=32)
+    name: str = Field(min_length=1, max_length=200)
+    scopes: list[str] = Field(min_length=1, max_length=8)
+
+
+class ConnectorOut(ORMModel):
+    id: uuid.UUID
+    kind: str
+    name: str
+    scopes: list[str]
+    status: str
+    last_sync_at: datetime | None
+    last_error: str | None
+    created_at: datetime
+
+
+class SyncIn(BaseModel):
+    entity: str = Field(min_length=1, max_length=32)
+    idempotency_key: str = Field(min_length=1, max_length=160)
+    records: list[dict[str, Any]] = Field(max_length=5000)
+
+
+class SyncRunOut(ORMModel):
+    id: uuid.UUID
+    connection_id: uuid.UUID | None
+    kind: str
+    idempotency_key: str
+    entity: str
+    status: str
+    received: int
+    applied: int
+    conflicts: int
+    rejected: int
+    report: dict[str, Any]
+    created_at: datetime
+    finished_at: datetime | None
+
+
+class ConflictOut(ORMModel):
+    id: uuid.UUID
+    sync_run_id: uuid.UUID
+    entity: str
+    entity_key: str
+    local_value: dict[str, Any]
+    remote_value: dict[str, Any]
+    fields: list[str]
+    status: str
+    resolved_by: uuid.UUID | None
+    resolved_at: datetime | None
+    resolution_note: str | None
+    created_at: datetime
+
+
+class ConflictResolveIn(BaseModel):
+    resolution: str = Field(pattern="^(keep_local|apply_remote|dismiss)$")
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class StockOut(BaseModel):
+    product_id: uuid.UUID
+    sku: str
+    status: str
+    quantity: str | None
+    observed_at: datetime | None
+    source: str | None
+    age_hours: float | None
+
+
+class DeletionRequestIn(BaseModel):
+    customer_id: uuid.UUID
+    reason: str = Field(min_length=3, max_length=2000)
+
+
+class DeletionRequestOut(ORMModel):
+    id: uuid.UUID
+    subject_type: str
+    subject_id: uuid.UUID
+    reason: str
+    status: str
+    requested_by: uuid.UUID | None
+    decided_by: uuid.UUID | None
+    decided_at: datetime | None
+    purge_after: datetime | None
+    executed_at: datetime | None
+    summary: dict[str, Any]
+    legal_hold: bool
+    created_at: datetime
+
+
+class LegalHoldIn(BaseModel):
+    hold: bool
+
+
+class CustomerProfileOut(BaseModel):
+    customer: CustomerOut
+    contacts: list[ContactOut]
+    quotes: list[QuoteSummary]
+    orders: list[OrderSummary]
+    open_proposals: int
+    stats: dict[str, Any]

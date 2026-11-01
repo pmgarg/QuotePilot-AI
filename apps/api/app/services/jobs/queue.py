@@ -85,7 +85,17 @@ def _handle_sync_inbound(db: Session, org: Organization, payload: dict[str, Any]
     sync_inbound(db, org=org)
 
 
+def _handle_purge(db: Session, org: Organization, payload: dict[str, Any]) -> None:
+    from app.services.intelligence import retention
+
+    req = retention.get_request(db, org.id, uuid.UUID(payload["request_id"]))
+    if req.status == "executed":
+        return
+    retention.purge(db, org, req)
+
+
 HANDLERS: dict[str, Handler] = {
+    "purge_customer": _handle_purge,
     "send_draft": _handle_send_draft,
     "schedule_followup": _handle_schedule,
     "sync_inbound": _handle_sync_inbound,

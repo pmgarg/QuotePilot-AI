@@ -27,6 +27,12 @@ class Permission(StrEnum):
     EXPORT = "export"
     VIEW_COSTS = "view_costs"
     VIEW = "view"
+    # Stage 3
+    APPROVE_ORDER = "approve_order"  # confirm/cancel orders, decide repeat-order proposals
+    MANAGE_CONNECTORS = "manage_connectors"  # connectors, sync, conflict resolution, FX table
+    IMPORT_DATA = "import_data"  # CSV imports (customers/orders)
+    EXPORT_DATA = "export_data"  # bulk CSV exports of customer/order/product data (PII + commercial data)
+    MANAGE_RETENTION = "manage_retention"  # approve/reject deletion requests
 
 
 _MATRIX: dict[Permission, frozenset[Role]] = {
@@ -41,6 +47,11 @@ _MATRIX: dict[Permission, frozenset[Role]] = {
     Permission.EXPORT: frozenset(Role),
     Permission.VIEW_COSTS: frozenset({Role.OWNER, Role.ADMIN, Role.APPROVER}),
     Permission.VIEW: frozenset(Role),
+    Permission.APPROVE_ORDER: frozenset({Role.OWNER, Role.ADMIN, Role.APPROVER}),
+    Permission.MANAGE_CONNECTORS: frozenset({Role.OWNER, Role.ADMIN}),
+    Permission.IMPORT_DATA: frozenset({Role.OWNER, Role.ADMIN}),
+    Permission.EXPORT_DATA: frozenset({Role.OWNER, Role.ADMIN, Role.APPROVER}),
+    Permission.MANAGE_RETENTION: frozenset({Role.OWNER, Role.ADMIN}),
 }
 
 

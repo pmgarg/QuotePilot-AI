@@ -44,6 +44,7 @@ class Organization(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     brand_color: Mapped[str] = mapped_column(String(7), nullable=False, default="#1f4e79")
     pdf_footer: Mapped[str | None] = mapped_column(Text)
     quote_seq: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    order_seq: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     ai_processing_consented_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     ai_processing_consented_by: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True))
 
