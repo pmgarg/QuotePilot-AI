@@ -56,6 +56,19 @@ services:
       timeout: 3s
       retries: 10
 
+  worker:
+    build: { context: ../apps/api, dockerfile: Dockerfile }
+    command: ["python", "-m", "app.workers.runner", "--interval", "30"]
+    env_file: ../.env
+    environment:
+      DATABASE_URL: postgresql+psycopg://quotepilot_app:${QP_APP_PASSWORD:-quotepilot_app}@postgres:5432/quotepilot
+      DATABASE_ADMIN_URL: postgresql+psycopg://quotepilot_owner:${QP_OWNER_PASSWORD:-quotepilot_owner}@postgres:5432/quotepilot
+      STORAGE_DIR: /data/storage
+    volumes:
+      - storage:/data/storage
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
   web:
     build:
       context: ../apps/web

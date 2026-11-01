@@ -70,8 +70,10 @@ export function FollowUpPanel({ quote, onQuoteChanged }: { quote: Quote; onQuote
         <p className="font-semibold">Recommendation: {rec.action.replace(/_/g, " ")} <span className="text-xs font-normal text-slate-500">({rec.priority})</span></p>
         <ul className="mt-1 list-disc pl-5 text-slate-700">{rec.reasons.map((r, i) => <li key={i}>{r}</li>)}</ul>
         {rec.blocked_by.length > 0 && <p className="mt-1 text-amber-800">Blocked: {rec.blocked_by.join("; ")}</p>}
-        {can("edit_quotes") && rec.action === "send_follow_up" && eligible.length > 0 && (
-          <Button className="mt-2" variant="secondary" disabled={busy} testId="create-draft" onClick={() => void run(() => api(`/quotes/${quote.id}/drafts`, { method: "POST", json: { contact_id: rec.suggested_contact_id ?? eligible[0].id, template_key: rec.template_key } }), "Draft prepared. Review it below, then send explicitly.")}>Prepare draft</Button>
+        {can("edit_quotes") && ["sent", "acknowledged", "awaiting_customer"].includes(lc.status) && eligible.length > 0 && (
+          <Button className="mt-2" variant="secondary" disabled={busy} testId="create-draft" onClick={() => void run(() => api(`/quotes/${quote.id}/drafts`, { method: "POST", json: { contact_id: rec.suggested_contact_id ?? eligible[0].id, template_key: rec.template_key } }), "Draft prepared. Review it below, then send explicitly.")}>
+            {rec.action === "send_follow_up" ? "Prepare recommended draft" : "Prepare a draft anyway"}
+          </Button>
         )}
         {eligible.length === 0 && <p className="mt-1 text-xs text-slate-600">No eligible contact (add a contact with an e-mail address on the customer, or the contact opted out).</p>}
       </div>

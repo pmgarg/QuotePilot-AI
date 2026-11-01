@@ -61,7 +61,15 @@ erDiagram
 - `sessions`: INDEX `(token_hash)`, `(expires_at)`.
 - `audit_events`: INDEX `(organization_id, created_at DESC)`, `(organization_id, entity_type, entity_id)`.
 
-## Designed for later stages (not created in Stage 1 migrations)
+## Stage 2 tables (migration 0005, all RLS-forced; `follow_up_schedules`/`job_runs` also readable under the worker scope)
+`contacts`, `follow_up_policies` (one per org; automation consent fields), `message_templates`, `quote_status_events`
+(recorded lifecycle facts with source/evidence), `follow_up_schedules` (idempotency key per quote+attempt; statuses
+pending/drafted/sent/cancelled/suppressed/superseded), `communication_drafts` (send idempotency key, provider message id),
+`communication_events` (sent/reply_received/opt_out; bounded snippets, never full bodies), `integration_connections`
+(AES-GCM envelope-encrypted secret, non-secret config, cursor), `job_runs` (queue: idempotency key, attempts, backoff,
+dead letters). Column-level grants from migration 0004 are preserved (0005 grants only on the new tables).
+
+## Designed for later stages (not created yet)
 | Stage | Table | Purpose / key columns |
 |---|---|---|
 | 2 | contacts | per customer: name, email, phone, preferences (channel, language, time zone), opted_out_at, opt_out_source |

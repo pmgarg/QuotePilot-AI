@@ -46,4 +46,13 @@
   cost/(1 − floor) ratio for a line. Inherent to showing the blocker; accepted as Low.
 
 ## Stage 2–4
+## Stage 2 (implemented on `claude/stage2-followup-assistant`, gate pending)
+- Providers: the simulator (default) and SMTP are implemented; Gmail and Microsoft Graph adapters are designed and
+  the OAuth setup is documented, but intentionally not shipped untested (the API rejects connecting them).
+- Inbound synchronisation exists for the simulator only; SMTP is outbound-only (IMAP/Graph inbound is a follow-up).
+- Quiet hours / weekend skipping use the organisation policy time zone, not each contact's time zone.
+- The background worker is a single process; the `app.worker` RLS scope is a trusted-code boundary (see ADR-012).
+- Draft bodies are plain text; HTML templates and attachments (e.g. the quote PDF) are not sent yet.
+
+## Stage 3–4
 Not implemented; designs and backlogs exist (ROADMAP.md, PRD.md, LLD.md).

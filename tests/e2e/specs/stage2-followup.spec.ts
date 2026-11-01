@@ -26,10 +26,11 @@ test.describe("Stage 2 — follow-up assistant", () => {
     // contact for the customer
     await page.goto("/customers");
     await page.getByRole("button", { name: "Contacts" }).first().click();
+    const email = `buyer-${Date.now()}@customer.example`;
     await page.getByTestId("contact-name").fill("Buyer Person");
-    await page.getByTestId("contact-email").fill(`buyer-${Date.now()}@customer.example`);
+    await page.getByTestId("contact-email").fill(email);
     await page.getByTestId("contact-create").click();
-    await expect(page.getByTestId("contact-row")).toHaveCount(1);
+    await expect(page.getByTestId("contact-row").filter({ hasText: email })).toHaveCount(1);
     expect(customerId).toBeTruthy();
 
     await page.goto(`/quotes/${quote.id}`);
@@ -46,12 +47,12 @@ test.describe("Stage 2 — follow-up assistant", () => {
     const draft = page.getByTestId("draft-draft");
     await expect(draft).toContainText(quote.number);
     // not sent yet: no outbound event in the timeline
-    await expect(page.getByTestId("timeline")).not.toContainText("sent");
+    await expect(page.getByTestId("timeline")).not.toContainText("[comm_out");
     page.once("dialog", (d) => d.accept());
     await page.getByTestId("send-draft").click();
     await expect(page.getByTestId("fu-notice")).toContainText("sent and recorded");
     await expect(page.getByTestId("draft-sent")).toBeVisible();
-    await expect(page.getByTestId("timeline")).toContainText("sent");
+    await expect(page.getByTestId("timeline")).toContainText("[comm_out");
     // sending again is impossible from the UI (button gone) and the event count stays 1
     await expect(page.getByTestId("send-draft")).toHaveCount(0);
     const events = await (await page.request.get(`/api/v1/communication-events?quote_id=${quote.id}`)).json();

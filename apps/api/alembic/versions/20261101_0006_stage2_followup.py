@@ -10,8 +10,8 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
-revision = '0004'
-down_revision = '0003'
+revision = '0006'
+down_revision = '0005'
 branch_labels = None
 depends_on = None
 
@@ -243,11 +243,11 @@ def upgrade() -> None:
                 "organization_id = NULLIF(current_setting('app.current_org', true), '')::uuid) "
                 "WITH CHECK (organization_id = NULLIF(current_setting('app.current_org', true), '')::uuid)"
             )
+    # grants only for the NEW tables: a blanket ALL TABLES grant would undo the column-level grants of 0004
+    tables_sql = ", ".join(STAGE2_TENANT_TABLES)
     op.execute(
         "DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'quotepilot_app') THEN "
-        "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO quotepilot_app; "
-        "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO quotepilot_app; "
-        "REVOKE UPDATE, DELETE ON audit_events FROM quotepilot_app; "
+        f"GRANT SELECT, INSERT, UPDATE, DELETE ON {tables_sql} TO quotepilot_app; "
         "END IF; END $$;"
     )
 

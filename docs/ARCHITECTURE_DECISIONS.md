@@ -73,9 +73,16 @@ Format: Context → Options → Decision → Consequences → Security impact �
   first-party; no secrets in the bundle; Cache Components disabled (all data is per-tenant dynamic).
 - Consequences: simple mental model; SSR of tenant data avoided in Stage 1. Revisit when: SEO or SSR needed (never for app pages).
 
-## ADR-012 Background jobs (Stage 2): Redis + lightweight runner with DB-backed idempotency
-- Decision: RQ-style runner (plain Redis lists + DB `workflow_runs/steps` tables for state) rather than Celery, with
-  idempotency keys stored in PostgreSQL unique index; capped exponential backoff; dead-letter table and UI.
+## ADR-012 Background jobs (Stage 2): PostgreSQL-backed queue (amended at implementation)
+- Context: the master prompt asks for a Redis-backed worker *only when needed*. Stage 2 volumes (hundreds of
+  follow-ups per day per tenant) do not need a broker.
+- Decision (amended): `job_runs` table as the queue — `UPDATE … WHERE id = (SELECT … FOR UPDATE SKIP LOCKED)` claims,
+  UNIQUE `(organization_id, idempotency_key)`, capped exponential backoff (30 s·2ⁿ, max 1 h, 5 attempts), `dead` status
+  with an admin retry endpoint, and a worker process (`python -m app.workers.runner`). The scheduler tick and the
+  claim run under a transaction-local `app.worker` RLS scope limited to `follow_up_schedules` and `job_runs`; every
+  job body re-binds the owning tenant. Redis remains the documented upgrade path when throughput or multi-node
+  fairness requires it (compose keeps the `stage2` profile service for that reason).
+- Consequences: one fewer moving part, exactly-once semantics come from the database; horizontal workers are safe.
 
 ## ADR-013 Stage 4 policy engine: tool access from backend entitlements, never from prompts
 - Decision: tool registry with declared scopes; `allowed_tools(user, org, plan)` computed server-side; every tool call
