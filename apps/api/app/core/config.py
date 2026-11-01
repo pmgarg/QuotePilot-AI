@@ -72,9 +72,14 @@ class Settings(BaseSettings):
         return self.app_env not in ("development", "test")
 
 
+_WEAK_SECRET_MARKERS = ("dev-only", "change-me", "changeme", "secret-key-test", "e2e-only", "ci-only")
+
+
 @lru_cache
 def get_settings() -> Settings:
     settings = Settings()
-    if settings.is_production and settings.secret_key.startswith("dev-only"):
-        raise RuntimeError("SECRET_KEY must be set in production")
+    if settings.app_env in ("staging", "production"):
+        weak = any(m in settings.secret_key.lower() for m in _WEAK_SECRET_MARKERS) or len(set(settings.secret_key)) < 12
+        if weak:
+            raise RuntimeError("SECRET_KEY is a placeholder or low-entropy value; set a random 64-character secret")
     return settings

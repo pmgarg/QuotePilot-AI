@@ -85,6 +85,8 @@ class QuoteVersion(UUIDPrimaryKeyMixin, TenantMixin, TimestampMixin, Base):
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     pdf_storage_key: Mapped[str | None] = mapped_column(String(400))
     pdf_sha256: Mapped[str | None] = mapped_column(String(64))
+    # frozen at approval: validity, customer and organisation header fields the approved document was rendered with
+    document_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
     quote: Mapped[Quote] = relationship(back_populates="versions")
     lines: Mapped[list[QuoteLine]] = relationship(

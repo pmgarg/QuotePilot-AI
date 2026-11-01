@@ -696,6 +696,18 @@
             ],
             "title": "Address"
           },
+          "ai_processing_consented_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Processing Consented At"
+          },
           "allow_self_approval": {
             "title": "Allow Self Approval",
             "type": "boolean"
@@ -877,6 +889,17 @@
               }
             ],
             "title": "Address"
+          },
+          "ai_processing_consent": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Processing Consent"
           },
           "allow_self_approval": {
             "anyOf": [
@@ -3497,9 +3520,9 @@
         ]
       }
     },
-    "/api/v1/quotes/{quote_id}/lines/{line_id}/margin-override": {
+    "/api/v1/quotes/{quote_id}/lines/{line_id}/price-override": {
       "post": {
-        "operationId": "margin_override_api_v1_quotes__quote_id__lines__line_id__margin_override_post",
+        "operationId": "margin_override_api_v1_quotes__quote_id__lines__line_id__price_override_post",
         "parameters": [
           {
             "in": "path",

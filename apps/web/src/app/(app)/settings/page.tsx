@@ -39,7 +39,10 @@ function OrgSettings() {
       pdf_footer: fd.get("pdf_footer") || null,
     };
     if (org.min_margin_pct !== undefined) payload.min_margin_pct = fd.get("min_margin_pct");
-    if (session?.role === "owner") payload.allow_self_approval = fd.get("allow_self_approval") === "on";
+    if (session?.role === "owner") {
+      payload.allow_self_approval = fd.get("allow_self_approval") === "on";
+      payload.ai_processing_consent = fd.get("ai_processing_consent") === "on";
+    }
     try {
       const updated = await api<Organization>("/org", { method: "PATCH", json: payload });
       setOrg(updated);
@@ -78,6 +81,13 @@ function OrgSettings() {
         <div className="flex items-center gap-2 sm:col-span-2">
           <input id="allow_self_approval" name="allow_self_approval" type="checkbox" defaultChecked={org.allow_self_approval} disabled={session?.role !== "owner"} />
           <label htmlFor="allow_self_approval" className="text-sm text-slate-800">Allow a user to approve a quote they submitted (owner-only setting; audited)</label>
+        </div>
+        <div className="flex items-start gap-2 sm:col-span-2">
+          <input id="ai_processing_consent" name="ai_processing_consent" type="checkbox" defaultChecked={!!org.ai_processing_consented_at} disabled={session?.role !== "owner"} className="mt-1" />
+          <label htmlFor="ai_processing_consent" className="text-sm text-slate-800">
+            Allow optional hosted AI processing of RFQ text (owner-only consent record; off by default). Nothing is sent to any model provider unless the operator has also configured a provider, and AI output is only ever a proposal — never a price, approval or action.
+            {org.ai_processing_consented_at && <span className="block text-xs text-slate-500">Consented on {new Date(org.ai_processing_consented_at).toLocaleString()}</span>}
+          </label>
         </div>
         {error && <div className="sm:col-span-2"><Alert kind="error">{error}</Alert></div>}
         {saved && <div className="sm:col-span-2"><Alert kind="success" testId="org-saved">Settings saved.</Alert></div>}

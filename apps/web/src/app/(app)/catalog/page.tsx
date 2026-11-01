@@ -106,7 +106,7 @@ function ProductSearch({ versionId, showCost }: { versionId: string; showCost: b
                   <td className="font-mono text-xs">{p.sku}</td><td>{p.description}</td><td>{p.unit}</td>
                   <td className="text-right">{money(p.list_price, p.currency)} {p.currency}</td>
                   {showCost && <td className="text-right">{p.cost_price ? money(p.cost_price, p.currency) : "—"}</td>}
-                  <td>{p.stock_qty ?? <span className="text-slate-400">unknown</span>}</td>
+                  <td>{p.stock_qty ?? <span className="italic text-slate-600">unknown</span>}</td>
                   <td>{p.flags.map((f) => <Badge key={f} value={f} />)}</td>
                 </tr>
               ))}

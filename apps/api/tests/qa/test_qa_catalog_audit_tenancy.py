@@ -99,7 +99,13 @@ def test_import_report_rejects_invalid_rows_with_row_numbers(app) -> None:  # ty
 def test_import_with_no_valid_rows_is_rejected_and_nothing_stored(app) -> None:  # type: ignore[no-untyped-def]
     t = make_tenant("Empty Co", with_catalog=False)
     admin = login_as(app, t.users["admin"])
-    r = upload(admin, "/catalogs/import", "c.csv", b"SKU,Description,Unit,Currency,List Price\nA,B,EA,AED,-1\n", {"mapping": MAPPING})
+    r = upload(
+        admin,
+        "/catalogs/import",
+        "c.csv",
+        b"SKU,Description,Unit,Currency,List Price\nA,B,EA,AED,-1\n",
+        {"mapping": MAPPING},
+    )
     assert r.status_code == 422
     assert admin.get("/catalogs").json() == [] or all(not c["versions"] for c in admin.get("/catalogs").json())
 
@@ -111,7 +117,9 @@ def test_activation_requires_admin_and_is_tenant_scoped(app, tenant_a: Tenant, t
     b_owner = login_as(app, tenant_b.users["owner"])
     assert b_owner.post(f"/catalogs/versions/{tenant_a.catalog_version_id}/activate").status_code == 404
     assert b_owner.get(f"/catalogs/versions/{tenant_a.catalog_version_id}/products").status_code == 404
-    assert [c["id"] for c in b_owner.get("/catalogs").json()] != [c["id"] for c in login_as(app, tenant_a.users["owner"]).get("/catalogs").json()]
+    assert [c["id"] for c in b_owner.get("/catalogs").json()] != [
+        c["id"] for c in login_as(app, tenant_a.users["owner"]).get("/catalogs").json()
+    ]
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -204,13 +212,23 @@ def test_every_mutation_writes_an_audit_row(app) -> None:  # type: ignore[no-unt
     unknown = next(i for i in rfq["items"] if "SKU-9999" in i["raw_text"])
     assert sales.patch(f"/rfqs/{rfq['id']}/items/{rfq['items'][0]['id']}", json={"quantity": "11"}).status_code == 200
     expected["rfq.item_update"] = sales.user_id
-    assert sales.post(f"/rfqs/{rfq['id']}/items", json={"description": "Nut", "quantity": "2", "sku_hint": "SKU-1003"}).status_code == 201
+    assert (
+        sales.post(
+            f"/rfqs/{rfq['id']}/items", json={"description": "Nut", "quantity": "2", "sku_hint": "SKU-1003"}
+        ).status_code
+        == 201
+    )
     expected["rfq.item_create"] = sales.user_id
     assert sales.delete(f"/rfqs/{rfq['id']}/items/{unknown['id']}").status_code == 204
     expected["rfq.item_delete"] = sales.user_id
     assert sales.post(f"/rfqs/{rfq['id']}/reparse").status_code == 200
     expected["rfq.reparse"] = sales.user_id
-    assert sales.delete(f"/rfqs/{rfq['id']}/items/{next(i for i in sales.get(f'/rfqs/{rfq['id']}').json()['items'] if 'SKU-9999' in i['raw_text'])['id']}").status_code == 204
+    assert (
+        sales.delete(
+            f"/rfqs/{rfq['id']}/items/{next(i for i in sales.get(f'/rfqs/{rfq["id"]}').json()['items'] if 'SKU-9999' in i['raw_text'])['id']}"
+        ).status_code
+        == 204
+    )
     q = sales.post(f"/rfqs/{rfq['id']}/generate-quote").json()
     expected["quote.create"] = sales.user_id
     ln = q["current_version"]["lines"][0]
@@ -226,7 +244,9 @@ def test_every_mutation_writes_an_audit_row(app) -> None:  # type: ignore[no-unt
     expected["quote.margin_override"] = admin.user_id
     q = sales.post(f"/quotes/{q['id']}/submit", json={"expected_lock_version": q["lock_version"]}).json()
     expected["quote.submit"] = sales.user_id
-    q = approver.post(f"/quotes/{q['id']}/reject", json={"expected_lock_version": q["lock_version"], "reason": "no"}).json()
+    q = approver.post(
+        f"/quotes/{q['id']}/reject", json={"expected_lock_version": q["lock_version"], "reason": "no"}
+    ).json()
     expected["quote.reject"] = approver.user_id
     q = sales.post(f"/quotes/{q['id']}/submit", json={"expected_lock_version": q["lock_version"]}).json()
     q = approver.post(f"/quotes/{q['id']}/approve", json={"expected_lock_version": q["lock_version"]}).json()
@@ -239,7 +259,12 @@ def test_every_mutation_writes_an_audit_row(app) -> None:  # type: ignore[no-unt
     expected["quote.new_version"] = sales.user_id
     q2 = make_quote(sales, str(t.customer_id), "1 pcs SKU-1003 Hex nut\n")
     q2 = sales.post(f"/quotes/{q2['id']}/submit", json={"expected_lock_version": q2["lock_version"]}).json()
-    assert approver.post(f"/quotes/{q2['id']}/withdraw", json={"expected_lock_version": q2["lock_version"], "reason": "x"}).status_code == 200
+    assert (
+        approver.post(
+            f"/quotes/{q2['id']}/withdraw", json={"expected_lock_version": q2["lock_version"], "reason": "x"}
+        ).status_code
+        == 200
+    )
     expected["quote.withdraw"] = approver.user_id
     f = upload(sales, "/rfqs", "rfq_clean.csv", (FIXTURES / "rfq_clean.csv").read_bytes()).json()
     assert sales.get(f"/files/{f['source_file_id']}").status_code == 200
@@ -278,7 +303,11 @@ def test_every_mutation_writes_an_audit_row(app) -> None:  # type: ignore[no-unt
 def test_failed_login_audit_has_no_tenant_and_no_actor(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
     client = TestClient(app, base_url="http://testserver")
     pre = client.get(f"{API}/auth/csrf").json()["csrf_token"]
-    client.post(f"{API}/auth/login", json={"email": tenant_a.users["sales"], "password": "nope-nope-nope"}, headers={"X-CSRF-Token": pre})
+    client.post(
+        f"{API}/auth/login",
+        json={"email": tenant_a.users["sales"], "password": "nope-nope-nope"},
+        headers={"X-CSRF-Token": pre},
+    )
     with get_sessionmaker()() as db:
         set_tenant(db, tenant_a.org_id, None)
         rows = db.scalars(select(AuditEvent).where(AuditEvent.action == "auth.login_failed")).all()

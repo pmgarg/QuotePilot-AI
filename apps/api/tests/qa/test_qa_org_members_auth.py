@@ -46,7 +46,9 @@ def test_deactivating_a_member_revokes_sessions_and_login(app, tenant_a: Tenant)
     client = TestClient(app, base_url="http://testserver")
     pre = client.get(f"{API}/auth/csrf").json()["csrf_token"]
     r = client.post(
-        f"{API}/auth/login", json={"email": tenant_a.users["sales"], "password": PASSWORD}, headers={"X-CSRF-Token": pre}
+        f"{API}/auth/login",
+        json={"email": tenant_a.users["sales"], "password": PASSWORD},
+        headers={"X-CSRF-Token": pre},
     )
     assert r.status_code == 401 and r.json()["detail"] == "Invalid email or password"  # same generic message
     # reactivation restores access
@@ -86,7 +88,12 @@ def test_last_active_owner_guard_counts_only_active_owners(app, tenant_a: Tenant
     admin = login_as(app, tenant_a.users["admin"])
     r = owner.post(
         "/org/members",
-        json={"email": "owner2@alphatrading.example", "full_name": "Second Owner", "role": "owner", "password": NEW_PASSWORD},
+        json={
+            "email": "owner2@alphatrading.example",
+            "full_name": "Second Owner",
+            "role": "owner",
+            "password": NEW_PASSWORD,
+        },
     )
     assert r.status_code == 201, r.text
     owner2_id = r.json()["id"]
@@ -116,10 +123,21 @@ def test_member_create_validation_and_duplicates(app, tenant_a: Tenant) -> None:
     base = {"full_name": "Dup", "role": "sales", "password": NEW_PASSWORD}
     assert admin.post("/org/members", json={"email": tenant_a.users["sales"], **base}).status_code == 409
     assert admin.post("/org/members", json={"email": "not-an-email", **base}).status_code == 422
-    assert admin.post("/org/members", json={"email": "x@alphatrading.example", **base, "role": "superuser"}).status_code == 422
-    assert admin.post("/org/members", json={"email": "x@alphatrading.example", **base, "password": "x" * 11}).status_code == 422
+    assert (
+        admin.post("/org/members", json={"email": "x@alphatrading.example", **base, "role": "superuser"}).status_code
+        == 422
+    )
+    assert (
+        admin.post("/org/members", json={"email": "x@alphatrading.example", **base, "password": "x" * 11}).status_code
+        == 422
+    )
     for role in ("sales", "approver", "readonly"):
-        assert login_as(app, tenant_a.users[role]).post("/org/members", json={"email": f"{role}2@a.example", **base}).status_code == 403
+        assert (
+            login_as(app, tenant_a.users[role])
+            .post("/org/members", json={"email": f"{role}2@a.example", **base})
+            .status_code
+            == 403
+        )
         assert login_as(app, tenant_a.users[role]).get("/org/members").status_code == 403
 
 

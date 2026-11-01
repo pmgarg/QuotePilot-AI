@@ -112,12 +112,17 @@ def test_unknown_item_custom_line_requires_explicit_price(app, tenant_a: Tenant)
     assert line["is_custom"] and line["product_id"] is None and line["unit_price"] is None
     assert line["price_source"] == "none" and line["sku"] == "SKU-9999"
     assert [b["code"] for b in quote["blockers"]] == ["missing_price"]
-    assert sales.post(f"/quotes/{quote['id']}/submit", json={"expected_lock_version": quote["lock_version"]}).status_code == 409
+    assert (
+        sales.post(f"/quotes/{quote['id']}/submit", json={"expected_lock_version": quote["lock_version"]}).status_code
+        == 409
+    )
     q2 = sales.patch(
         f"/quotes/{quote['id']}",
         json={"expected_lock_version": quote["lock_version"], "lines": [{"id": line["id"], "unit_price": "12.50"}]},
     ).json()
-    assert q2["blockers"] == [] and q2["current_version"]["lines"][0]["price_source"] == "manual"
+    assert q2["current_version"]["lines"][0]["price_source"] == "manual"
+    # policy (review 1, M-4): a manually entered price needs owner/admin confirmation before submission
+    assert [b["code"] for b in q2["blockers"]] == ["manual_price_unconfirmed"]
     assert q2["current_version"]["lines"][0]["line_subtotal"] == "37.5"
 
 
@@ -253,7 +258,9 @@ def test_patch_item_rejects_invalid_quantity(app, tenant_a: Tenant, qty: str) ->
     from tests.conftest import AuthedClient
 
     # do not re-raise server exceptions: an unhandled error must surface as the HTTP status the user would see
-    sales = AuthedClient(TestClient(app, base_url="http://testserver", raise_server_exceptions=False), tenant_a.users["sales"])
+    sales = AuthedClient(
+        TestClient(app, base_url="http://testserver", raise_server_exceptions=False), tenant_a.users["sales"]
+    )
     rfq = sales.post("/rfqs", json={"text": "10 pcs SKU-1001 Hex bolt\n"}).json()
     item = rfq["items"][0]
     r = sales.patch(f"/rfqs/{rfq['id']}/items/{item['id']}", json={"quantity": qty})
@@ -267,7 +274,9 @@ def test_add_item_rejects_out_of_range_quantity(app, tenant_a: Tenant, qty: str)
 
     from tests.conftest import AuthedClient
 
-    sales = AuthedClient(TestClient(app, base_url="http://testserver", raise_server_exceptions=False), tenant_a.users["sales"])
+    sales = AuthedClient(
+        TestClient(app, base_url="http://testserver", raise_server_exceptions=False), tenant_a.users["sales"]
+    )
     rfq = sales.post("/rfqs", json={"text": "10 pcs SKU-1001 Hex bolt\n"}).json()
     r = sales.post(f"/rfqs/{rfq['id']}/items", json={"description": "Nut", "quantity": qty})
     assert r.status_code == 422, (qty, r.status_code, r.text[:200])
@@ -329,7 +338,9 @@ def test_reparse_replaces_items_and_discards_manual_edits(app, tenant_a: Tenant)
     original_ids = {i["id"] for i in rfq["items"]}
     first = rfq["items"][0]
     assert sales.patch(f"/rfqs/{rfq['id']}/items/{first['id']}", json={"quantity": "7"}).status_code == 200
-    assert sales.post(f"/rfqs/{rfq['id']}/items", json={"description": "Manual nut", "quantity": "1"}).status_code == 201
+    assert (
+        sales.post(f"/rfqs/{rfq['id']}/items", json={"description": "Manual nut", "quantity": "1"}).status_code == 201
+    )
     assert len(sales.get(f"/rfqs/{rfq['id']}").json()["items"]) == len(original_ids) + 1
     r = sales.post(f"/rfqs/{rfq['id']}/reparse")
     assert r.status_code == 200 and r.json()["status"] == "parsed"

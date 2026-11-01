@@ -92,6 +92,11 @@ def parse_proposal(raw: str) -> ExtractionProposal | None:
         return None
 
 
+def ai_enabled_for(org: object) -> bool:
+    """Hosted AI may only process an organisation's data after an owner recorded consent (X-05)."""
+    return get_settings().ai_provider != "disabled" and getattr(org, "ai_processing_consented_at", None) is not None
+
+
 _provider: AIProvider | None = None
 
 

@@ -8,6 +8,13 @@ import { Alert, Button, Field, inputClass } from "@/components/ui";
 // Only same-origin absolute paths are accepted (blocks //evil, /\evil, javascript:, absolute URLs).
 function safeNext(raw: string | null): string {
   if (!raw || !/^\/[A-Za-z0-9_\-./?=&%]*$/.test(raw) || raw.startsWith("//") || raw.includes("\\")) return "/dashboard";
+  let decoded = raw;
+  try {
+    decoded = decodeURIComponent(raw);
+  } catch {
+    return "/dashboard";
+  }
+  if (decoded.includes("\\") || decoded.startsWith("//") || /^\/+[^/]*:/.test(decoded)) return "/dashboard";
   try {
     const u = new URL(raw, window.location.origin);
     return u.origin === window.location.origin ? u.pathname + u.search : "/dashboard";

@@ -19,7 +19,7 @@ make web-run      # next dev on :3000 (proxies /api → :8000)
 ```
 
 ## Production topology (documented, not provisioned)
-Reverse proxy (Caddy/Nginx) with TLS + HSTS → web (Next standalone) → api (uvicorn workers ×2 per vCPU) → managed
+Reverse proxy (Caddy/Nginx) with TLS + HSTS → web (Next standalone, `WEB_TRUST_FORWARDED_HEADERS=true` only here) → api (uvicorn workers ×2 per vCPU, `FORWARDED_ALLOW_IPS=<web/ingress ip>`; never publish the API port directly) → managed
 PostgreSQL 16 (daily base backup + WAL/PITR, 30 d), S3-compatible private bucket (SSE, versioning, lifecycle),
 Redis (Stage 2+), worker container (Stage 2+). Separate `staging` and `production` environments with distinct secrets.
 
@@ -41,8 +41,9 @@ Structured JSON logs (request id, latency, status, org id — no bodies); `/api/
 access logs → Prometheus exporter (optional). Alerts: 5xx rate, parse failure rate, DB connections, disk.
 
 ### Incident response
-See PRIVACY_AND_RETENTION.md breach draft. Kill switches: set `AI_PROVIDER=disabled`, revoke sessions
-(`scripts/revoke_sessions.py --org <id>`), disable automation flags (Stage 2+).
+See PRIVACY_AND_RETENTION.md breach draft. Kill switches: set `AI_PROVIDER=disabled`, revoke sessions with
+`DATABASE_ADMIN_URL=… uv run python ../../scripts/revoke_sessions.py --org <id> | --user-email <e> | --all`
+(owner role, audited as `ops.sessions_revoked`), disable automation flags (Stage 2+).
 
 ### Secret rotation
 `SECRET_KEY` (CSRF signing) rotation invalidates CSRF tokens only; DB credentials via managed secret store; LLM key by

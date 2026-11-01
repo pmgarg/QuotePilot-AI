@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import uuid
+from datetime import date
 
 from sqlalchemy.orm import Session
 
@@ -18,26 +19,44 @@ from app.services.storage import get_storage
 
 
 def build_pdf_model(db: Session, org: Organization, quote: Quote, version: QuoteVersion) -> PdfQuote:
-    customer = db.get(Customer, quote.customer_id) if quote.customer_id else None
-    if version.status == "approved":
+    """Approved versions render exclusively from their frozen `document_snapshot` (H-1); drafts from live data."""
+    snap = version.document_snapshot if version.status == "approved" and version.document_snapshot else None
+    if snap is not None:
+        org_s = snap.get("organization") or {}
+        cust_s = snap.get("customer") or {}
+        org_name, legal, address, brand, footer = (
+            org_s.get("name", org.name),
+            org_s.get("legal_name"),
+            org_s.get("address"),
+            org_s.get("brand_color", org.brand_color),
+            org_s.get("pdf_footer"),
+        )
+        valid_until = snap.get("valid_until")
+        cust_name, cust_ref = cust_s.get("name"), cust_s.get("reference")
+        notes, terms = snap.get("notes"), snap.get("terms")
         label = "APPROVED"
     else:
-        label = "DRAFT – NOT APPROVED"
-    if quote.status == "withdrawn":
+        customer = db.get(Customer, quote.customer_id) if quote.customer_id else None
+        org_name, legal, address, brand, footer = org.name, org.legal_name, org.address, org.brand_color, org.pdf_footer
+        valid_until = quote.valid_until.isoformat() if quote.valid_until else None
+        cust_name, cust_ref = (customer.name, customer.reference) if customer else (None, None)
+        notes, terms = version.notes, version.terms
+        label = "APPROVED" if version.status == "approved" else "DRAFT – NOT APPROVED"
+    if quote.status == "withdrawn" and version.status != "approved":
         label = "WITHDRAWN"
     return PdfQuote(
-        org_name=org.name,
-        org_legal_name=org.legal_name,
-        org_address=org.address,
-        brand_color=org.brand_color,
-        footer=org.pdf_footer,
+        org_name=org_name,
+        org_legal_name=legal,
+        org_address=address,
+        brand_color=brand,
+        footer=footer,
         number=quote.number,
         version_no=version.version_no,
         status_label=label,
         approved_on=version.approved_at.date().isoformat() if version.approved_at else None,
-        valid_until=quote.valid_until.isoformat() if quote.valid_until else None,
-        customer_name=customer.name if customer else None,
-        customer_reference=customer.reference if customer else None,
+        valid_until=valid_until,
+        customer_name=cust_name,
+        customer_reference=cust_ref,
         currency=quote.currency,
         lines=tuple(
             PdfLine(
@@ -57,20 +76,51 @@ def build_pdf_model(db: Session, org: Organization, quote: Quote, version: Quote
         discount_total=version.discount_total,
         tax_total=version.tax_total,
         grand_total=version.grand_total,
-        notes=version.notes,
-        terms=version.terms,
+        notes=notes,
+        terms=terms,
     )
 
 
-def _check_exportable(quote: Quote, version: QuoteVersion) -> None:
-    """Approved versions of withdrawn or expired quotes must not be exported as current documents (S1-A15)."""
-    from app.services.quotes import effective_status
+def _version_valid_until(quote: Quote, version: QuoteVersion) -> date | None:
+    """Validity frozen at approval (immutable); falls back to the quote header for drafts."""
+    snap = version.document_snapshot or {}
+    raw = snap.get("valid_until")
+    if raw:
+        return date.fromisoformat(str(raw))
+    return quote.valid_until
 
+
+def _check_exportable(quote: Quote, version: QuoteVersion) -> None:
+    """Approved versions of withdrawn or expired quotes must not be exported as current documents (S1-A15).
+    Expiry is judged on the version's own frozen validity, so later header edits cannot revive it (H-1)."""
     if version.status == "approved":
         if quote.status == "withdrawn":
             raise StateError("Quote was withdrawn; the approved document is no longer exportable as current")
-        if effective_status(quote) == "expired":
-            raise StateError("Quote validity has expired; create a new version before exporting")
+        today = date.today()  # noqa: DTZ011
+        vu = _version_valid_until(quote, version)
+        header_expired = (
+            version.version_no == quote.current_version_no
+            and quote.valid_until is not None
+            and quote.valid_until < today
+        )
+        if (vu is not None and vu < today) or header_expired:
+            raise StateError("This approved version's validity has expired; create a new version before exporting")
+
+
+def store_approved_pdf(db: Session, *, org: Organization, quote: Quote, version: QuoteVersion) -> tuple[bytes, str]:
+    """Render the approved document exactly once at approval time and store it; the bytes are never replaced."""
+    if version.pdf_storage_key and get_storage().exists(version.pdf_storage_key):
+        with get_storage().open(version.pdf_storage_key) as fh:
+            data = fh.read()
+        return data, version.pdf_sha256 or hashlib.sha256(data).hexdigest()
+    data = render_quote_pdf(build_pdf_model(db, org, quote, version))
+    sha = hashlib.sha256(data).hexdigest()
+    key = f"org/{org.id}/quotes/{quote.id}/v{version.version_no}.pdf"
+    get_storage().put(key, data)
+    version.pdf_storage_key = key
+    version.pdf_sha256 = sha
+    db.flush()
+    return data, sha
 
 
 def render_and_store_pdf(
@@ -83,17 +133,11 @@ def render_and_store_pdf(
     version: QuoteVersion,
 ) -> tuple[bytes, str]:
     _check_exportable(quote, version)
-    model = build_pdf_model(db, org, quote, version)
-    data = render_quote_pdf(model)
-    sha = hashlib.sha256(data).hexdigest()
-    storage = get_storage()
     if version.status == "approved":
-        key = version.pdf_storage_key or f"org/{org.id}/quotes/{quote.id}/v{version.version_no}.pdf"
-        if version.pdf_sha256 != sha or not storage.exists(key):
-            storage.put(key, data)
-            version.pdf_storage_key = key
-            version.pdf_sha256 = sha
-            db.flush()
+        data, sha = store_approved_pdf(db, org=org, quote=quote, version=version)  # immutable stored artifact
+    else:
+        data = render_quote_pdf(build_pdf_model(db, org, quote, version))
+        sha = hashlib.sha256(data).hexdigest()
     audit.record(
         db,
         organization_id=org.id,

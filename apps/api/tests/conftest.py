@@ -36,7 +36,7 @@ from sqlalchemy import create_engine, text  # noqa: E402
 
 from app.core.config import get_settings  # noqa: E402
 from app.db.session import get_sessionmaker, reset_engine  # noqa: E402
-from app.services.auth import login_limiter  # noqa: E402
+from app.services.auth import account_limiter, login_limiter  # noqa: E402
 from app.services.storage import reset_storage  # noqa: E402
 
 API = "/api/v1"
@@ -79,6 +79,7 @@ def clean_tables(migrated_database: None) -> Iterator[None]:
             conn.execute(text("TRUNCATE " + ", ".join(tables) + " RESTART IDENTITY CASCADE"))
     eng.dispose()
     login_limiter.reset()
+    account_limiter.reset()
     reset_storage()
     get_settings.cache_clear()
     yield

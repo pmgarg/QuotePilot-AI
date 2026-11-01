@@ -66,7 +66,7 @@ test.describe("QA Stage 1 — review blockers, editor blockers, approval states"
     await expect(page.getByTestId("quote-blockers")).toHaveCount(0);
   });
 
-  test("custom line without a price blocks submission; entering a price unblocks it", async ({ page }) => {
+  test("custom line without a price blocks submission; a confirmed price unblocks it", async ({ page, browser }) => {
     await login(page, USERS.sales);
     await page.goto("/quotes");
     const created = await page.request.post("/api/v1/quotes", { data: {}, headers: { "X-CSRF-Token": await csrf(page) } });
@@ -88,9 +88,21 @@ test.describe("QA Stage 1 — review blockers, editor blockers, approval states"
     await page.getByTestId("unit-price-1").fill("15");
     await page.getByTestId("save-draft").click();
     await expect(page.getByTestId("quote-notice")).toContainText("saved");
-    await expect(page.getByTestId("quote-blockers")).toHaveCount(0);
+    // policy (review 1, M-4): a manually entered price must be confirmed by an owner/admin with a reason
+    await expect(page.getByTestId("quote-blockers")).toContainText(/manually entered price/i);
     await expect(page.getByTestId("line-total-1")).toHaveText("31.50"); // 2 × 15 + 5 % tax
     await expect(page.getByTestId("quote-line-1")).toContainText(/manual price/i);
+    await expect(page.getByTestId("submit-quote")).toBeDisabled();
+    const adminCtx = await browser.newContext();
+    const admin = await adminCtx.newPage();
+    await login(admin, USERS.admin);
+    await admin.goto(`/quotes/${q.id}`);
+    await admin.getByTestId("override-reason").fill("custom item priced from supplier quote");
+    await admin.getByTestId("override-1").click();
+    await expect(admin.getByTestId("quote-notice")).toContainText(/price confirmed/i);
+    await adminCtx.close();
+    await page.reload();
+    await expect(page.getByTestId("quote-blockers")).toHaveCount(0);
     await expect(page.getByTestId("submit-quote")).toBeEnabled();
     await page.getByTestId("submit-quote").click();
     await expect(page.getByTestId("version-status")).toHaveText(/pending approval/i);
@@ -112,9 +124,9 @@ test.describe("QA Stage 1 — review blockers, editor blockers, approval states"
     await expect(page.getByTestId("override-1")).toBeDisabled(); // reason required
     await page.getByTestId("override-reason").fill("strategic account, approved by GM");
     await page.getByTestId("override-1").click();
-    await expect(page.getByTestId("quote-notice")).toContainText(/override recorded/i);
+    await expect(page.getByTestId("quote-notice")).toContainText(/price confirmed/i);
     await expect(page.getByTestId("quote-blockers")).toHaveCount(0);
-    await expect(page.getByTestId("quote-line-1")).toContainText(/Margin override: strategic account/);
+    await expect(page.getByTestId("quote-line-1")).toContainText(/Price confirmed by owner\/admin: strategic account/);
     await expect(page.getByTestId("audit-table")).toContainText("quote.margin_override");
     await expect(page.getByTestId("submit-quote")).toBeEnabled();
     await page.getByTestId("submit-quote").click();
@@ -125,7 +137,7 @@ test.describe("QA Stage 1 — review blockers, editor blockers, approval states"
     const salesPage = await ctx.newPage();
     await login(salesPage, USERS.sales);
     await salesPage.goto(quoteUrl);
-    await expect(salesPage.getByTestId("quote-line-1")).toContainText(/Margin override/);
+    await expect(salesPage.getByTestId("quote-line-1")).toContainText(/Price confirmed by owner\/admin/);
     await expect(salesPage.locator("th", { hasText: "Margin" })).toHaveCount(0);
     await expect(salesPage.getByTestId("approve-quote")).toHaveCount(0);
     await ctx.close();

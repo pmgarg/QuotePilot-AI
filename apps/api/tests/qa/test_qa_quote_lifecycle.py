@@ -235,7 +235,9 @@ def test_failed_validation_does_not_consume_lock_version_or_audit(app, tenant_a:
         json={
             "expected_lock_version": q["lock_version"],
             "notes": "should not persist",
-            "lines": [{"description": "bad", "quantity": "1", "unit_price": "1", "is_custom": True, "discount_pct": "150"}],
+            "lines": [
+                {"description": "bad", "quantity": "1", "unit_price": "1", "is_custom": True, "discount_pct": "150"}
+            ],
         },
     )
     assert r.status_code == 422
@@ -281,8 +283,19 @@ def test_custom_line_without_price_blocks_submit_until_priced(app, tenant_a: Ten
         f"/quotes/{q['id']}",
         json={"expected_lock_version": q["lock_version"], "lines": [{"id": line["id"], "unit_price": "10"}]},
     ).json()
-    assert q["blockers"] == [] and q["current_version"]["lines"][0]["price_source"] == "manual"
+    assert q["current_version"]["lines"][0]["price_source"] == "manual"
+    assert [b["code"] for b in q["blockers"]] == [
+        "manual_price_unconfirmed"
+    ]  # policy (review 1, M-4): a manually entered price needs owner/admin confirmation before submission
     assert q["current_version"]["lines"][0]["line_total"] == "21"  # 2 × 10 + 5 % tax
+    assert sales.post(f"/quotes/{q['id']}/submit", json={"expected_lock_version": q["lock_version"]}).status_code == 409
+    admin = login_as(app, tenant_a.users["admin"])
+    r = admin.post(
+        f"/quotes/{q['id']}/lines/{line['id']}/price-override",
+        json={"expected_lock_version": q["lock_version"], "reason": "custom item priced per supplier quote"},
+    )
+    assert r.status_code == 200 and r.json()["blockers"] == []
+    q = sales.get(f"/quotes/{q['id']}").json()
     assert sales.post(f"/quotes/{q['id']}/submit", json={"expected_lock_version": q["lock_version"]}).status_code == 200
 
 
@@ -295,7 +308,10 @@ def _below_margin_quote(app, tenant: Tenant) -> tuple[AuthedClient, AuthedClient
         f"/quotes/{q['id']}",
         json={"expected_lock_version": q["lock_version"], "lines": [{"id": ln["id"], "unit_price": "0.55"}]},
     ).json()
-    assert [b["code"] for b in q["blockers"]] == ["below_min_margin"]
+    assert {b["code"] for b in q["blockers"]} == {
+        "manual_price_unconfirmed",
+        "below_min_margin",
+    }  # policy (review 1, M-4): a manually entered price needs owner/admin confirmation before submission
     r = admin.post(
         f"/quotes/{q['id']}/lines/{ln['id']}/margin-override",
         json={"expected_lock_version": q["lock_version"], "reason": "strategic account"},
@@ -323,7 +339,7 @@ def test_margin_override_cleared_after_price_edit(app, tenant_a: Tenant) -> None
         json={"expected_lock_version": q["lock_version"], "lines": [{"id": ln["id"], "unit_price": "0.56"}]},
     ).json()
     assert q["current_version"]["lines"][0]["margin_override_reason"] is None
-    assert [b["code"] for b in q["blockers"]] == ["below_min_margin"]
+    assert {b["code"] for b in q["blockers"]} == {"manual_price_unconfirmed", "below_min_margin"}
     assert sales.post(f"/quotes/{q['id']}/submit", json={"expected_lock_version": q["lock_version"]}).status_code == 409
     # override again, then a discount edit also invalidates it
     r = admin.post(
@@ -335,12 +351,14 @@ def test_margin_override_cleared_after_price_edit(app, tenant_a: Tenant) -> None
         json={"expected_lock_version": r["lock_version"], "lines": [{"id": ln["id"], "discount_pct": "1"}]},
     ).json()
     assert q["current_version"]["lines"][0]["margin_override_reason"] is None
-    assert [b["code"] for b in q["blockers"]] == ["below_min_margin"]
+    assert {b["code"] for b in q["blockers"]} == {"manual_price_unconfirmed", "below_min_margin"}
 
 
 def test_margin_override_survives_notes_only_edit(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
     sales, _admin, q, _ln = _below_margin_quote(app, tenant_a)
-    q = sales.patch(f"/quotes/{q['id']}", json={"expected_lock_version": q["lock_version"], "notes": "call customer"}).json()
+    q = sales.patch(
+        f"/quotes/{q['id']}", json={"expected_lock_version": q["lock_version"], "notes": "call customer"}
+    ).json()
     assert q["current_version"]["lines"][0]["margin_override_reason"] == "strategic account"
     assert q["blockers"] == []
 
@@ -446,7 +464,9 @@ def test_half_even_rounding_mode_applies_per_org(app, tenant_a: Tenant) -> None:
     # same inputs under the default HALF_UP organisation
     sales_a = login_as(app, tenant_a.users["sales"])
     qa = sales_a.post("/quotes", json={}).json()
-    qa = sales_a.patch(f"/quotes/{qa['id']}", json={"expected_lock_version": qa["lock_version"], "lines": lines[:2]}).json()
+    qa = sales_a.patch(
+        f"/quotes/{qa['id']}", json={"expected_lock_version": qa["lock_version"], "lines": lines[:2]}
+    ).json()
     assert [ln["line_subtotal"] for ln in qa["current_version"]["lines"]] == ["2.13", "2.14"]
 
 
@@ -458,7 +478,9 @@ def test_kwd_three_decimals_tax_and_discount(app) -> None:  # type: ignore[no-un
         f"/quotes/{q['id']}",
         json={
             "expected_lock_version": q["lock_version"],
-            "lines": [{"description": "x", "quantity": "3", "unit_price": "1.2345", "discount_pct": "2.5", "is_custom": True}],
+            "lines": [
+                {"description": "x", "quantity": "3", "unit_price": "1.2345", "discount_pct": "2.5", "is_custom": True}
+            ],
         },
     ).json()
     ln = q["current_version"]["lines"][0]

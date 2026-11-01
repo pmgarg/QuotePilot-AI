@@ -4,7 +4,7 @@ export interface User { id: string; email: string; full_name: string; is_active:
 export interface Organization {
   id: string; name: string; legal_name: string | null; address: string | null; default_currency: string;
   default_tax_rate: string; rounding_mode: string; default_validity_days: number; brand_color: string;
-  pdf_footer: string | null; allow_self_approval: boolean; min_margin_pct?: string;
+  pdf_footer: string | null; allow_self_approval: boolean; min_margin_pct?: string; ai_processing_consented_at?: string | null;
 }
 export interface SessionInfo { user: User; organization: Organization; role: Role; csrf_token: string; permissions: string[] }
 export interface Member { id: string; role: Role; is_active: boolean; user: User }

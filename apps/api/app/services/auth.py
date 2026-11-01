@@ -49,6 +49,8 @@ class LoginRateLimiter:
 _DUMMY_HASH = hash_password("timing-equalisation-dummy-password")
 _settings = get_settings()
 login_limiter = LoginRateLimiter(_settings.login_rate_limit_attempts, _settings.login_rate_limit_window_seconds)
+# per-account budget regardless of source address (brute force across IPs); 5× the per-ip budget
+account_limiter = LoginRateLimiter(_settings.login_rate_limit_attempts * 5, _settings.login_rate_limit_window_seconds)
 
 
 class LoginResult:
@@ -69,11 +71,13 @@ class LoginResult:
 
 def login(db: Session, *, email: str, password: str, ip: str | None, user_agent: str | None) -> LoginResult:
     settings = get_settings()
-    key = f"{ip or '-'}|{email.lower()}"
+    normalized = email.strip().lower()
+    key = f"{ip or '-'}|{normalized}"
+    account_key = f"account|{normalized}"
     login_limiter.check(key)
+    account_limiter.check(account_key)
     from app.db.session import set_auth_scope, set_tenant
 
-    normalized = email.strip().lower()
     set_auth_scope(db, login_email=normalized)
     user = db.scalar(select(User).where(User.email == normalized))
     if user is None:
@@ -81,6 +85,7 @@ def login(db: Session, *, email: str, password: str, ip: str | None, user_agent:
     ok = user is not None and user.is_active and verify_password(password, user.password_hash)
     if not ok:
         login_limiter.hit(key)
+        account_limiter.hit(account_key)
         audit.record(
             db,
             organization_id=None,

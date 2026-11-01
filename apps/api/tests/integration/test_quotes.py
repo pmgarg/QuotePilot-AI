@@ -77,7 +77,10 @@ def test_currency_mismatch_blocks_autofill(app, tenant_a: Tenant) -> None:  # ty
         f"/quotes/{q['id']}",
         json={"expected_lock_version": q["lock_version"], "lines": [{"id": ln["id"], "unit_price": "0.25"}]},
     ).json()
-    assert q2["current_version"]["lines"][0]["price_source"] == "manual" and q2["blockers"] == []
+    assert q2["current_version"]["lines"][0]["price_source"] == "manual"
+    assert [b["code"] for b in q2["blockers"]] == [
+        "manual_price_unconfirmed"
+    ]  # policy (review 1, M-4): a manually entered price needs owner/admin confirmation before submission
 
 
 def test_submit_approve_flow_with_separation_of_duties(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]

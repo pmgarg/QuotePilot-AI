@@ -14,7 +14,7 @@ Tenant-miss → 404. Role denial → 403. State/concurrency → 409. Validation 
 | POST | /auth/logout | any (+csrf) | revokes session |
 | GET | /auth/me | any | current user, org, role, csrf token |
 | GET | /org | any | organization settings (brand, currency, tax, rounding, margin floor hidden for sales/readonly) |
-| PATCH | /org | owner, admin | update settings (`expected_updated_at` optional) |
+| PATCH | /org | owner, admin | update settings; `ai_processing_consent` and `allow_self_approval` are owner-only; audit stores before/after |
 | GET | /org/members | owner, admin | list members |
 | POST | /org/members | owner, admin | create a NEW local user + membership `{email, full_name, role, password}`; 409 (generic) if the address is already registered anywhere |
 | PATCH | /org/members/{id} | owner, admin | change role / (de)activate the **membership** (tenant-scoped; revokes that tenant's sessions); last-active-owner guard; owner-only for owner rows |
@@ -41,7 +41,7 @@ Tenant-miss → 404. Role denial → 403. State/concurrency → 409. Validation 
 | POST | /quotes/{id}/reject | owner, admin, approver | `{expected_lock_version, reason}` |
 | POST | /quotes/{id}/withdraw | owner, admin, approver | `{expected_lock_version, reason}` |
 | POST | /quotes/{id}/versions | sales+ | new draft version from approved |
-| POST | /quotes/{id}/lines/{line_id}/margin-override | owner, admin | `{expected_lock_version, reason}` |
+| POST | /quotes/{id}/lines/{line_id}/price-override | owner, admin | `{expected_lock_version, reason}` — confirms a manually entered price or accepts a below-floor margin (clears `manual_price_unconfirmed` / `below_min_margin`); `/margin-override` kept as alias |
 | GET | /quotes/{id}/history | any | versions, decisions, audit events |
 | POST | /quotes/{id}/versions/{n}/pdf | any | render (idempotent) → `{sha256, size}` |
 | GET | /quotes/{id}/versions/{n}/pdf | any | stream PDF (approved; drafts watermarked) |
@@ -72,6 +72,10 @@ Cookie: qp_csrf=3b1f…
    "candidates": [{"product_id": "…", "sku": "SKU-1001", "description": "Hex bolt M8x40 zinc plated", "category": "exact",
                    "score": "100", "reason": "exact SKU match", "unit": "EA", "currency": "AED", "list_price": "0.85"}]}]}
 ```
+Blocker codes: `no_lines`, `line_unresolved`, `missing_price`, `manual_price_unconfirmed`, `below_min_margin`,
+`validity_expired`, plus RFQ-level `duplicate_unconfirmed`, `quantity_missing`, `unit_mismatch_unconfirmed`. Messages for
+roles without `view_costs` never contain margin figures or the organisation floor.
+
 ### Submit refused
 ```json
 HTTP 409

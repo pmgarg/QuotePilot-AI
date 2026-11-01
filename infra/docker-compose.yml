@@ -47,8 +47,8 @@ services:
       - storage:/data/storage
     depends_on:
       migrate: { condition: service_completed_successfully }
-    ports:
-      - "127.0.0.1:8000:8000"
+    # not published: the API is reached only through the web proxy (set API_PUBLISH_PORT to expose it locally)
+    expose: ["8000"]
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8000/api/v1/health')\""]
       interval: 10s

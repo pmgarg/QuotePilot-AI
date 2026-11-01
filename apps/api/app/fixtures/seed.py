@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
-from app.db.session import get_sessionmaker, set_tenant
+from app.db.session import get_sessionmaker, set_auth_scope, set_tenant
 from app.models.customer import Customer
 from app.models.org import Membership, Organization, User
 from app.services import catalog_import
@@ -104,6 +104,7 @@ def seed(db: Session, password: str, verbose: bool = True) -> dict[str, dict[str
         owner_user: User | None = None
         for role in ROLES:
             email = f"{role}@{spec['slug']}.example"
+            set_auth_scope(db, login_email=email)  # users are RLS-scoped; make this address visible for the lookup
             user = db.scalar(select(User).where(User.email == email))
             if user is None:
                 user = User(

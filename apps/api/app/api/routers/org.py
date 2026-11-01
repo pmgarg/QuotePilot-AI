@@ -8,7 +8,7 @@ from sqlalchemy import select
 from app.api.deps import DB, PrincipalDep
 from app.core.errors import ConflictError, NotFoundError, ValidationFailed
 from app.core.security import hash_password
-from app.models.org import Membership, User
+from app.models.org import Membership, Organization, User
 from app.schemas.common import (
     MemberCreate,
     MemberOut,
@@ -23,6 +23,10 @@ from app.services.authz import Permission, has_permission
 from app.services.money import is_supported_currency
 
 router = APIRouter(prefix="/org", tags=["organization"])
+
+
+def _jsonable(v: object) -> object:
+    return v if isinstance(v, str | int | float | bool) or v is None else str(v)
 
 
 @router.get("", response_model=OrganizationPrivileged | OrganizationPublic)
@@ -43,8 +47,19 @@ def update_org(payload: OrganizationUpdate, principal: PrincipalDep, db: DB) -> 
             raise ValidationFailed("Unsupported currency", field="default_currency")
     if "allow_self_approval" in data and data["allow_self_approval"] and principal.role != "owner":
         raise ValidationFailed("Only an owner can enable self-approval", field="allow_self_approval")
+    consent = data.pop("ai_processing_consent", None)
+    if consent is not None:
+        if principal.role != "owner":
+            raise ValidationFailed("Only an owner can change AI processing consent", field="ai_processing_consent")
+        from app.db.base import utcnow
+
+        org.ai_processing_consented_at = utcnow() if consent else None
+        org.ai_processing_consented_by = principal.user.id if consent else None
+        data["ai_processing_consent"] = consent
+    before = {k: _jsonable(getattr(org, k)) for k in data if hasattr(org, k)}
     for k, v in data.items():
-        setattr(org, k, v)
+        if hasattr(org, k):
+            setattr(org, k, v)
     db.flush()
     audit.record(
         db,
@@ -54,7 +69,7 @@ def update_org(payload: OrganizationUpdate, principal: PrincipalDep, db: DB) -> 
         entity_type="organization",
         entity_id=org.id,
         ip=principal.ip,
-        summary={"fields": sorted(data.keys())},
+        summary={"fields": sorted(data.keys()), "before": before, "after": {k: _jsonable(v) for k, v in data.items()}},
     )
     db.refresh(org)
     return OrganizationPrivileged.model_validate(org)
@@ -108,6 +123,8 @@ def create_member(payload: MemberCreate, principal: PrincipalDep, db: DB) -> Mem
 @router.patch("/members/{member_id}", response_model=MemberOut)
 def update_member(member_id: uuid.UUID, payload: MemberUpdate, principal: PrincipalDep, db: DB) -> MemberOut:
     principal.require(Permission.MANAGE_MEMBERS)
+    # L-3: serialise concurrent member changes within the organisation (last-owner guard is read-then-write)
+    db.execute(select(Organization.id).where(Organization.id == principal.org_id).with_for_update())
     membership = db.scalar(
         select(Membership).where(Membership.id == member_id, Membership.organization_id == principal.org_id)
     )

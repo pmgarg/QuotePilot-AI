@@ -52,6 +52,7 @@ class OrganizationPublic(ORMModel):
 
 class OrganizationPrivileged(OrganizationPublic):
     min_margin_pct: Money
+    ai_processing_consented_at: datetime | None = None
     updated_at: datetime
 
 
@@ -67,6 +68,7 @@ class OrganizationUpdate(BaseModel):
     allow_self_approval: bool | None = None
     brand_color: str | None = Field(default=None, pattern="^#[0-9a-fA-F]{6}$")
     pdf_footer: str | None = Field(default=None, max_length=500)
+    ai_processing_consent: bool | None = None  # owner-only; records consent for hosted AI processing (X-05)
 
 
 class MemberOut(ORMModel):

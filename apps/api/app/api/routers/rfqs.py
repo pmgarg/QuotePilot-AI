@@ -81,7 +81,9 @@ def _products_for(db: DB, items: list[RFQItem]) -> dict[uuid.UUID, Product]:
     ids = {c.product_id for item in items for c in item.candidates}
     if not ids:
         return {}
-    return {p.id: p for p in db.scalars(select(Product).where(Product.id.in_(ids))).all()}
+    org_ids = {i.organization_id for i in items}
+    stmt = select(Product).where(Product.id.in_(ids), Product.organization_id.in_(org_ids))  # explicit + RLS
+    return {p.id: p for p in db.scalars(stmt).all()}
 
 
 def _rfq_out(db: DB, rfq: RFQ) -> RFQOut:

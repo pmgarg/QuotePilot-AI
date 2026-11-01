@@ -75,7 +75,15 @@ def quote_out(db: DB, principal: Principal, quote: Quote) -> QuoteOut:
             },
             "effective_status": quote_service.effective_status(quote),
             "current_version": _version_out(principal, quote, current),
-            "blockers": [b.as_dict() for b in quote_service.compute_blockers(quote, current, principal.organization)],
+            "blockers": [
+                b.as_dict()
+                for b in quote_service.compute_blockers(
+                    quote,
+                    current,
+                    principal.organization,
+                    reveal_margin=has_permission(principal.role, Permission.VIEW_COSTS),
+                )
+            ],
             "versions": [_version_out(principal, quote, v) for v in quote.versions],
         }
     )
@@ -186,6 +194,7 @@ def submit(quote_id: uuid.UUID, payload: LockedAction, principal: PrincipalDep, 
         ip=principal.ip,
         quote=quote,
         expected_lock_version=payload.expected_lock_version,
+        reveal_margin=has_permission(principal.role, Permission.VIEW_COSTS),
     )
     return quote_out(db, principal, quote)
 
@@ -253,7 +262,8 @@ def new_version(quote_id: uuid.UUID, payload: LockedAction, principal: Principal
     return quote_out(db, principal, quote)
 
 
-@router.post("/{quote_id}/lines/{line_id}/margin-override", response_model=QuoteOut)
+@router.post("/{quote_id}/lines/{line_id}/price-override", response_model=QuoteOut)
+@router.post("/{quote_id}/lines/{line_id}/margin-override", response_model=QuoteOut, include_in_schema=False)
 def margin_override(
     quote_id: uuid.UUID, line_id: uuid.UUID, payload: LockedAction, principal: PrincipalDep, db: DB
 ) -> QuoteOut:

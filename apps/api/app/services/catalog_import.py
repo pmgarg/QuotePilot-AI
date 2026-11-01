@@ -15,7 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.errors import NotFoundError, StateError, ValidationFailed
+from app.core.errors import NotFoundError, PayloadTooLarge, StateError, ValidationFailed
 from app.models.catalog import Catalog, CatalogVersion, Product
 from app.models.files import UploadedFile
 from app.services import audit
@@ -261,6 +261,10 @@ def import_catalog(
         if tmp_path is not None:
             tmp_path.unlink(missing_ok=True)
     rows, truncated = _rows_from_parsed(parsed, kind)
+    if truncated:
+        raise PayloadTooLarge(
+            f"The file has more than {settings.max_catalog_rows} rows; split it into smaller imports."
+        )
     if not rows:
         raise ValidationFailed("The file contains no rows.")
     resolved = resolve_mapping(rows[0], mapping)

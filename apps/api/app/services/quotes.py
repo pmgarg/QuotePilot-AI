@@ -30,6 +30,8 @@ from app.services.authz import Permission, has_permission
 from app.services.money import is_supported_currency
 from app.services.pricing import LineInput, compute_line, validate_line
 
+MAX_TOTAL = Decimal("100000000000000")  # 1e14 < NUMERIC(18,3) capacity; keeps every aggregate representable
+
 
 @dataclass(frozen=True)
 class Blocker:
@@ -113,9 +115,15 @@ def _recompute(version: QuoteVersion, org: Organization, currency: str) -> None:
         tax,
         total,
     )
+    if max(abs(subtotal), abs(total)) >= MAX_TOTAL:
+        raise ValidationFailed(f"Quote totals exceed the supported maximum of {MAX_TOTAL:f} {currency}")
 
 
-def compute_blockers(quote: Quote, version: QuoteVersion, org: Organization) -> list[Blocker]:
+def compute_blockers(
+    quote: Quote, version: QuoteVersion, org: Organization, *, reveal_margin: bool = True
+) -> list[Blocker]:
+    """Server-side submission blockers. `reveal_margin=False` produces messages without margin figures or the
+    confidential floor (for roles without VIEW_COSTS)."""
     blockers: list[Blocker] = []
     if not version.lines:
         blockers.append(Blocker("no_lines", "Quote has no lines"))
@@ -132,6 +140,17 @@ def compute_blockers(quote: Quote, version: QuoteVersion, org: Organization) -> 
             blockers.append(Blocker("missing_price", f"Line {line.line_no} has no unit price", line.line_no))
         if line.price_source == "none" and line.unit_price is not None:
             blockers.append(Blocker("missing_price", f"Line {line.line_no} price source unknown", line.line_no))
+        if line.price_source == "manual" and not line.margin_override_reason:
+            # S1-A03 / M-4: a manually entered price (custom line or typed over a catalog price) is not verified
+            # against any cost; it needs a privileged, reasoned confirmation before submission.
+            blockers.append(
+                Blocker(
+                    "manual_price_unconfirmed",
+                    f"Line {line.line_no} has a manually entered price; an owner/admin must confirm it with a reason",
+                    line.line_no,
+                    ("owner", "admin"),
+                )
+            )
         r = compute_line(
             LineInput(
                 line.quantity,
@@ -144,15 +163,14 @@ def compute_blockers(quote: Quote, version: QuoteVersion, org: Organization) -> 
             org.rounding_mode,
         )
         if r.margin_pct is not None and r.margin_pct < org.min_margin_pct and not line.margin_override_reason:
-            blockers.append(
-                Blocker(
-                    "below_min_margin",
+            if reveal_margin:
+                msg = (
                     f"Line {line.line_no} margin {r.margin_pct}% is below the organisation floor "
-                    f"of {org.min_margin_pct}%",
-                    line.line_no,
-                    ("owner", "admin"),
+                    f"of {org.min_margin_pct}%"
                 )
-            )
+            else:
+                msg = f"Line {line.line_no} price is below the organisation's minimum margin policy"
+            blockers.append(Blocker("below_min_margin", msg, line.line_no, ("owner", "admin")))
     if quote.valid_until and quote.valid_until < date.today():  # noqa: DTZ011
         blockers.append(Blocker("validity_expired", "Validity date is in the past"))
     return blockers
@@ -226,6 +244,25 @@ def create_quote(
     return quote
 
 
+def build_document_snapshot(db: Session, org: Organization, quote: Quote, version: QuoteVersion) -> dict[str, Any]:
+    """Everything the approved document depends on, frozen at approval (H-1). Lines are immutable rows already."""
+    customer = db.get(Customer, quote.customer_id) if quote.customer_id else None
+    return {
+        "valid_until": quote.valid_until.isoformat() if quote.valid_until else None,
+        "customer": {"name": customer.name, "reference": customer.reference} if customer else None,
+        "organization": {
+            "name": org.name,
+            "legal_name": org.legal_name,
+            "address": org.address,
+            "brand_color": org.brand_color,
+            "pdf_footer": org.pdf_footer,
+        },
+        "notes": version.notes,
+        "terms": version.terms,
+        "currency": quote.currency,
+    }
+
+
 def _snapshot(org: Organization, currency: str, rfq: RFQ | None) -> dict[str, Any]:
     return {
         "currency": currency,
@@ -285,7 +322,11 @@ def generate_from_rfq(db: Session, *, org: Organization, actor_user_id: uuid.UUI
         if item.is_duplicate and not item.duplicate_confirmed:
             continue
         n += 1
-        product = db.get(Product, item.selected_product_id) if item.selected_product_id else None
+        product = (
+            db.scalar(select(Product).where(Product.id == item.selected_product_id, Product.organization_id == org.id))
+            if item.selected_product_id
+            else None
+        )
         line = QuoteLine(
             organization_id=org.id,
             quote_version_id=version.id,
@@ -493,13 +534,14 @@ def submit(
     ip: str | None,
     quote: Quote,
     expected_lock_version: int,
+    reveal_margin: bool = False,
 ) -> Quote:
     version = current_version(quote)
     if version.status != "draft":
         raise StateError(f"Version is '{version.status}', not draft")
     if effective_status(quote) in ("withdrawn",):
         raise StateError("Withdrawn quotes cannot be submitted; create a new version")
-    blockers = compute_blockers(quote, version, org)
+    blockers = compute_blockers(quote, version, org, reveal_margin=reveal_margin)
     if blockers:
         raise BlockedError("Quote cannot be submitted", blockers=[b.as_dict() for b in blockers])
     _check_lock(db, quote, expected_lock_version)
@@ -555,6 +597,7 @@ def approve(
     version.approved_by = actor_user_id
     version.approved_at = now
     quote.status = "approved"
+    version.document_snapshot = build_document_snapshot(db, org, quote, version)
     db.add(
         ApprovalDecision(
             organization_id=org.id,
@@ -576,6 +619,9 @@ def approve(
         ip=ip,
         summary={"version_no": version.version_no, "grand_total": str(version.grand_total)},
     )
+    from app.services.exports.quote_exports import store_approved_pdf
+
+    store_approved_pdf(db, org=org, quote=quote, version=version)
     return quote
 
 
@@ -760,6 +806,7 @@ def margin_override(
     expected_lock_version: int,
     reason: str,
 ) -> Quote:
+    """Privileged confirmation of a line price: clears `below_min_margin` and `manual_price_unconfirmed` blockers."""
     if not has_permission(role, Permission.OVERRIDE_PRICING):
         raise ForbiddenError("Role may not override pricing rules", action="override_pricing")
     if not reason or len(reason.strip()) < 5:

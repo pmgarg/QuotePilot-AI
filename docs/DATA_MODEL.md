@@ -6,7 +6,8 @@ composite index on `(organization_id, <lookup column>)`. The global auth tables 
 (migration 0002): a user row is visible only as the acting user, the account being logged in (`app.login_email`) or a
 member of the current organisation; a session row only by its presented token hash (`app.session_token_hash`), its own
 user or its organisation. Membership activation (`memberships.is_active`) is per tenant; `users.is_active` is a global
-platform flag never toggled by tenant admins.
+platform flag never toggled by tenant admins. `quote_versions.document_snapshot` freezes validity, customer and
+organisation header fields at approval; the approved PDF is rendered once at approval and never rewritten (migration 0003).
 
 ## ERD — Stage 1 (implemented)
 ```mermaid
@@ -30,7 +31,7 @@ erDiagram
   quote_versions ||--o{ approval_decisions : has
   organizations ||--o{ audit_events : has
 
-  organizations { uuid id PK; text name; text legal_name; text address; char3 default_currency; numeric default_tax_rate; text rounding_mode; numeric min_margin_pct; int default_validity_days; bool allow_self_approval; text brand_color; text pdf_footer; int quote_seq; timestamptz created_at }
+  organizations { uuid id PK; text name; text legal_name; text address; char3 default_currency; numeric default_tax_rate; text rounding_mode; numeric min_margin_pct; int default_validity_days; bool allow_self_approval; text brand_color; text pdf_footer; int quote_seq; timestamptz ai_processing_consented_at; uuid ai_processing_consented_by; timestamptz created_at }
   users { uuid id PK; citext email UK; text password_hash; text full_name; bool is_active; timestamptz created_at }
   memberships { uuid id PK; uuid organization_id FK; uuid user_id FK; text role; bool is_active; UK organization_id_user_id }
   sessions { uuid id PK; uuid user_id FK; uuid organization_id; text token_hash UK; timestamptz expires_at; timestamptz last_seen_at; text ip; text user_agent }
@@ -43,7 +44,7 @@ erDiagram
   rfq_items { uuid id PK; uuid organization_id FK; uuid rfq_id FK; int line_no; text raw_text; jsonb source_ref; text sku_hint; text description; numeric quantity; text unit_raw; text unit_normalized; text match_status; uuid selected_product_id; bool unit_mismatch; bool unit_confirmed; bool is_duplicate; bool is_custom; text notes }
   match_candidates { uuid id PK; uuid organization_id FK; uuid rfq_item_id FK; uuid product_id FK; int rank; text category; numeric score; text reason; text matched_on }
   quotes { uuid id PK; uuid organization_id FK; text number UK_org; uuid customer_id FK; uuid rfq_id FK; char3 currency; text status; int current_version_no; int lock_version; date valid_until; text withdrawn_reason; uuid created_by }
-  quote_versions { uuid id PK; uuid organization_id FK; uuid quote_id FK; int version_no; text status; text notes; text terms; numeric subtotal; numeric discount_total; numeric tax_total; numeric grand_total; jsonb pricing_snapshot; uuid submitted_by; timestamptz submitted_at; uuid approved_by; timestamptz approved_at; text pdf_storage_key; text pdf_sha256 }
+  quote_versions { uuid id PK; uuid organization_id FK; uuid quote_id FK; int version_no; text status; text notes; text terms; numeric subtotal; numeric discount_total; numeric tax_total; numeric grand_total; jsonb pricing_snapshot; uuid submitted_by; timestamptz submitted_at; uuid approved_by; timestamptz approved_at; text pdf_storage_key; text pdf_sha256; jsonb document_snapshot }
   quote_lines { uuid id PK; uuid organization_id FK; uuid quote_version_id FK; int line_no; uuid product_id; uuid rfq_item_id; text sku; text description; numeric quantity; text unit; numeric unit_price; text price_source; numeric cost_price; numeric discount_pct; numeric tax_rate_pct; numeric line_subtotal; numeric discount_amount; numeric tax_amount; numeric line_total; bool is_custom; text margin_override_reason; uuid margin_override_by }
   approval_decisions { uuid id PK; uuid organization_id FK; uuid quote_version_id FK; text decision; text reason; uuid decided_by; timestamptz decided_at }
   audit_events { bigint id PK; uuid organization_id; uuid actor_user_id; text action; text entity_type; uuid entity_id; text request_id; text ip; jsonb summary; timestamptz created_at }

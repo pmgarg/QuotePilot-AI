@@ -4,6 +4,8 @@
 - Login rate limiter is in-process memory; horizontally scaled deployments need the Redis-backed limiter (Stage 2 runner adds Redis).
 - OIDC/SSO not implemented; local accounts only. Member "invites" create local users with an admin-set initial password (no email).
 - Parsers handle digitally readable documents only; scanned PDFs are flagged `unsupported_scanned` (OCR is an optional future component).
+- The parser subprocess is isolated by interpreter flags and resource limits only; it runs as the API's OS user. Network and
+  filesystem isolation (container, seccomp, read-only mounts) are deployment controls documented in the runbook.
 - Fuzzy matching thresholds are heuristic, not calibrated; confidence is categorical by design.
 - Unit conversion is alias normalisation only (no quantity conversion between units); mismatches require human confirmation.
 - PDF branding is text-based (no logo upload yet); fonts limited to built-in Helvetica for determinism.
@@ -24,6 +26,11 @@
 - `GET …/pdf` renders, stores (approved versions) and audits the download; the write is idempotent (same bytes/hash).
 - Audit of `quote.update` records per-line pricing deltas (max 50 per save); description-only edits are summarised.
 - Timing of login responses is equalised with a dummy Argon2 verification but not formally measured under load.
+
+- Member creation answers 409 when an e-mail address is already registered on the platform (tenant admins can learn
+  that an address exists). Accepted as Low pending a human product decision on an opaque invitation flow.
+- Manual prices (custom lines or typed-over catalog prices) require an owner/admin confirmation with a reason before
+  submission (policy adopted after review 1 finding M-4); approvers alone cannot clear that blocker.
 
 ## Stage 2–4
 Not implemented; designs and backlogs exist (ROADMAP.md, PRD.md, LLD.md).

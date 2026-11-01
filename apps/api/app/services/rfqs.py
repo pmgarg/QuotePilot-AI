@@ -255,9 +255,26 @@ def parse_rfq(db: Session, rfq: RFQ, *, actor_user_id: uuid.UUID, ip: str | None
         )
         return rfq
     settings = get_settings()
-    if len(items) > settings.max_rfq_rows:
-        items = items[: settings.max_rfq_rows]
-        flags.append("rows_truncated")
+    if "rows_truncated" in flags or "pages_truncated" in flags or len(items) > settings.max_rfq_rows:
+        rfq.status = "failed"
+        rfq.failure_reason = (
+            "too_large: the document exceeds the limits "
+            f"({settings.max_rfq_rows} rows / {settings.max_pdf_pages} pages)."
+        )
+        for old in list(rfq.items):
+            db.delete(old)
+        db.flush()
+        audit.record(
+            db,
+            organization_id=rfq.organization_id,
+            actor_user_id=actor_user_id,
+            action="rfq.parse_failed",
+            entity_type="rfq",
+            entity_id=rfq.id,
+            ip=ip,
+            summary={"reason": "too_large"},
+        )
+        return rfq
     for old in list(rfq.items):
         db.delete(old)
     db.flush()

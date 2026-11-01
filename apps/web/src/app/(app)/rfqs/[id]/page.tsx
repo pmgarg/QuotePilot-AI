@@ -41,7 +41,7 @@ function ItemRow({ rfq, item, editable, onChanged, onError }: { rfq: RFQ; item: 
     <tr data-testid={`rfq-item-${item.line_no}`} className={item.is_duplicate && !item.duplicate_confirmed ? "bg-amber-50" : ""}>
       <td>{item.line_no}</td>
       <td>
-        <p className="font-medium">{item.description || <span className="text-slate-400">(no description)</span>}</p>
+        <p className="font-medium">{item.description || <span className="italic text-slate-600">(no description)</span>}</p>
         <p className="text-xs text-slate-500" title={item.raw_text}>Source: {source || "manual"} · “{item.raw_text.slice(0, 80)}{item.raw_text.length > 80 ? "…" : ""}”</p>
         <div className="mt-1 flex flex-wrap gap-1">
           {item.is_duplicate && <Badge value={item.duplicate_confirmed ? "duplicate confirmed" : "possible duplicate"} />}

@@ -147,7 +147,7 @@ export default function QuotePage() {
                     <tr key={l.id ?? `new-${i}`} data-testid={`quote-line-${i + 1}`}>
                       <td>{i + 1}</td>
                       <td className="font-mono text-xs">{l.sku ?? "—"}</td>
-                      <td>{canEdit ? <input aria-label={`Description ${i + 1}`} className={inputClass} value={l.description} onChange={(e) => updateLine(i, { description: e.target.value })} /> : l.description}{l.is_custom && <Badge value="custom" />}{saved?.price_source === "manual" && <Badge value="manual price" />}{saved?.margin_override_reason && <p className="text-xs text-amber-800">Margin override: {saved.margin_override_reason}</p>}</td>
+                      <td>{canEdit ? <input aria-label={`Description ${i + 1}`} className={inputClass} value={l.description} onChange={(e) => updateLine(i, { description: e.target.value })} /> : l.description}{l.is_custom && <Badge value="custom" />}{saved?.price_source === "manual" && <Badge value="manual price" />}{saved?.margin_override_reason && <p className="text-xs text-amber-800">Price confirmed by owner/admin: {saved.margin_override_reason}</p>}</td>
                       <td>{canEdit ? <input aria-label={`Quantity ${i + 1}`} className={`${inputClass} w-20`} value={l.quantity} onChange={(e) => updateLine(i, { quantity: e.target.value })} inputMode="decimal" /> : qty(l.quantity)}</td>
                       <td>{l.unit}</td>
                       <td>{canEdit ? <input aria-label={`Unit price ${i + 1}`} className={`${inputClass} w-28`} value={l.unit_price} placeholder="required" onChange={(e) => updateLine(i, { unit_price: e.target.value })} inputMode="decimal" data-testid={`unit-price-${i + 1}`} /> : money(l.unit_price || null, quote.currency)}</td>
@@ -207,13 +207,13 @@ export default function QuotePage() {
                 </>
               )}
               {quote.status === "withdrawn" && can("edit_quotes") && <Button variant="secondary" onClick={() => void action("/versions", {}, "New draft version created.")} disabled={busy}>Create new version</Button>}
-              {isDraft && can("override_pricing") && quote.blockers.some((b) => b.code === "below_min_margin") && (
+              {isDraft && can("override_pricing") && quote.blockers.some((b) => b.code === "below_min_margin" || b.code === "manual_price_unconfirmed") && (
                 <div className="mt-2 border-t border-slate-200 pt-2">
-                  <p className="mb-1 text-xs font-semibold text-slate-700">Privileged margin override (audited)</p>
+                  <p className="mb-1 text-xs font-semibold text-slate-700">Privileged price confirmation (audited)</p>
                   <Field label="Reason (≥ 5 characters)" htmlFor="override-reason"><input id="override-reason" className={inputClass} value={reason} onChange={(e) => setReason(e.target.value)} data-testid="override-reason" /></Field>
-                  {quote.blockers.filter((b) => b.code === "below_min_margin").map((b) => {
-                    const line = version.lines.find((l) => l.line_no === b.line_no);
-                    return line ? <Button key={line.id} variant="secondary" className="mt-1" onClick={() => void action(`/lines/${line.id}/margin-override`, { reason }, `Margin override recorded for line ${line.line_no}.`)} disabled={busy || reason.trim().length < 5} testId={`override-${line.line_no}`}>Override line {line.line_no}</Button> : null;
+                  {Array.from(new Set(quote.blockers.filter((b) => b.code === "below_min_margin" || b.code === "manual_price_unconfirmed").map((b) => b.line_no))).map((lineNo) => {
+                    const line = version.lines.find((l) => l.line_no === lineNo);
+                    return line ? <Button key={line.id} variant="secondary" className="mt-1" onClick={() => void action(`/lines/${line.id}/price-override`, { reason }, `Price confirmed for line ${line.line_no}.`)} disabled={busy || reason.trim().length < 5} testId={`override-${line.line_no}`}>Confirm price on line {line.line_no}</Button> : null;
                   })}
                 </div>
               )}
