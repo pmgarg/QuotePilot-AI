@@ -1,0 +1,62 @@
+name: security
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+  schedule:
+    - cron: "17 3 * * 1"
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  dependencies-and-static:
+    name: security (pip-audit, npm audit, bandit, semgrep)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: cd apps/api && uv sync --all-extras
+      - name: pip-audit
+        run: cd apps/api && uv run pip-audit --skip-editable
+      - name: bandit (fail on medium+)
+        run: cd apps/api && uv run bandit -r app -q -ll
+      - name: ruff security rules
+        run: cd apps/api && uv run ruff check app  # project config enables flake8-bandit (S*) rules
+      - name: npm audit (production deps fail on high)
+        run: cd apps/web && npm ci && npm audit --omit=dev --audit-level=high
+      - name: semgrep
+        uses: semgrep/semgrep-action@v1
+        with:
+          config: >-
+            p/python
+            p/typescript
+            p/secrets
+        continue-on-error: false
+
+  secrets:
+    name: security (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+  codeql:
+    name: security (CodeQL)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        language: [python, javascript-typescript]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with: { languages: "${{ matrix.language }}" }
+      - uses: github/codeql-action/analyze@v3

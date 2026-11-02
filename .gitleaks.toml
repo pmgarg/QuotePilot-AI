@@ -1,0 +1,18 @@
+title = "QuotePilot AI gitleaks config"
+[extend]
+useDefault = true
+[allowlist]
+description = "synthetic fixtures and documented placeholders"
+paths = [
+  '''tests/fixtures/.*''',
+  '''\.env\.example''',
+  '''docs/evidence/.*''',
+]
+regexes = [
+  '''quotepilot_(owner|app)''',
+  '''Correct-Horse-Battery-9!''',
+  '''test-secret-key-test-secret-key''',
+  '''sk-ant-api03-abcdefghijklmnop''',
+  '''e2e-only-secret-key''',
+  '''ci-only-secret-key''',
+]
