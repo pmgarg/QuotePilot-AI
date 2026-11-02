@@ -32,6 +32,9 @@ independent reviewer PASS) / BLOCKED.
 3.1 customer profiles/contacts; 3.2 orders + conversion; 3.3 KPI service + dashboard; 3.4 CSV import/export;
 3.5 connector framework + conflict queue; 3.6 stock sources; 3.7 retention/deletion; 3.8 security + gate.
 
+Status: 3.1–3.7 implemented on `claude/stage3-customer-order-intelligence` (API, worker purge job, UI, 13 integration
+tests + 4 browser tests); 3.8 (independent QA, security audit, release review) pending — see RELEASE_GATES.md.
+
 ## Stage 4 plan
 4.1 policy engine + entitlements; 4.2 tool registry + bounded assistant; 4.3 workflow definitions/runner/dry-run;
 4.4 budgets/circuit breakers/kill switch; 4.5 command center UI; 4.6 billing adapter (test mode) + onboarding +

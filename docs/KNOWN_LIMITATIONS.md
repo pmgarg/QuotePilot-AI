@@ -73,5 +73,26 @@
 - The background worker is a single process; the `app.worker` RLS scope is a trusted-code boundary (see ADR-012).
 - Draft bodies are plain text; HTML templates and attachments (e.g. the quote PDF) are not sent yet.
 
-## Stage 3–4
+## Stage 3 (implemented on `claude/stage3-customer-order-intelligence`, gate pending)
+- Connectors are **push-model stubs** (`erp_stub`, `csv`): an operator or an external system posts records to the sync
+  endpoint. No pull adapters, schedulers or outbound network calls ship (no paid or third-party services). Real
+  ERP/CRM adapters implement the same scope/idempotency/conflict contract.
+- A remote product that does not exist locally is staged as a conflict (`fields: ["new"]`) and cannot be applied from
+  the queue; new SKUs enter through a catalog version import so pricing history stays versioned.
+- Applying a remote value to a product edits the *active* catalog version in place (audited); historical quote lines
+  keep their copied prices. There is no "create a new catalog version from the ERP" automation.
+- Stock snapshots are append-only and unbounded (no compaction job yet); the staleness window is one setting per deployment.
+- KPIs are computed on request without caching; the date range is capped at three years. Response time uses the first
+  submitted quote per RFQ; processing time the first approval per quote.
+- FX rates are manually maintained reporting rates per tenant; no rate feed is consulted. Converted figures use the
+  latest rate on or before the quote date (pending value: today's date).
+- Product CSV *import* is the Stage 1 catalog import (versioned, mapped, reported); the Stage 3 import endpoint covers
+  customers and orders. Imported orders are always `proposed` and need confirmation.
+- Repeat-order proposals use a median-interval heuristic (≥2 confirmed orders of a SKU; next date within 14 days);
+  cross-sell proposals are not implemented. Prices come from the active catalog or, explicitly labelled, the last order.
+- Deletion requests cover customers (with their contacts, drafts and RFQ text). Quotes and orders are kept with a
+  pseudonymised customer for commercial record-keeping; uploaded RFQ files are not deleted by the purge job yet.
+- Order numbers are per tenant (`SO-YYYY-NNNNN`); there is no year roll-over reset of the sequence.
+
+## Stage 4
 Not implemented; designs and backlogs exist (ROADMAP.md, PRD.md, LLD.md).

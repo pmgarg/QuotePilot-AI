@@ -13,6 +13,18 @@ from app.models.followup import (
     MessageTemplate,
     QuoteStatusEvent,
 )
+from app.models.intelligence import (
+    ConnectorConnection,
+    DeletionRequest,
+    FxRate,
+    Order,
+    OrderEvent,
+    OrderLine,
+    OrderProposal,
+    StockSnapshot,
+    SyncConflict,
+    SyncRun,
+)
 from app.models.org import Membership, Organization, User, UserSession
 from app.models.quote import ApprovalDecision, Quote, QuoteLine, QuoteVersion
 from app.models.rfq import RFQ, MatchCandidate, RFQItem
@@ -20,6 +32,16 @@ from app.models.rfq import RFQ, MatchCandidate, RFQItem
 __all__ = [
     "RFQ",
     "CommunicationDraft",
+    "ConnectorConnection",
+    "DeletionRequest",
+    "FxRate",
+    "Order",
+    "OrderEvent",
+    "OrderLine",
+    "OrderProposal",
+    "StockSnapshot",
+    "SyncConflict",
+    "SyncRun",
     "CommunicationEvent",
     "Contact",
     "FollowUpPolicy",

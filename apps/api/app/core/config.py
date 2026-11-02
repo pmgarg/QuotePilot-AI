@@ -64,6 +64,11 @@ class Settings(BaseSettings):
     smtp_use_tls: bool = True
     smtp_from_email: str | None = None
     followup_worker_id: str = "worker-1"
+    # Stage 3
+    stock_stale_after_hours: int = 24
+    retention_grace_days: int = 30
+    max_import_rows: int = 10_000
+    max_sync_records: int = 5_000
 
     @field_validator("cors_origins", mode="before")
     @classmethod

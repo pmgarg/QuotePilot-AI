@@ -20,7 +20,7 @@ router = APIRouter(prefix="/customers", tags=["customers"])
 def list_customers(
     principal: PrincipalDep, db: DB, q: str | None = Query(default=None, max_length=100)
 ) -> list[CustomerOut]:
-    stmt = select(Customer).where(Customer.organization_id == principal.org_id)
+    stmt = select(Customer).where(Customer.organization_id == principal.org_id, Customer.deleted_at.is_(None))
     q = clean_param(q)
     if q:
         like = f"%{q.replace('%', r'\%').replace('_', r'\_')}%"

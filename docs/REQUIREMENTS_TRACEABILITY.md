@@ -43,13 +43,23 @@ from recorded evidence in `docs/evidence/`.
 | SEC-headers/CSRF/cookies | SECURITY_POLICY | `main.py` middleware, `api/deps.py::csrf_protect` | security/test_rbac_csrf_headers | pass |  | review 2: see RELEASE_GATES.md (round 4 fixes pending review 3) | | IMPLEMENTED |
 | NFR CI | ADR-014 | `.github/workflows/ci.yml`, `security.yml` | not yet observed on GitHub | pending first push |  | review 2: see RELEASE_GATES.md (round 4 fixes pending review 3) | | PARTIAL |
 
-## Stage 2 (designed)
-| requirement_id | design_reference | status |
-|---|---|---|
-| S2-F01..F11, S2-A01..A08 | PRD §Stage 2, LLD §Stage 2, DATA_MODEL later tables, ADR-012 | NOT STARTED |
+## Stage 2 (implemented on `claude/stage2-followup-assistant`; gate pending)
+| requirement_id | design_reference | code_reference | test_id | test_result/evidence | security_check | reviewer_verdict | open_issue | status |
+|---|---|---|---|---|---|---|---|---|
+| S2-F01..F11, S2-A01..A08 | PRD §Stage 2, LLD §Stage 2, DATA_MODEL Stage 2 tables, ADR-012 (PostgreSQL queue) | `services/lifecycle.py`, `services/followup/*`, `services/comms/*`, `services/jobs/queue.py`, `workers/runner.py`, `routers/followup.py`, migration 0006 | integration/test_stage2_followup.py (12), e2e stage2-followup.spec.ts (3) | implementer-stage2 evidence (local green) | pending independent audit | pending | QA + security + review not yet run | IMPLEMENTED (not VERIFIED) |
 
-## Stage 3 (designed)
-| S3-F01..F08, S3-A01..A09 | PRD §Stage 3, LLD §Stage 3 | NOT STARTED |
+## Stage 3 (implemented on `claude/stage3-customer-order-intelligence`; gate pending)
+| requirement_id | design_reference | code_reference | test_id | test_result/evidence | security_check | reviewer_verdict | open_issue | status |
+|---|---|---|---|---|---|---|---|---|
+| S3-F01 profiles, role-aware cost visibility | PRD §Stage 3, API_CONTRACT profiles | `routers/intelligence.py::customer_profile` | test_stage3_intelligence::test_repeat_order_proposal_has_evidence_and_full_audit_trail (profile stats) | implementer-stage3 evidence | S3-A02 asserted in API | pending | | IMPLEMENTED |
+| S3-F02 quote→order with approval; order events | ADR-003 server authz, DATA_MODEL orders | `services/intelligence/orders.py` | test_quote_to_order_requires_separate_confirmation, test_self_proposed_order_cannot_be_self_confirmed, test_unapproved_quote_cannot_become_order; e2e S3-F02 | implementer-stage3 | separation of duties, 403/409 matrix | pending | | IMPLEMENTED |
+| S3-F03 / S3-A08 repeat-order assistant | PRD §Stage 3 | `services/intelligence/repeat_orders.py` | test_repeat_order_proposal_has_evidence_and_full_audit_trail | implementer-stage3 | own-history only; audit trail asserted | pending | | IMPLEMENTED |
+| S3-F04 / S3-A01 / S3-A03 KPIs with definitions, range, currency rule | API_CONTRACT kpis, `kpis.DEFINITIONS` | `services/intelligence/{kpis,fx}.py` | test_kpis_match_fixture_and_apply_currency_rule; e2e S3-F04 | implementer-stage3 | FX table owner/admin only | pending | | IMPLEMENTED |
+| S3-F05 / S3-A06 / S3-A07 CSV import/export, formula-safe, partial recovery | X-07 export rules | `services/intelligence/data_io.py` | test_bulk_export_is_role_gated_audited_and_formula_safe, test_partial_import_recovery | implementer-stage3 | 403 + `export.denied` audit asserted | pending | product import = catalog import | IMPLEMENTED |
+| S3-F06 / S3-A04 connectors, scopes, idempotent sync, conflict queue | ADR connectors (push model) | `services/intelligence/connectors.py` | test_sync_conflicts_never_overwrite_master_data, test_connector_orders_arrive_as_proposed; e2e S3-F06 | implementer-stage3 | scope → 403; replay idempotent | pending | pull adapters not shipped | IMPLEMENTED |
+| S3-F07 / S3-A05 stock only from timestamped sources, stale labelled | PRD §Stage 3 | `services/intelligence/stock.py` | test_stock_is_only_claimed_from_timestamped_sources; e2e S3-F07 | implementer-stage3 | naive/future timestamps rejected | pending | | IMPLEMENTED |
+| S3-F08 retention: request → approve → soft delete → worker purge, legal hold, audit | PRIVACY_AND_RETENTION | `services/intelligence/retention.py`, `jobs/queue.py::purge_customer` | test_retention_workflow_soft_delete_then_worker_purge; e2e S3-F08 | implementer-stage3 | requester ≠ approver; hold blocks | pending | | IMPLEMENTED |
+| S3-A09 cross-tenant regression | X-01 | migration 0007 RLS policies | test_stage3_cross_tenant_ids_are_404_and_rls_holds, test_order_number_sequence_is_per_tenant | implementer-stage3 | 404 matrix + raw RLS + WITH CHECK | pending | | IMPLEMENTED |
 
 ## Stage 4 (designed)
 | S4-F01..F07, S4-A01..A09 | PRD §Stage 4, LLD §Stage 4, ADR-013 | NOT STARTED |

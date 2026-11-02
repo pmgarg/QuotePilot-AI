@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { useEffect, useState, type FormEvent } from "react";
 import { api, describeError } from "@/lib/api";
 import type { Customer } from "@/lib/types";
@@ -60,7 +62,7 @@ export default function CustomersPage() {
               <tbody>
                 {customers.map((c) => (
                   <tr key={c.id}>
-                    <td>{c.name}</td><td>{c.reference ?? "—"}</td><td>{c.email ?? "—"}</td><td>{c.default_currency ?? "—"}</td>
+                    <td><Link href={`/customers/${c.id}`} className="text-brand underline">{c.name}</Link></td><td>{c.reference ?? "—"}</td><td>{c.email ?? "—"}</td><td>{c.default_currency ?? "—"}</td>
                     <td>{can("edit_quotes") && <Button variant="ghost" onClick={() => setEditing(c)}>Edit</Button>} <Button variant="ghost" onClick={() => setExpanded(expanded === c.id ? null : c.id)} testId={`contacts-${c.reference ?? c.id}`}>{expanded === c.id ? "Hide contacts" : "Contacts"}</Button></td>
                   </tr>
                 ))}
