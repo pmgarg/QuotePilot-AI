@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 const HOP_BY_HOP = new Set(["connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade", "host", "content-length"]);
 // Client-controlled forwarding headers are never trusted. Set WEB_TRUST_FORWARDED_HEADERS=true only when this app
 // runs behind your own TLS reverse proxy that overwrites X-Forwarded-For (see docs/OPERATIONS_RUNBOOK.md).
-const FORWARDING = new Set(["x-forwarded-for", "x-forwarded-proto", "x-forwarded-host", "x-real-ip", "forwarded"]);
+const FORWARDING = new Set(["x-forwarded-for", "x-forwarded-proto", "x-forwarded-host", "x-forwarded-port", "x-real-ip", "forwarded"]);
 const trustForwarded = process.env.WEB_TRUST_FORWARDED_HEADERS === "true";
 
 function apiOrigin(): string {

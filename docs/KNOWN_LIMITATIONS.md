@@ -45,5 +45,25 @@
 - The margin blocker itself reveals *that* a price is below the floor; a Sales user probing discounts can infer the
   cost/(1 − floor) ratio for a line. Inherent to showing the blocker; accepted as Low.
 
+- **Catalog version pinning (O2-1).** A quote generated from an RFQ prices from the catalog version that was active
+  when the RFQ was parsed, for its whole life (every later version copies the pin). Ad-hoc quotes (`POST /quotes`,
+  or RFQs parsed before any catalog was active) price from the *current* active version. After an activation, an
+  ad-hoc draft keeps its old lines editable but cannot be submitted until each `catalog` line is re-linked to the new
+  list (`catalog_version_mismatch` blocker); RFQ-pinned quotes stay on their pinned list (an archived list remains the
+  authority for the RFQ it answered). Never-activated (imported-only) lists are never an authority on any route.
+- **Withdrawn documents on a quote with an open draft (O2-2).** The quote header stays `draft`; the withdrawn state
+  lives on the version rows (`versions[].status = withdrawn`) and is shown as an "Earlier document withdrawn" banner.
+  The list filter `status=withdrawn` shows only fully withdrawn quotes. A pending version made obsolete by a
+  withdrawal is `superseded` and can still be previewed as a PDF labelled "WITHDRAWN" (O2-3; not an approved document).
+- **Platform-wide session revocation audit (NEW-15).** `scripts/revoke_sessions.py --user-email/--all` writes one
+  `ops.sessions_revoked` audit row per affected organisation (tenant-readable); the platform total is in each row's
+  `summary.total` and on stdout. There is no platform-scope audit table.
+- **CI e2e flake (I-3).** One PR-triggered `ci` run on 58976f3 failed in the browser job with symptoms of the web
+  server returning errors mid-suite (404/409 after successful creates, `ERR_ABORTED` navigations) while the push run of
+  the same commit was green. The trace artifact could not be downloaded from the development container (host blocked);
+  the specs now assert every intermediate API call with its response body so a recurrence is diagnosable. Both the
+  push- and the PR-triggered runs must be green on the gated HEAD.
+
+
 ## Stage 2–4
 Not implemented; designs and backlogs exist (ROADMAP.md, PRD.md, LLD.md).

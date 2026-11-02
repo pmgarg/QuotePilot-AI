@@ -409,10 +409,19 @@ def update_item(
             )
             if product is None:
                 raise NotFoundError("Product not found")
-            if rfq.catalog_version_id and product.catalog_version_id != rfq.catalog_version_id:
-                raise ValidationFailed(
-                    "Product belongs to a different catalog version than this RFQ was matched against."
-                )
+            if rfq.catalog_version_id:
+                if product.catalog_version_id != rfq.catalog_version_id:
+                    raise ValidationFailed(
+                        "Product belongs to a different catalog version than this RFQ was matched against."
+                    )
+            else:
+                # NEW-13: an RFQ parsed with no active catalog has no frozen version; only the *active* version
+                # may be selected (never an imported-but-inactive or archived list)
+                from app.services.catalog_import import active_version_for_org
+
+                active = active_version_for_org(db, rfq.organization_id)
+                if active is None or product.catalog_version_id != active.id:
+                    raise ValidationFailed("Product is not in the active catalog version.")
             item.selected_product_id = product.id
             item.match_status = "resolved"
             item.is_custom = False

@@ -37,13 +37,18 @@ services:
 
   api:
     build: { context: ../apps/api, dockerfile: Dockerfile }
-    env_file: ../.env
+    # No env_file here (NEW-16): the API container receives an explicit allow-list of variables, so the owner
+    # role's password and the migration DSN never enter its environment (review 2, L2-2). Add optional provider
+    # settings (SMTP_*, ANTHROPIC_API_KEY, TOKEN_ENCRYPTION_KEY) by name when you enable those features.
     environment:
-      # runtime role only — the owner role (migrations) is never given to the API container (review 2, L2-2)
+      APP_ENV: ${APP_ENV:-production}
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env}
       DATABASE_URL: postgresql+psycopg://quotepilot_app:${QP_APP_PASSWORD:-quotepilot_app}@postgres:5432/quotepilot
       DATABASE_ADMIN_URL: ""
       STORAGE_DIR: /data/storage
       CORS_ORIGINS: http://localhost:3000
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-}
+      AI_PROVIDER: ${AI_PROVIDER:-disabled}
     volumes:
       - storage:/data/storage
     depends_on:

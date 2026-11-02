@@ -119,15 +119,48 @@ def _recompute(version: QuoteVersion, org: Organization, currency: str) -> None:
         raise ValidationFailed(f"Quote totals exceed the supported maximum of {MAX_TOTAL:f} {currency}")
 
 
+def stale_catalog_lines(db: Session, org: Organization, version: QuoteVersion) -> set[int]:
+    """Line numbers priced `catalog` from a product outside the quote's pricing version (NEW-13): happens to
+    ad-hoc quotes when a new catalog version is activated after the line was linked."""
+    pids = [ln.product_id for ln in version.lines if ln.product_id is not None and ln.price_source == "catalog"]
+    if not pids:
+        return set()
+    allowed = _pricing_catalog_version_id(db, org, version)
+    versions: dict[uuid.UUID, uuid.UUID] = {
+        pid: cv for pid, cv in db.execute(select(Product.id, Product.catalog_version_id).where(Product.id.in_(pids)))
+    }
+    return {
+        ln.line_no
+        for ln in version.lines
+        if ln.product_id is not None and ln.price_source == "catalog" and versions.get(ln.product_id) != allowed
+    }
+
+
 def compute_blockers(
-    quote: Quote, version: QuoteVersion, org: Organization, *, reveal_margin: bool = True
+    quote: Quote,
+    version: QuoteVersion,
+    org: Organization,
+    *,
+    reveal_margin: bool = True,
+    db: Session | None = None,
 ) -> list[Blocker]:
     """Server-side submission blockers. `reveal_margin=False` produces messages without margin figures or the
-    confidential floor (for roles without VIEW_COSTS)."""
+    confidential floor (for roles without VIEW_COSTS). With `db`, catalog lines are also checked against the
+    quote's pricing catalog version."""
     blockers: list[Blocker] = []
     if not version.lines:
         blockers.append(Blocker("no_lines", "Quote has no lines"))
+    stale = stale_catalog_lines(db, org, version) if db is not None else set()
     for line in version.lines:
+        if line.line_no in stale:
+            blockers.append(
+                Blocker(
+                    "catalog_version_mismatch",
+                    f"Line {line.line_no} is priced from a catalog version that is no longer this quote's price "
+                    "list; re-link the product to the active catalog",
+                    line.line_no,
+                )
+            )
         if line.product_id is None and not line.is_custom:
             blockers.append(
                 Blocker(
@@ -432,13 +465,19 @@ def update_draft(
                     product = db.scalar(select(Product).where(Product.id == pid, Product.organization_id == org.id))
                     if product is None:
                         raise NotFoundError("Product not found")
-                    # N2-1 variant B: only products of the pricing catalog version may be linked (no archived or
-                    # merely-imported versions; inactive price lists are never a price authority)
-                    allowed_version = _pricing_catalog_version_id(db, org, version)
-                    if allowed_version is None or product.catalog_version_id != allowed_version:
-                        raise ValidationFailed(
-                            "Product is not in the active catalog version used for this quote", line_no=n
-                        )
+                    link_changed = product.id != before_product
+                    # N2-1 variant B: only products of the pricing catalog version may be *linked* (no archived or
+                    # merely-imported versions; inactive price lists are never a price authority). Untouched lines
+                    # re-sent by the editor are not re-validated here (D2-2); a line whose product has since left
+                    # the pricing version is reported by the `catalog_version_mismatch` blocker instead (NEW-13).
+                    if link_changed:
+                        allowed_version = _pricing_catalog_version_id(db, org, version)
+                        if allowed_version is None or product.catalog_version_id != allowed_version:
+                            raise ValidationFailed(
+                                "Product is not in the catalog version this quote prices from "
+                                "(the RFQ's version, or the active version for ad-hoc quotes)",
+                                line_no=n,
+                            )
                     line.product_id = product.id
                     line.sku = product.sku
                     if not payload.get("description"):
@@ -447,7 +486,11 @@ def update_draft(
                     line.is_custom = False
                     if product.currency == quote.currency:
                         line.cost_price = product.cost_price
-                        if payload.get("unit_price") is None:
+                        reset_price = "unit_price" in payload and payload["unit_price"] is None
+                        if link_changed or line.price_source == "catalog" or reset_price:
+                            # (re)price from the catalog; an identical price re-sent by the editor keeps the
+                            # `catalog` provenance (D2-1 / NEW-17), a different price becomes manual below, and an
+                            # explicit `unit_price: null` on a linked line restores the catalog price
                             line.unit_price = product.list_price
                             line.price_source = "catalog"
                     else:
@@ -465,8 +508,12 @@ def update_draft(
             if "unit" in payload and payload["unit"]:
                 line.unit = str(payload["unit"])[:16]
             if "unit_price" in payload and payload["unit_price"] is not None:
-                line.unit_price = Decimal(str(payload["unit_price"]))
-                line.price_source = "manual"
+                new_price = Decimal(str(payload["unit_price"]))
+                if line.price_source == "catalog" and line.unit_price is not None and new_price == line.unit_price:
+                    pass  # unchanged catalog price re-sent by the editor: provenance stays `catalog` (D2-1)
+                else:
+                    line.unit_price = new_price
+                    line.price_source = "manual"
             if "discount_pct" in payload and payload["discount_pct"] is not None:
                 line.discount_pct = Decimal(str(payload["discount_pct"]))
             if "tax_rate_pct" in payload and payload["tax_rate_pct"] is not None:
@@ -576,7 +623,7 @@ def submit(
         raise StateError(f"Version is '{version.status}', not draft")
     if effective_status(quote) in ("withdrawn",):
         raise StateError("Withdrawn quotes cannot be submitted; create a new version")
-    blockers = compute_blockers(quote, version, org, reveal_margin=reveal_margin)
+    blockers = compute_blockers(quote, version, org, reveal_margin=reveal_margin, db=db)
     if blockers:
         raise BlockedError("Quote cannot be submitted", blockers=[b.as_dict() for b in blockers])
     _check_lock(db, quote, expected_lock_version)
@@ -623,7 +670,7 @@ def approve(
         )
     if quote.valid_until and quote.valid_until < date.today():  # noqa: DTZ011
         raise StateError("Quote validity date has passed; update the validity before approving")
-    blockers = [b for b in compute_blockers(quote, version, org) if b.code != "validity_expired"]
+    blockers = [b for b in compute_blockers(quote, version, org, db=db) if b.code != "validity_expired"]
     if blockers:
         raise BlockedError("Quote has blockers", blockers=[b.as_dict() for b in blockers])
     _check_lock(db, quote, expected_lock_version)
@@ -632,6 +679,7 @@ def approve(
     version.approved_by = actor_user_id
     version.approved_at = now
     quote.status = "approved"
+    quote.withdrawn_reason = None  # D2-5: the withdrawal concerned earlier documents; this one is live
     version.document_snapshot = build_document_snapshot(db, org, quote, version)
     db.add(
         ApprovalDecision(

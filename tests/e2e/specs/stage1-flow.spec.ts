@@ -151,7 +151,7 @@ test.describe("S1-A20 RFQ → review → quote → approval → PDF", () => {
       data: { expected_lock_version: q.lock_version, lines: [{ description: payload, quantity: "1", unit_price: "1", is_custom: true }] },
       headers: { "X-CSRF-Token": (await page.context().cookies()).find((c) => c.name === "qp_csrf")!.value },
     });
-    expect(patched.status()).toBe(200);
+    expect(patched.status(), `${patched.url()} → ${await patched.text()}`).toBe(200);
     await page.goto(`/quotes/${q.id}`);
     await expect(page.getByTestId("quote-line-1")).toBeVisible();
     await expect(page.locator('input[aria-label="Description 1"]')).toHaveValue(payload);

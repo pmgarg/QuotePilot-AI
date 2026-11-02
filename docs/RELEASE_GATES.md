@@ -41,6 +41,17 @@ Full report: `docs/evidence/release-review-2-stage1-2026-11-01.md`. All review-1
 blocked on N2-1 (editor product re-link pricing bypass) and N2-2 (withdrawal of older approved versions) — both fixed
 in round 4 (`implementer-fixes4-stage1-2026-11-01.md`) pending release review 3.
 
+## Re-verification after fix round 4 (independent, on 58976f3) and fix round 5
+- QA re-verification 2 (`qa-stage1-reverify2-2026-11-01.md`): N2-1 A/B, N2-2 (API), R-1..R-5, L2-1 confirmed fixed;
+  defects **D2-1 High** (editor save relabels catalog lines manual), D2-2/D2-3/D2-4 Medium, D2-5 Low; 16 API + 5
+  browser tests added; recommendation "release review 3 must not proceed as PASS on 58976f3".
+- Security re-verification 2 (`security-stage1-reverify2-2026-11-01.md`): NEW-3/5/7/8, N2-1 A, N2-2 fixed; new
+  **NEW-17 Medium** (= D2-1), NEW-13/14/15/16 Low, I-1, I-3 (one PR-triggered CI e2e run failed on the same HEAD).
+- Fix round 5 (`implementer-fixes5-stage1-2026-11-02.md`): D2-1..D2-5, NEW-13..NEW-17, I-1 fixed with the agents'
+  own tests as regression gates; migration `0005b` added; I-3 mitigated and left open (trace artifact unreachable
+  from the container). Local: 329 API tests + 26 browser tests green. Gate stays **INCOMPLETE** until both CI runs
+  are green on the new HEAD and release review 3 records its verdict.
+
 ## Human actions required
 - Enable branch protection on `main` requiring checks `api`, `web`, `e2e`, `security` and one review (repository settings → Branches).
 - Sign any risk acceptance in this file with name, date and rationale. Documented Lows awaiting acknowledgement:
