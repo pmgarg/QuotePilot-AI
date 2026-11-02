@@ -90,8 +90,17 @@ HTTP 409
 ```
 
 ## Stage 2–4 endpoints (designed)
-- Stage 2: `/contacts`, `/follow-up/policies`, `/follow-up/schedules{,/{id}/cancel}`, `/quotes/{id}/transition`,
-  `/drafts{,/{id}/send}`, `/integrations{,/{id}/revoke}`, `/jobs/dead-letters`, `/timeline?quote_id|customer_id`.
+- Stage 2 (implemented): `GET/POST /customers/{id}/contacts`, `PATCH /contacts/{id}`, `POST /contacts/{id}/opt-out`
+  (opt-in is owner/admin only); `GET/PATCH /follow-up/policy` (automation consent owner/admin, audited);
+  `GET /follow-up/templates`, `PATCH /follow-up/templates/{id}` (whitelisted placeholders, plain text);
+  `POST /quotes/{id}/transition` `{expected_lock_version,to_status,evidence?,occurred_at?}` (evidence mandatory for
+  acknowledged/won/lost); `GET /quotes/{id}/lifecycle` (status, allowed transitions, events, recommendation with reasons,
+  contacts, drafts, schedules, timeline); `POST /quotes/{id}/drafts`, `GET /drafts`, `GET/PATCH /drafts/{id}`,
+  `POST /drafts/{id}/send` (explicit, CSRF, sales+; 403 `opt_out`, 429 hourly limit, 400/503 provider errors),
+  `POST /drafts/{id}/cancel`; `GET /follow-up/schedules?status=`, `POST …/{id}/cancel`, `POST …/{id}/reschedule`,
+  `POST /quotes/{id}/follow-up/plan`; `GET /communication-events`; `GET /jobs`, `POST /jobs/{id}/retry`,
+  `POST /jobs/run-once` (non-production); `GET/POST /integrations`, `POST /integrations/{id}/revoke`,
+  `POST /integrations/sync-inbound`, `POST /integrations/simulator/inbound` (non-production).
 - Stage 3: `/orders{,/{id}/events}`, `/kpis?from&to&currency`, `/imports`, `/exports` (role-aware), `/connectors`,
   `/sync/conflicts{,/{id}/resolve}`, `/stock/{product_id}`, `/deletion-requests`.
 - Stage 4: `/assistant/sessions{,/{id}/messages}`, `/tools` (allowed list), `/workflows{,/{id}/versions,/{id}/dry-run,/{id}/runs}`,

@@ -30,6 +30,15 @@ Redis (Stage 2+), worker container (Stage 2+). Separate `staging` and `productio
 `COOKIE_SECURE`, limits. Web: `API_INTERNAL_URL`, `WEB_TRUST_FORWARDED_HEADERS` (set `true` only behind your own
 reverse proxy that overwrites `X-Forwarded-For`; the API container runs uvicorn with `--proxy-headers`).
 
+### Stage 2 worker
+`cd apps/api && uv run python -m app.workers.runner --interval 30` (or `--once`). It needs the app DB role only.
+`TOKEN_ENCRYPTION_KEY` (base64, 32 random bytes: `python -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())"`)
+is required before any secret-bearing integration (SMTP password, future OAuth tokens) can be stored. SMTP settings:
+`MAIL_PROVIDER_DEFAULT=smtp`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_USE_TLS`, `SMTP_FROM_EMAIL`.
+Gmail / Microsoft Graph: register an OAuth app with the minimal scopes (`gmail.send`, `gmail.readonly` or
+`Mail.Send`, `Mail.Read`), store client credentials only in the environment, and implement the adapter against the
+`MailProvider` protocol in `app/services/comms/providers.py`; no real credentials are used in this repository.
+
 ### Migrations
 `alembic upgrade head` as `DATABASE_ADMIN_URL` before deploying new API images; migrations are additive within a
 release; destructive changes in a follow-up release after backfill. Rollback: `alembic downgrade -1` + previous image.

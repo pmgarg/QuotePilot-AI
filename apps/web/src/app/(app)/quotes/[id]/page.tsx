@@ -7,6 +7,7 @@ import { date, dateTime, money, pct, qty } from "@/lib/format";
 import type { Blocker, History, Quote, QuoteLine } from "@/lib/types";
 import { useSession } from "@/components/session";
 import { Alert, BackLink, Badge, Button, Card, Field, inputClass, Loading, PageHeader } from "@/components/ui";
+import { FollowUpPanel } from "@/components/followup";
 
 type Draft = { id?: string; product_id?: string | null; sku?: string | null; description: string; quantity: string; unit: string; unit_price: string; discount_pct: string; tax_rate_pct: string; is_custom: boolean; price_source?: string; price_touched?: boolean };
 
@@ -236,6 +237,10 @@ export default function QuotePage() {
           </Card>
         </div>
       </div>
+
+      {["approved", "sent", "acknowledged", "awaiting_customer", "won", "lost", "expired"].includes(quote.effective_status) && (
+        <div className="mt-6"><FollowUpPanel quote={quote} onQuoteChanged={load} /></div>
+      )}
 
       <Card title="Audit history" className="mt-6">
         {!history ? <Loading /> : history.audit.length === 0 ? <p className="text-sm text-slate-600">No events.</p> : (
