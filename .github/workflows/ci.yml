@@ -97,6 +97,12 @@ jobs:
       - run: cd apps/web && npm ci && npm run build
       - run: cd tests/e2e && npm ci && npx playwright install --with-deps chromium
       - run: cd tests/e2e && npx playwright test
+      - name: Print page snapshots of failed browser tests (I-3 post-mortem aid)
+        if: failure()
+        run: |
+          for f in $(find tests/e2e/test-results -name error-context.md | head -20); do
+            echo "::group::$f"; cat "$f"; echo; echo "::endgroup::"
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: playwright-report, path: tests/e2e/playwright-report }

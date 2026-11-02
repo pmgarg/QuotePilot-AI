@@ -44,6 +44,8 @@ export default defineConfig({
       reuseExistingServer: false,
       timeout: 120_000,
       env: apiEnv,
+      stdout: process.env.CI ? "pipe" : "ignore", // access log in the CI job output for post-mortems (I-3)
+      stderr: "pipe",
     },
     {
       command: `npx next start --port ${WEB_PORT}`,
@@ -52,6 +54,8 @@ export default defineConfig({
       reuseExistingServer: false,
       timeout: 180_000,
       env: { ...process.env, API_INTERNAL_URL: `http://127.0.0.1:${API_PORT}`, PORT: String(WEB_PORT) },
+      stdout: process.env.CI ? "pipe" : "ignore",
+      stderr: "pipe",
     },
   ],
 });
