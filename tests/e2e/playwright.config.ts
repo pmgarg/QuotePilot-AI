@@ -19,7 +19,10 @@ const apiEnv = {
   STORAGE_DIR: path.join(ROOT, "var/e2e-storage"),
   CORS_ORIGINS: `http://localhost:${WEB_PORT}`,
   DEMO_PASSWORD,
-  LOG_LEVEL: "WARNING",
+  // CI keeps the API's JSON request log (method, path, status, request id) in the job output for post-mortems (I-3);
+  // Python buffers stdout when piped, so the buffer must be disabled or nothing appears before exit.
+  LOG_LEVEL: process.env.CI ? "INFO" : "WARNING",
+  PYTHONUNBUFFERED: "1",
 };
 
 export default defineConfig({
