@@ -37,13 +37,18 @@ services:
 
   api:
     build: { context: ../apps/api, dockerfile: Dockerfile }
-    env_file: ../.env
+    # No env_file here (NEW-16): the API container receives an explicit allow-list of variables, so the owner
+    # role's password and the migration DSN never enter its environment (review 2, L2-2). Add optional provider
+    # settings (SMTP_*, ANTHROPIC_API_KEY, TOKEN_ENCRYPTION_KEY) by name when you enable those features.
     environment:
-      # runtime role only — the owner role (migrations) is never given to the API container (review 2, L2-2)
+      APP_ENV: ${APP_ENV:-production}
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env}
       DATABASE_URL: postgresql+psycopg://quotepilot_app:${QP_APP_PASSWORD:-quotepilot_app}@postgres:5432/quotepilot
       DATABASE_ADMIN_URL: ""
       STORAGE_DIR: /data/storage
       CORS_ORIGINS: http://localhost:3000
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-}
+      AI_PROVIDER: ${AI_PROVIDER:-disabled}
     volumes:
       - storage:/data/storage
     depends_on:
@@ -59,11 +64,23 @@ services:
   worker:
     build: { context: ../apps/api, dockerfile: Dockerfile }
     command: ["python", "-m", "app.workers.runner", "--interval", "30"]
-    env_file: ../.env
+    # Same allow-list discipline as `api` (NEW-16): the worker runs as the app role (RLS enforced) and never holds
+    # the owner DSN or password. Provider secrets are decrypted with TOKEN_ENCRYPTION_KEY only.
     environment:
+      APP_ENV: ${APP_ENV:-production}
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env}
       DATABASE_URL: postgresql+psycopg://quotepilot_app:${QP_APP_PASSWORD:-quotepilot_app}@postgres:5432/quotepilot
-      DATABASE_ADMIN_URL: postgresql+psycopg://quotepilot_owner:${QP_OWNER_PASSWORD:-quotepilot_owner}@postgres:5432/quotepilot
+      DATABASE_ADMIN_URL: ""
       STORAGE_DIR: /data/storage
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:-}
+      MAIL_PROVIDER_DEFAULT: ${MAIL_PROVIDER_DEFAULT:-simulator}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-}
+      FOLLOWUP_WORKER_ID: ${FOLLOWUP_WORKER_ID:-worker-1}
     volumes:
       - storage:/data/storage
     depends_on:

@@ -40,11 +40,7 @@ def upgrade() -> None:
     op.execute("CREATE TRIGGER trg_sessions_identity BEFORE UPDATE ON sessions FOR EACH ROW EXECUTE FUNCTION qp_guard_identity_columns()")
     op.execute("DROP TRIGGER IF EXISTS trg_users_identity ON users")
     op.execute("CREATE TRIGGER trg_users_identity BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION qp_guard_identity_columns()")
-    # L2-5: approved versions of quotes withdrawn before the per-version status existed are withdrawn too
-    op.execute(
-        "UPDATE quote_versions v SET status = 'withdrawn' FROM quotes q "
-        "WHERE v.quote_id = q.id AND q.withdrawn_reason IS NOT NULL AND v.status = 'approved'"
-    )
+    # L2-5 data fix moved to 0005b: under FORCE ROW LEVEL SECURITY the owner role saw no rows here (D2-3)
 
 
 def downgrade() -> None:

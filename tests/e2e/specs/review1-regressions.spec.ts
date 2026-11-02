@@ -32,9 +32,11 @@ test.describe("Release review 1 regressions", () => {
     expect(approved.status).toBe("approved");
     const pdf1 = await (await page.request.get(`/api/v1/quotes/${q.id}/versions/1/pdf`)).body();
     // sales creates v2 and tries to push validity into the far future
-    const v2 = await (await page.request.post(`/api/v1/quotes/${q.id}/versions`, { data: { expected_lock_version: approved.lock_version }, headers: { "X-CSRF-Token": token } })).json();
+    const v2Res = await page.request.post(`/api/v1/quotes/${q.id}/versions`, { data: { expected_lock_version: approved.lock_version }, headers: { "X-CSRF-Token": token } });
+    expect(v2Res.status(), await v2Res.text()).toBe(201);
+    const v2 = await v2Res.json();
     const patched = await page.request.patch(`/api/v1/quotes/${q.id}`, { data: { expected_lock_version: v2.lock_version, valid_until: "2099-12-31" }, headers: { "X-CSRF-Token": token } });
-    expect(patched.status()).toBe(200);
+    expect(patched.status(), await patched.text()).toBe(200);
     const pdf1Again = await (await page.request.get(`/api/v1/quotes/${q.id}/versions/1/pdf`)).body();
     expect(Buffer.compare(pdf1, pdf1Again)).toBe(0);
     expect(pdf1Again.toString("latin1")).not.toContain("2099-12-31");

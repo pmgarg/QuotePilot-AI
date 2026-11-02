@@ -34,9 +34,9 @@ Tenant-miss → 404. Role denial → 403. State/concurrency → 409. Validation 
 | POST | /rfqs/{id}/generate-quote | sales+ | creates quote v1 from resolved items → `{quote}` (409 with blockers if unresolved) |
 | GET | /quotes?q=&status=&customer_id= | any | list/search |
 | POST | /quotes | sales+ | create empty draft quote `{customer_id, currency?}` |
-| GET | /quotes/{id} | any | header + current version + lines + blockers + history summary |
-| PATCH | /quotes/{id} | sales+ | edit current draft version `{expected_lock_version, valid_until?, notes?, terms?, lines:[...]}` |
-| POST | /quotes/{id}/submit | sales+ | `{expected_lock_version}` → pending_approval or 409 blockers |
+| GET | /quotes/{id} | any | header + current version + lines + blockers + history summary. `withdrawn_reason` is cleared when a later version is approved; withdrawn documents are visible as `versions[].status = withdrawn` |
+| PATCH | /quotes/{id} | sales+ | edit current draft version `{expected_lock_version, valid_until?, notes?, terms?, lines:[...]}`. Line semantics: `unit_price` equal to a `catalog` line's current price keeps `price_source=catalog` (omit it for untouched lines); a different price makes the line `manual` (needs owner/admin confirmation); changing `product_id` is only accepted for products of the quote's pricing catalog version (422 otherwise); untouched lines are never re-validated on save |
+| POST | /quotes/{id}/submit | sales+ | `{expected_lock_version}` → pending_approval or 409 blockers. Blocker codes: `no_lines`, `line_unresolved`, `missing_price`, `manual_price_unconfirmed`, `below_min_margin`, `catalog_version_mismatch` (catalog line priced from a list that is no longer this quote's price list — re-link it), `validity_expired` |
 | POST | /quotes/{id}/approve | owner, admin, approver | `{expected_lock_version, reason?}`; SoD enforced |
 | POST | /quotes/{id}/reject | owner, admin, approver | `{expected_lock_version, reason}` |
 | POST | /quotes/{id}/withdraw | owner, admin, approver | `{expected_lock_version, reason}` — withdraws EVERY approved version (status `withdrawn`, never exportable); allowed while a newer draft is open (the draft stays editable) |

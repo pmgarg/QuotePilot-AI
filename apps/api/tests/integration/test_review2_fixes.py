@@ -64,7 +64,7 @@ def test_n2_1b_products_from_inactive_catalog_versions_cannot_be_linked(app, ten
         f"/quotes/{q['id']}",
         json={"expected_lock_version": q["lock_version"], "lines": [{"id": ln["id"], "product_id": bogus["id"]}]},
     )
-    assert r.status_code == 422 and "active catalog version" in r.text
+    assert r.status_code == 422 and "catalog version this quote prices from" in r.text  # O2-4: message corrected
     q2 = sales.get(f"/quotes/{q['id']}").json()
     assert q2["current_version"]["lines"][0]["unit_price"] == "0.85"  # unchanged, atomic refusal
     # archived versions are refused as well

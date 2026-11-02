@@ -83,6 +83,7 @@ def quote_out(db: DB, principal: Principal, quote: Quote) -> QuoteOut:
                     current,
                     principal.organization,
                     reveal_margin=has_permission(principal.role, Permission.VIEW_COSTS),
+                    db=db,
                 )
             ],
             "versions": [_version_out(principal, quote, v) for v in quote.versions],

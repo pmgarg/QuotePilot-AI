@@ -53,13 +53,30 @@ def main() -> int:
         else:
             res = conn.execute(text("UPDATE sessions SET revoked_at = now() WHERE revoked_at IS NULL"))
             scope = "all"
-        conn.execute(
-            text(
-                "INSERT INTO audit_events (organization_id, actor_user_id, action, entity_type, summary) "
-                "VALUES (:o, NULL, 'ops.sessions_revoked', 'session', CAST(:s AS jsonb))"
-            ),
-            {"o": args.org, "s": json.dumps({"scope": scope, "count": res.rowcount})},
-        )
+        # NEW-15: audit rows are tenant-scoped (RLS hides organization_id IS NULL from every product role), so a
+        # user- or platform-wide revocation writes one row per affected organisation; the platform-scope total
+        # is also logged to stdout for the operator's incident record.
+        if args.org:
+            affected = [(args.org, res.rowcount)]
+        else:
+            affected = [
+                (str(o), int(n))
+                for o, n in conn.execute(
+                    text(
+                        "SELECT organization_id, count(*) FROM sessions "
+                        "WHERE revoked_at = now() GROUP BY organization_id"
+                    )
+                )
+            ]
+        for org_id, n in affected:
+            conn.execute(text("SELECT set_config('app.current_org', :o, true)"), {"o": org_id})
+            conn.execute(
+                text(
+                    "INSERT INTO audit_events (organization_id, actor_user_id, action, entity_type, summary) "
+                    "VALUES (:o, NULL, 'ops.sessions_revoked', 'session', CAST(:s AS jsonb))"
+                ),
+                {"o": org_id, "s": json.dumps({"scope": scope, "count": n, "total": res.rowcount})},
+            )
     print(f"revoked {res.rowcount} session(s)")
     return 0
 

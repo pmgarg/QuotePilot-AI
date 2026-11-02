@@ -9,10 +9,10 @@ import { useSession } from "@/components/session";
 import { Alert, BackLink, Badge, Button, Card, Field, inputClass, Loading, PageHeader } from "@/components/ui";
 import { FollowUpPanel } from "@/components/followup";
 
-type Draft = { id?: string; product_id?: string | null; sku?: string | null; description: string; quantity: string; unit: string; unit_price: string; discount_pct: string; tax_rate_pct: string; is_custom: boolean };
+type Draft = { id?: string; product_id?: string | null; sku?: string | null; description: string; quantity: string; unit: string; unit_price: string; discount_pct: string; tax_rate_pct: string; is_custom: boolean; price_source?: string; price_touched?: boolean };
 
 function toDraft(l: QuoteLine): Draft {
-  return { id: l.id, product_id: l.product_id, sku: l.sku, description: l.description, quantity: l.quantity, unit: l.unit, unit_price: l.unit_price ?? "", discount_pct: l.discount_pct, tax_rate_pct: l.tax_rate_pct, is_custom: l.is_custom };
+  return { id: l.id, product_id: l.product_id, sku: l.sku, description: l.description, quantity: l.quantity, unit: l.unit, unit_price: l.unit_price ?? "", discount_pct: l.discount_pct, tax_rate_pct: l.tax_rate_pct, is_custom: l.is_custom, price_source: l.price_source, price_touched: false };
 }
 
 export default function QuotePage() {
@@ -86,7 +86,7 @@ export default function QuotePage() {
         valid_until: validUntil || null,
         notes: notes || null,
         terms: terms || null,
-        lines: lines.map((l) => ({ id: l.id, product_id: l.product_id ?? null, sku: l.sku ?? null, description: l.description, quantity: l.quantity, unit: l.unit, unit_price: l.unit_price === "" ? null : l.unit_price, discount_pct: l.discount_pct, tax_rate_pct: l.tax_rate_pct, is_custom: l.is_custom })),
+        lines: lines.map((l) => ({ id: l.id, product_id: l.product_id ?? null, sku: l.sku ?? null, description: l.description, quantity: l.quantity, unit: l.unit, unit_price: l.unit_price === "" ? null : l.price_source === "catalog" && !l.price_touched ? undefined : l.unit_price, discount_pct: l.discount_pct, tax_rate_pct: l.tax_rate_pct, is_custom: l.is_custom })),
       };
       await api(`/quotes/${quote!.id}`, { method: "PATCH", json: payload });
       setNotice("Draft saved.");
@@ -105,6 +105,8 @@ export default function QuotePage() {
   }
 
   const approvedVersions = quote.versions.filter((v) => v.status === "approved");
+  const withdrawnVersions = quote.versions.filter((v) => v.status === "withdrawn");
+  const canWithdraw = approvedVersions.length > 0 || version.status === "pending_approval";
   return (
     <>
       <BackLink href="/quotes">All quotes</BackLink>
@@ -122,6 +124,7 @@ export default function QuotePage() {
       {notice && <div className="mb-4"><Alert kind="success" testId="quote-notice">{notice}</Alert></div>}
       {error && <div className="mb-4"><Alert kind="error" testId="quote-error">{error}</Alert></div>}
       {quote.status === "withdrawn" && <div className="mb-4"><Alert kind="warning" title="Withdrawn">{quote.withdrawn_reason}</Alert></div>}
+      {quote.status !== "withdrawn" && withdrawnVersions.length > 0 && <div className="mb-4"><Alert kind="warning" title="Earlier document withdrawn" testId="withdrawn-documents">Version{withdrawnVersions.length > 1 ? "s" : ""} {withdrawnVersions.map((v) => `v${v.version_no}`).join(", ")} {withdrawnVersions.length > 1 ? "were" : "was"} withdrawn{quote.withdrawn_reason ? `: ${quote.withdrawn_reason}` : ""}. Exports of withdrawn versions are refused.</Alert></div>}
       {(blockers ?? quote.blockers).length > 0 && (
         <div className="mb-4">
           <Alert kind="warning" title="Blockers (submission disabled until resolved)" testId="quote-blockers">
@@ -151,7 +154,7 @@ export default function QuotePage() {
                       <td>{canEdit ? <input aria-label={`Description ${i + 1}`} className={inputClass} value={l.description} onChange={(e) => updateLine(i, { description: e.target.value })} /> : l.description}{l.is_custom && <Badge value="custom" />}{saved?.price_source === "manual" && <Badge value="manual price" />}{saved?.margin_override_reason && <p className="text-xs text-amber-800">Price confirmed by owner/admin: {saved.margin_override_reason}</p>}</td>
                       <td>{canEdit ? <input aria-label={`Quantity ${i + 1}`} className={`${inputClass} w-20`} value={l.quantity} onChange={(e) => updateLine(i, { quantity: e.target.value })} inputMode="decimal" /> : qty(l.quantity)}</td>
                       <td>{l.unit}</td>
-                      <td>{canEdit ? <input aria-label={`Unit price ${i + 1}`} className={`${inputClass} w-28`} value={l.unit_price} placeholder="required" onChange={(e) => updateLine(i, { unit_price: e.target.value })} inputMode="decimal" data-testid={`unit-price-${i + 1}`} /> : money(l.unit_price || null, quote.currency)}</td>
+                      <td>{canEdit ? <input aria-label={`Unit price ${i + 1}`} className={`${inputClass} w-28`} value={l.unit_price} placeholder="required" onChange={(e) => updateLine(i, { unit_price: e.target.value, price_touched: true })} inputMode="decimal" data-testid={`unit-price-${i + 1}`} /> : money(l.unit_price || null, quote.currency)}</td>
                       <td>{canEdit ? <input aria-label={`Discount ${i + 1}`} className={`${inputClass} w-20`} value={l.discount_pct} onChange={(e) => updateLine(i, { discount_pct: e.target.value })} inputMode="decimal" data-testid={`discount-${i + 1}`} /> : pct(l.discount_pct)}</td>
                       <td>{canEdit ? <input aria-label={`Tax ${i + 1}`} className={`${inputClass} w-20`} value={l.tax_rate_pct} onChange={(e) => updateLine(i, { tax_rate_pct: e.target.value })} inputMode="decimal" /> : pct(l.tax_rate_pct)}</td>
                       <td className="text-right" data-testid={`line-total-${i + 1}`}>{saved && !dirty ? money(saved.line_total, quote.currency) : "…"}</td>
@@ -201,7 +204,7 @@ export default function QuotePage() {
               {version.status === "pending_approval" && can("approve_quote") && isSubmitter && !session?.organization.allow_self_approval && <Alert kind="info" testId="self-approval-blocked">You submitted this version, so another approver must decide (separation of duties).</Alert>}
               {version.status === "pending_approval" && !can("approve_quote") && <Alert kind="info">Waiting for an approver.</Alert>}
               {(quote.status === "approved" || quote.effective_status === "expired") && can("edit_quotes") && <Button variant="secondary" onClick={() => void action("/versions", {}, "New draft version created; the approved version remains in history.")} disabled={busy} testId="new-version">Create new version</Button>}
-              {(quote.status === "approved" || quote.status === "pending_approval") && can("withdraw_quote") && (
+              {canWithdraw && can("withdraw_quote") && (
                 <>
                   <Field label="Withdrawal reason" htmlFor="withdraw-reason"><input id="withdraw-reason" className={inputClass} value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
                   <Button variant="danger" onClick={() => void action("/withdraw", { reason }, "Quote withdrawn.")} disabled={busy || !reason.trim()}>Withdraw</Button>
