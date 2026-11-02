@@ -101,7 +101,27 @@ HTTP 409
   `POST /quotes/{id}/follow-up/plan`; `GET /communication-events`; `GET /jobs`, `POST /jobs/{id}/retry`,
   `POST /jobs/run-once` (non-production); `GET/POST /integrations`, `POST /integrations/{id}/revoke`,
   `POST /integrations/sync-inbound`, `POST /integrations/simulator/inbound` (non-production).
-- Stage 3: `/orders{,/{id}/events}`, `/kpis?from&to&currency`, `/imports`, `/exports` (role-aware), `/connectors`,
-  `/sync/conflicts{,/{id}/resolve}`, `/stock/{product_id}`, `/deletion-requests`.
+- Stage 3 (implemented): **Orders** `GET /orders?status&customer_id`, `GET /orders/{id}` (events + lines; `cost_price`
+  only with `view_costs`), `POST /quotes/{id}/orders` `{version_no?, notes?}` (sales+; approved version only; 409 if an
+  open order exists) → `proposed`; `POST /orders/{id}/confirm` (approve_order: owner/admin/approver; proposer may not
+  confirm own proposal unless `allow_self_approval`), `/fulfil` (sales+, confirmed only), `/cancel` `{reason}` (approve_order).
+  **Repeat orders** `POST /customers/{id}/order-proposals` → proposal or `null` (nothing to propose), `GET /order-proposals?status`,
+  `POST /order-proposals/{id}/approve|reject` `{reason?}` (approve_order; approval creates a *proposed* order priced from
+  the active catalog or, labelled, the last paid price). **KPIs** `GET /kpis?date_from&date_to` → metrics with
+  `definitions`, `reporting_currency`, `unconverted{currency: amount}`; `GET/POST /fx-rates` (POST manage_connectors).
+  **Data** `GET /data/export/{customers|orders|products}` (export_data = owner/admin/approver; sales/readonly 403 **and**
+  audited `export.denied`; formula-safe CSV; cost columns only with view_costs), `POST /data/import/{customers|orders}?idempotency_key=`
+  multipart CSV (import_data = owner/admin; per-row validation, partial apply, `report.failed_rows`),
+  `GET /data/runs`, `GET /data/runs/{id}/failed.csv` (fix-and-re-upload file). **Connectors** `GET/POST /connectors`
+  `{kind: erp_stub|csv, name, scopes ⊆ read:products|read:stock|read:orders|read:customers}`, `POST /connectors/{id}/sync`
+  `{entity, idempotency_key, records[]}` (push model, no outbound network; same key → same run; scope missing → 403),
+  `POST /connectors/{id}/disable`, `GET /sync-conflicts?status`, `POST /sync-conflicts/{id}/resolve`
+  `{resolution: keep_local|apply_remote|dismiss, note?}` (a `new` SKU cannot be applied — import a catalog version).
+  **Stock** `GET /stock?q` → per active-catalog product `{status: fresh|stale|unknown, quantity, observed_at, source, age_hours}`.
+  **Profiles** `GET /customers/{id}/profile` (contacts, quotes, orders, open proposals, stats; `avg_margin_pct` only with
+  view_costs). **Retention** `POST /retention/requests` `{customer_id, reason}` (sales+), `GET /retention/requests`,
+  `POST /retention/requests/{id}/approve|reject|legal-hold` (manage_retention = owner/admin; requester ≠ approver;
+  approval soft-deletes immediately — hidden from lists, follow-ups cancelled, contacts opted out — and the worker
+  purges after `RETENTION_GRACE_DAYS`).
 - Stage 4: `/assistant/sessions{,/{id}/messages}`, `/tools` (allowed list), `/workflows{,/{id}/versions,/{id}/dry-run,/{id}/runs}`,
   `/admin/kill-switch`, `/billing/plan`, `/admin/usage`.
