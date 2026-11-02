@@ -56,7 +56,8 @@ test.describe("Stage 3 — customer & order intelligence", () => {
     const { quote } = await approvedQuote(page, browser);
     await page.goto("/insights");
     await expect(page.getByTestId("kpi-grid")).toBeVisible();
-    await expect(page.getByTestId("kpi-pending_value")).toContainText(/AED/);
+    await expect(page.getByTestId("kpi-pending_value")).toContainText(/\d/);
+    await expect(page.getByText(/reporting currency AED/)).toBeVisible();
     await page.getByTestId("kpi-conversion_rate").getByText("Definition").click();
     await expect(page.getByTestId("kpi-conversion_rate")).toContainText(/terminal lifecycle state/);
     await expect(page.getByTestId("add-fx")).toHaveCount(0); // sales cannot maintain the FX table
@@ -79,9 +80,9 @@ test.describe("Stage 3 — customer & order intelligence", () => {
     await page.locator("#conn-name").fill(`ERP ${Date.now()}`);
     await page.getByLabel("read:products").check();
     const already = await page.getByTestId("connector-list").count();
-    if (already === 0 || !(await page.getByTestId("connector-list").textContent())?.includes("erp_stub")) {
+    if (already === 0 || !(await page.getByTestId("connector-list").textContent())?.includes("erp stub")) {
       await page.getByTestId("create-connector").click();
-      await expect(page.getByTestId("connector-list")).toContainText("erp_stub");
+      await expect(page.getByTestId("connector-list")).toContainText("erp stub");
     }
     const observed = new Date(Date.now() - 3600_000).toISOString();
     const stale = new Date(Date.now() - 72 * 3600_000).toISOString();
