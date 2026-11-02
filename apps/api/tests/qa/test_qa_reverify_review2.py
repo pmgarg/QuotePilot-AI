@@ -670,8 +670,10 @@ def _owner_sql(org_id: uuid.UUID, sql: str, params: dict[str, Any]) -> Any:
 
 
 def _replay_migration_0005() -> None:
+    """Re-apply the withdrawal data fix (moved to 0005b in round 5): step back to 0005, then upgrade to head again.
+    An explicit target (not `-1`) keeps the replay meaningful on later stages whose head is above 0005b."""
     env = {**os.environ}
-    for args in (["downgrade", "-1"], ["upgrade", "head"]):
+    for args in (["downgrade", "0005"], ["upgrade", "head"]):
         r = subprocess.run(
             [sys.executable, "-m", "alembic", *args], cwd=API_DIR, env=env, capture_output=True, text=True
         )
