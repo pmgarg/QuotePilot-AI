@@ -84,6 +84,26 @@ quote cannot be approved; withdrawn-documents banner and re-link browser tests);
 self-declared dead repro test removed. Independent QA and security re-verification on the round-6 HEAD and a fresh
 review (4) are required before PASS.
 
+## Independent re-verification 3 — Stage 1 @f69ac25 (2026-11-10)
+- QA (`qa-stage1-reverify3-2026-11-10.md`): migrations base → head → `downgrade 0005` → head exit 0; full API suite
+  330 passed; new QA module 17 passed; Playwright 32 passed, 1 skipped (incl. 4 new QA browser tests). D2-1..D2-5, R3-6
+  and R3-10 confirmed closed in API and browser. **No defects**; Info O3-1..O3-4.
+- Security (`security-stage1-reverify3-2026-11-10.md`, scan `scan-20261110-170807.md` naming f69ac25): NEW-13..NEW-17 and
+  I-1 re-tested against a running system and closed; compose rendered as documented, `check_compose.py` OK, fails
+  closed without `--env-file`; `tests/security` 97 passed, 2 strict xfail (Info). **No Critical/High/Medium/Low**;
+  Info R4-1 (revoke script writes the platform total into each tenant's row), R4-2 (`check_compose.py` passes vacuously
+  if a service is renamed), R4-3 (inline comments in `.env.example` become values for `migrate`), R4-4 (forwarding
+  filter is a blocklist; `X-Forwarded-Prefix` passes, no consumer), R4-5 (provenance of an auditor file not provable
+  byte-for-byte; diff matches the declared edits).
+
+### CI evidence for f69ac25 (GitHub Actions, queried 2026-11-10)
+| workflow | event | run id | conclusion |
+|---|---|---|---|
+| ci | push | 42861093431 | success |
+| ci | pull_request | 42861108149 | success |
+| security | push | 42861093454 | success |
+| security | pull_request | 42861108774 | success |
+
 ## Human actions required
 - Enable branch protection on `main` requiring checks `api`, `web`, `e2e`, `security` and one review (repository settings → Branches).
 - Sign any risk acceptance in this file with name, date and rationale. Documented Lows awaiting acknowledgement:
