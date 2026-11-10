@@ -8,6 +8,8 @@ import { Loading } from "@/components/ui";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard" },
+  { href: "/command-center", label: "Command center" },
+  { href: "/assistant", label: "Assistant" },
   { href: "/rfqs", label: "RFQs" },
   { href: "/quotes", label: "Quotes" },
   { href: "/follow-ups", label: "Follow-ups" },
@@ -15,6 +17,8 @@ const NAV = [
   { href: "/customers", label: "Customers" },
   { href: "/insights", label: "Insights" },
   { href: "/data", label: "Data & connectors" },
+  { href: "/workflows", label: "Workflows" },
+  { href: "/platform", label: "Plan & controls" },
   { href: "/catalog", label: "Catalog" },
   { href: "/settings", label: "Settings" },
 ];

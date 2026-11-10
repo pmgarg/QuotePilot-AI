@@ -69,6 +69,16 @@ class Settings(BaseSettings):
     retention_grace_days: int = 30
     max_import_rows: int = 10_000
     max_sync_records: int = 5_000
+    # Stage 4
+    platform_kill_switch: bool = False  # platform-wide: stops assistant turns and workflow steps everywhere
+    assistant_max_steps: int = 8  # tool steps per user message
+    assistant_max_turns: int = 50  # messages per session
+    workflow_max_steps: int = 8  # max workflow depth
+    workflow_step_retries: int = 2
+    workflow_step_timeout_seconds: int = 20
+    circuit_breaker_failures: int = 5  # consecutive failures per org before the breaker opens
+    circuit_breaker_cooldown_seconds: int = 300
+    default_plan_code: str = "starter"
 
     @field_validator("cors_origins", mode="before")
     @classmethod

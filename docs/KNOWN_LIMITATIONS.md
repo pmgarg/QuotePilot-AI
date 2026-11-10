@@ -94,5 +94,20 @@
   pseudonymised customer for commercial record-keeping; uploaded RFQ files are not deleted by the purge job yet.
 - Order numbers are per tenant (`SO-YYYY-NNNNN`); there is no year roll-over reset of the sequence.
 
-## Stage 4
-Not implemented; designs and backlogs exist (ROADMAP.md, PRD.md, LLD.md).
+## Stage 4 (implemented on `claude/stage4-governed-platform`, gate pending)
+- The assistant's default planner is a deterministic intent parser (no network, no cost). The optional hosted planner
+  (`AI_PROVIDER=anthropic`, server key, owner consent) is implemented but was never called in this repository (no paid
+  calls); its output passes the same policy gate, so it can only propose registered tools.
+- The assistant plans from the user's message only (single pass); tool results are never fed back into planning. This
+  limits multi-step reasoning by design (prompt-injection surface) — multi-step automation is what workflows are for.
+- Approval of an assistant-proposed action is a human-in-the-loop checkpoint by the requester (or an owner/admin);
+  separation of duties for the business effect stays with the downstream gates (order confirmation, deletion approval,
+  quote approval, the send gate).
+- Compensation hooks exist for `propose_order` (cancel the proposed order) and `draft_follow_up` (cancel the draft);
+  other side effects stop the run with an explanation.
+- Billing is a test-mode adapter only (synthetic references, no payment provider, no invoices); plan limits are
+  enforced server-side. Onboarding wizard, in-app help pages and a demo-workspace reset are not built.
+- The circuit breaker looks at the last N live runs of the tenant in the cooldown window; it is per tenant, not per
+  workflow. The platform kill switch is an environment flag (process restart to change).
+- Step timeouts are measured after the step returns (no pre-emptive cancellation of a running handler).
+

@@ -87,6 +87,10 @@ Format: Context → Options → Decision → Consequences → Security impact �
 ## ADR-013 Stage 4 policy engine: tool access from backend entitlements, never from prompts
 - Decision: tool registry with declared scopes; `allowed_tools(user, org, plan)` computed server-side; every tool call
   validated against JSON schema, tenant scope and approval requirements; budgets/circuit breaker per org; kill switch flag.
+- Implemented (Stage 4): tool catalogue = user permission ∩ plan scopes; arguments are strict Pydantic models
+  (`extra=forbid`, bounded sizes); side-effect tools require an explicit approval and are re-checked against policy and
+  the kill switch at execution; tools call the ordinary service layer so RLS, audit and existing approval gates still
+  apply. The planner (rules by default, optional hosted model behind consent) only proposes; it never executes.
 
 ## ADR-014 CI and merge policy
 - Decision: GitHub Actions (`.github/workflows/ci.yml`, `security.yml`) run lint/type/unit/integration/E2E/scans.

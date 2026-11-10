@@ -247,6 +247,18 @@ def test_rls_enabled_and_forced_on_every_tenant_table() -> None:
         "sync_runs",
         "sync_conflicts",
         "deletion_requests",
+        # Stage 4 (migration 0008): governed platform tables
+        "subscriptions",
+        "usage_counters",
+        "assistant_sessions",
+        "assistant_messages",
+        "tool_invocations",
+        "workflow_definitions",
+        "workflow_versions",
+        "workflow_runs",
+        "workflow_steps",
+        "ai_usage",
+        "kill_switches",
     }
     with get_sessionmaker()() as db:
         rows = db.execute(
@@ -810,13 +822,15 @@ def test_ai_adapter_disabled_by_default_unwired_and_output_validated(monkeypatch
     prov.reset_provider()
     assert prov.get_provider().name == "disabled"
     assert prov.get_provider().propose_extraction("1 pcs SKU-1001") is None
-    # no API router or non-AI service imports the provider: there is no AI-driven action in Stage 1
+    # no API router or non-AI service imports the provider, except the Stage 4 bounded assistant planner
+    # (consent-gated via ai_enabled_for; every model-proposed action passes the backend tool policy, ADR-013)
     api_dir = pathlib.Path(prov.__file__).resolve().parents[2]
+    allowed = {api_dir / "services" / "platform" / "assistant.py"}
     offenders = [
         p
         for p in list((api_dir / "api").rglob("*.py"))
         + [x for x in (api_dir / "services").rglob("*.py") if "/ai/" not in str(x)]
-        if "services.ai" in p.read_text() or "services import ai" in p.read_text()
+        if ("services.ai" in p.read_text() or "services import ai" in p.read_text()) and p not in allowed
     ]
     assert offenders == [], offenders
     # strict output validation: malformed / out-of-schema / oversized proposals are dropped

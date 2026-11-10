@@ -33,6 +33,12 @@ class Permission(StrEnum):
     IMPORT_DATA = "import_data"  # CSV imports (customers/orders)
     EXPORT_DATA = "export_data"  # bulk CSV exports of customer/order/product data (PII + commercial data)
     MANAGE_RETENTION = "manage_retention"  # approve/reject deletion requests
+    # Stage 4
+    USE_ASSISTANT = "use_assistant"  # bounded assistant; tools are further gated per tool permission + plan scope
+    MANAGE_WORKFLOWS = "manage_workflows"  # create/validate/activate workflows, run them live
+    KILL_SWITCH = "kill_switch"  # engage/release the tenant kill switch
+    MANAGE_BILLING = "manage_billing"  # change plan (test-mode adapter)
+    VIEW_OPS = "view_ops"  # usage/ops metrics, support export
 
 
 _MATRIX: dict[Permission, frozenset[Role]] = {
@@ -52,6 +58,11 @@ _MATRIX: dict[Permission, frozenset[Role]] = {
     Permission.IMPORT_DATA: frozenset({Role.OWNER, Role.ADMIN}),
     Permission.EXPORT_DATA: frozenset({Role.OWNER, Role.ADMIN, Role.APPROVER}),
     Permission.MANAGE_RETENTION: frozenset({Role.OWNER, Role.ADMIN}),
+    Permission.USE_ASSISTANT: frozenset(Role),
+    Permission.MANAGE_WORKFLOWS: frozenset({Role.OWNER, Role.ADMIN}),
+    Permission.KILL_SWITCH: frozenset({Role.OWNER, Role.ADMIN}),
+    Permission.MANAGE_BILLING: frozenset({Role.OWNER}),
+    Permission.VIEW_OPS: frozenset({Role.OWNER, Role.ADMIN}),
 }
 
 

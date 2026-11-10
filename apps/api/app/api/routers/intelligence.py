@@ -132,7 +132,18 @@ def _transition(order_id: uuid.UUID, to: str, payload: OrderTransitionIn, princi
 @router.post("/orders/{order_id}/confirm", response_model=OrderOut)
 def confirm_order(order_id: uuid.UUID, payload: OrderTransitionIn, principal: PrincipalDep, db: DB) -> OrderOut:
     principal.require(Permission.APPROVE_ORDER)
-    return _transition(order_id, "confirmed", payload, principal, db)
+    out = _transition(order_id, "confirmed", payload, principal, db)
+    from app.services.platform import workflows
+    from app.services.platform.tools import Actor
+
+    workflows.dispatch_event(
+        db,
+        org=principal.organization,
+        actor=Actor(user=principal.user, role=principal.role, ip=principal.ip),
+        event="order.confirmed",
+        context={"order_id": str(out.id), **({"customer_id": str(out.customer_id)} if out.customer_id else {})},
+    )
+    return out
 
 
 @router.post("/orders/{order_id}/fulfil", response_model=OrderOut)

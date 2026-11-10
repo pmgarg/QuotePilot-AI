@@ -39,3 +39,7 @@ tests + 4 browser tests); 3.8 (independent QA, security audit, release review) p
 4.1 policy engine + entitlements; 4.2 tool registry + bounded assistant; 4.3 workflow definitions/runner/dry-run;
 4.4 budgets/circuit breakers/kill switch; 4.5 command center UI; 4.6 billing adapter (test mode) + onboarding +
 help; 4.7 red-team suite + gate.
+
+Status: 4.1–4.5 and the test-mode billing part of 4.6 implemented on `claude/stage4-governed-platform` (16 integration
+tests, 2 browser tests); onboarding wizard and in-app help pages are not built; 4.7 (independent QA, security
+red-team, release review) pending.

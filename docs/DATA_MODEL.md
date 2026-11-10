@@ -83,6 +83,19 @@ fields, status `open|resolved_local|resolved_remote|dismissed`), `deletion_reque
 `requested|approved|rejected|executed`, `purge_after`, `legal_hold`, summary). `customers.deleted_at` marks the
 soft-deleted state. Grants only on the new tables (column-level grants from 0004 preserved).
 
+## Stage 4 tables (migration 0008, all RLS-forced; `tool_invocations`, `workflow_runs`, `workflow_steps` also readable under the worker scope)
+`subscriptions` (one per org: plan code, status, limit overrides, test-mode billing reference), `usage_counters`
+(metered limits per period: `rfqs_per_month`, `ai_calls_per_day`, `workflow_runs_per_day`; atomic upsert),
+`assistant_sessions` / `assistant_messages` (private to the user; content redacted before storage; proposed actions
+and citations as JSON), `tool_invocations` (tool, scope, validated args + hash, status
+`proposed|approved|executed|rejected|failed|would_execute`, requires_approval, dry_run, origin
+`assistant|workflow|manual`, requester/decider, redacted result summary — never bulk content),
+`workflow_definitions` / `workflow_versions` (versioned JSON definition + validation report; one active version),
+`workflow_runs` / `workflow_steps` (mode `dry_run|live`, trigger, context, status
+`running|awaiting_approval|succeeded|failed|compensated|killed|budget_exceeded`, budget used, failure explanation),
+`ai_usage` (provider, model, purpose, token counts, trace id, outcome — no prompt or completion columns),
+`kill_switches` (tenant switch with reason, actor, runs terminated; the platform switch is an environment flag).
+
 ## Designed for later stages (not created yet)
 | Stage | Table | Purpose / key columns |
 |---|---|---|
@@ -94,12 +107,6 @@ soft-deleted state. Grants only on the new tables (column-level grants from 0004
 | 2 | integration_connections | provider (simulator, smtp, gmail, msgraph), scopes, encrypted_tokens (envelope encryption), status (active, revoked, error), last_error |
 | 2 | job_runs / job_dead_letters | job type, idempotency_key UK, attempt, next_run_at, last_error, payload (no bodies) |
 | 2 | templates | org email templates with placeholders (whitelisted variables) |
-| 4 | plans / plan_entitlements / subscriptions | plan limits (rfqs_per_month, seats, ai_tokens, connectors), billing adapter test mode |
-| 4 | workflow_definitions / workflow_versions | JSON definition validated against schema; status; dry_run results |
-| 4 | workflow_runs / workflow_steps | state machine, depth, budget used, compensation status |
-| 4 | ai_usage | org, user, provider, model, input/output tokens, purpose, cost estimate, trace_id |
-| 4 | tool_invocations | run_id, tool, scope, args hash, approval_decision_id, result status |
-| 4 | kill_switches | org or global flags with reason/actor |
 
 ## Data minimisation and retention hooks
 - Original uploaded files and parsed text are retained per org retention setting (default 24 months) then purged by job (Stage 3 deletion workflow); audit retained 7 years by default (configurable, documented in PRIVACY_AND_RETENTION.md).

@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.api.deps import DB, PrincipalDep
 from app.core.errors import ConflictError, ForbiddenError, NotFoundError, ValidationFailed
@@ -91,6 +91,12 @@ def create_member(payload: MemberCreate, principal: PrincipalDep, db: DB) -> Mem
     principal.require(Permission.MANAGE_MEMBERS)
     if payload.role == "owner" and principal.role != "owner":
         raise ForbiddenError("Only an owner can create another owner", action="grant_owner")
+    from app.services.platform import entitlements  # S4-A06: seats are a plan limit enforced server-side
+
+    seats = db.scalar(
+        select(func.count()).where(Membership.organization_id == principal.org_id, Membership.is_active.is_(True))
+    )
+    entitlements.require_capacity(db, principal.org_id, "seats", int(seats or 0) + 1)
     email = payload.email.strip().lower()
     if "@" not in email:
         raise ValidationFailed("Invalid email", field="email")

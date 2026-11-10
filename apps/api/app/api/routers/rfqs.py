@@ -140,6 +140,9 @@ async def create_rfq(
     currency: str | None = Form(default=None),
 ) -> RFQOut:
     principal.require(Permission.EDIT_QUOTES)
+    from app.services.platform import entitlements  # S4-A06: monthly RFQ allowance enforced server-side
+
+    entitlements.consume(db, principal.org_id, "rfqs_per_month")
     content_type = request.headers.get("content-type", "")
     if content_type.startswith("application/json"):
         try:

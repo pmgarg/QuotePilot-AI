@@ -77,3 +77,16 @@ export interface SyncConflict { id: string; sync_run_id: string; entity: string;
 export interface StockLevel { product_id: string; sku: string; status: "fresh" | "stale" | "unknown"; quantity: string | null; observed_at: string | null; source: string | null; age_hours: number | null }
 export interface DeletionRequest { id: string; subject_type: string; subject_id: string; reason: string; status: string; requested_by: string | null; decided_by: string | null; decided_at: string | null; purge_after: string | null; executed_at: string | null; summary: Record<string, unknown>; legal_hold: boolean; created_at: string }
 export interface CustomerProfile { customer: Customer & { deleted_at?: string | null }; contacts: Contact[]; quotes: QuoteSummary[]; orders: OrderSummary[]; open_proposals: number; stats: Record<string, string | number | null> }
+
+// ---- Stage 4
+export interface CommandCenter { queues: Record<string, number>; kill_switch: { engaged: boolean; reason: string | null }; plan: string }
+export interface ProposedAction { tool: string; status: string; invocation_id?: string; rationale?: string; reason?: string; needs_approval?: boolean; result?: Record<string, unknown> }
+export interface AssistantMessage { id: string; role: string; content: string; proposed_actions: ProposedAction[]; citations: { type: string; id: string; number?: string }[]; created_at: string }
+export interface AssistantSession { id: string; title: string | null; status: string; turns: number; created_at: string; messages: AssistantMessage[] }
+export interface ToolInfo { name: string; scope: string; description: string; requires_approval: boolean; args_schema: Record<string, unknown> }
+export interface Invocation { id: string; tool: string; scope: string; args: Record<string, unknown>; status: string; requires_approval: boolean; dry_run: boolean; origin: string; run_id: string | null; requested_by: string | null; decided_at: string | null; decision_reason: string | null; executed_at: string | null; result: Record<string, unknown>; error: string | null; created_at: string }
+export interface WorkflowVersion { version_no: number; status: string; definition: Record<string, unknown>; validation: { ok: boolean; errors: string[]; warnings: string[] }; created_at: string }
+export interface Workflow { id: string; key: string; name: string; enabled: boolean; active_version_no: number | null; versions: WorkflowVersion[] }
+export interface WorkflowStep { index: number; step_id: string; tool: string; status: string; output: Record<string, unknown>; error: string | null; attempts: number }
+export interface WorkflowRun { id: string; definition_id: string; version_no: number; mode: string; trigger: string; status: string; current_step: number; budget_used: number; failure_explanation: string | null; created_at: string; finished_at: string | null; steps: WorkflowStep[] }
+export interface PlanInfo { plan_code: string; plan_name: string; status: string; limits: Record<string, unknown>; usage: Record<string, number>; billing_reference: string | null; billing_mode: string; plans: Record<string, { name: string; price_per_month: string; limits: Record<string, unknown> }> }

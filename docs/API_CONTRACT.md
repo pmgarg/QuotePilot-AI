@@ -123,5 +123,20 @@ HTTP 409
   `POST /retention/requests/{id}/approve|reject|legal-hold` (manage_retention = owner/admin; requester ≠ approver;
   approval soft-deletes immediately — hidden from lists, follow-ups cancelled, contacts opted out — and the worker
   purges after `RETENTION_GRACE_DAYS`).
-- Stage 4: `/assistant/sessions{,/{id}/messages}`, `/tools` (allowed list), `/workflows{,/{id}/versions,/{id}/dry-run,/{id}/runs}`,
-  `/admin/kill-switch`, `/billing/plan`, `/admin/usage`.
+- Stage 4 (implemented): **Command center** `GET /command-center` (queues filtered by role, kill-switch state, plan).
+  **Assistant** `GET /assistant/tools` (catalogue = role permission ∩ plan scopes), `GET/POST /assistant/sessions`,
+  `GET /assistant/sessions/{id}` (own sessions only; others 404), `POST /assistant/sessions/{id}/messages` `{text ≤ 4000}`
+  → assistant message with `proposed_actions` (each `executed | proposed (needs approval) | rejected`) and `citations`;
+  429 on plan/turn limits, 503 `kill_switch_engaged`. **Actions** `GET /actions?status` (own; owner/admin see all),
+  `POST /actions` `{tool, args, dry_run}`, `POST /actions/{id}/approve|reject` `{reason?}` (requester or owner/admin;
+  re-checks policy and kill switch at execution; an approved export returns `download.content_b64` once and never
+  stores it). **Workflows** (owner/admin) `GET/POST /workflows` `{key, definition}` (each POST = new draft version with
+  a validation report), `POST /workflows/validate`, `POST /workflows/{id}/activate?version_no=`, `/disable`,
+  `POST /workflows/{id}/runs` `{mode: dry_run|live, context, version_no?}` (live needs the active version, kill switch
+  off, breaker closed, daily run allowance), `GET /workflow-runs`, `GET /workflow-runs/{id}`,
+  `POST /workflow-runs/{id}/approve|reject` (continues or stops a run paused at a side-effect step). Triggers:
+  `manual`, `quote.approved`, `order.confirmed` (dispatched after the business action; never undo it).
+  **Plan & ops** `GET /platform/plan`, `POST /platform/plan` (owner; test-mode adapter), `GET /platform/usage`,
+  `GET /platform/support-export` (owner/admin; configuration and counts only, audited), `GET/POST/DELETE
+  /platform/kill-switch` (owner/admin). Limits enforced server-side: seats on `POST /org/members`, RFQs per month on
+  `POST /rfqs`, AI calls per day on assistant messages, workflow runs per day, active workflows on activation.
