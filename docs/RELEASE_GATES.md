@@ -52,11 +52,46 @@ in round 4 (`implementer-fixes4-stage1-2026-11-01.md`) pending release review 3.
   from the container). Local: 329 API tests + 26 browser tests green. Gate stays **INCOMPLETE** until both CI runs
   are green on the new HEAD and release review 3 records its verdict.
 
+## Review 3 — Stage 1 @d0aac67 (2026-11-02, resumed 2026-11-10) — verdict INCOMPLETE / BLOCKED
+Full report: `docs/evidence/release-review-3-stage1-2026-11-02.md` (fresh-context reviewer, read-only tools).
+No Critical, High or Medium defect found in the round-5 code; the reviewer checked `update_draft` (no manual price can
+be relabelled `catalog`, no archived/inactive product can be newly linked), migration 0005b (correct, idempotent,
+transactional), `approve()`, `rfqs.update_item` and the web withdraw/banner logic. Blocked on process gates:
+- **R3-1 (Medium)** round-5 code had no independent QA/security re-verification and no scan file naming the commit.
+- **R3-2 (Medium)** CI for d0aac67 was not recorded in evidence; I-3 not root-caused.
+- **R3-3..R3-6 (Low)** compose start-up with the README command (fails closed), an undeclared test edit, stale
+  traceability, no UI path to resolve `catalog_version_mismatch`. **R3-7..R3-10 (Info)** explicit org filter, 0005b
+  error masking, revoke-script audit detail, missing tests.
+
+### CI evidence recorded for d0aac67 (GitHub Actions, queried 2026-11-02)
+| workflow | event | run id | conclusion |
+|---|---|---|---|
+| ci | push | 41369753932 | success |
+| ci | pull_request | 41369758251 | success (api, web, e2e jobs all success) |
+| security | push | 41369753972 | success |
+| security | pull_request | 41369758393 | success |
+Earlier pull_request `ci` runs failed in the browser job on 58976f3 (41362914665), 597f4b0 (41366647320) and e090089
+(41368062998) while the push runs of the same commits passed. The e090089 run (with page snapshots) showed logins
+landing back on `/login` and submit clicks leaving the version in `draft`, i.e. requests not reaching the API state
+the test expected; no product rule failed. The d0aac67 runs (with the API request log enabled) passed on both events,
+so I-3 remains **not root-caused**; the diagnostics stay enabled and every gated HEAD needs both events green.
+
+### Fix round 6 (Stage 1)
+R3-3 compose command (`--env-file .env`) + `scripts/check_compose.py` in CI and `make compose-check`; R3-4 evidence
+corrected; R3-5 traceability refreshed with review-3 verdicts; R3-6 editor "Use active catalog" control re-links a stale
+line (server re-prices); R3-7 explicit `organization_id` filter in `stale_catalog_lines`; R3-10 tests (stale pending
+quote cannot be approved; withdrawn-documents banner and re-link browser tests); NEW-15 test de-flaked; the auditor's
+self-declared dead repro test removed. Independent QA and security re-verification on the round-6 HEAD and a fresh
+review (4) are required before PASS.
+
 ## Human actions required
 - Enable branch protection on `main` requiring checks `api`, `web`, `e2e`, `security` and one review (repository settings → Branches).
 - Sign any risk acceptance in this file with name, date and rationale. Documented Lows awaiting acknowledgement:
   L-2 (member-create e-mail existence), L-6 (parser has no OS-level isolation), NEW-11/12 (secret heuristic, limiter
   lockout primitive, parser concurrency wait), SEC-12 (GET renders/audits PDF), SEC-14 (CSP `unsafe-inline`), SEC-21
   (per-process limiter), L2-3 (blocker reveals cost ratio). None is Critical or High.
+- Acknowledge the catalog pinning rules (O2-1) and R3-6 behaviour (a pending ad-hoc quote whose catalog moved on must be
+  rejected and re-versioned) together with the other documented Lows.
+- Decide whether a manual screen-reader audit (X-08) is required for Stage 1.
 - Decide whether running the Docker Compose topology (never executed in the development container) is required before
   calling Stage 1 released.

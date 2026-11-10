@@ -4,7 +4,7 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError, describeError } from "@/lib/api";
 import { date, dateTime, money, pct, qty } from "@/lib/format";
-import type { Blocker, History, Quote, QuoteLine } from "@/lib/types";
+import type { Blocker, History, Product, Quote, QuoteLine } from "@/lib/types";
 import { useSession } from "@/components/session";
 import { Alert, BackLink, Badge, Button, Card, Field, inputClass, Loading, PageHeader } from "@/components/ui";
 
@@ -103,6 +103,25 @@ export default function QuotePage() {
     setDirty(true);
   }
 
+  // R3-6: a catalog line priced from a list that is no longer this quote's price list can be re-linked to the same
+  // SKU in the active catalog; the server re-prices it on save (never the browser).
+  async function relinkToActiveCatalog(i: number) {
+    const sku = lines[i]?.sku;
+    if (!sku) return;
+    setError(null);
+    try {
+      const { version_id: active } = await api<{ version_id: string | null }>("/catalogs/active-version");
+      if (!active) throw new Error("No active catalog version.");
+      const page = await api<{ items: Product[] }>(`/catalogs/versions/${active}/products?q=${encodeURIComponent(sku)}`);
+      const match = page.items.find((p) => p.sku.toUpperCase() === sku.toUpperCase());
+      if (!match) throw new Error(`SKU ${sku} is not in the active catalog; mark the line custom or remove it.`);
+      updateLine(i, { product_id: match.id, price_source: "catalog", price_touched: false, unit_price: match.list_price });
+      setNotice(`Line ${i + 1} re-linked to the active catalog; save the draft to re-price it.`);
+    } catch (e) {
+      setError(describeError(e));
+    }
+  }
+
   const approvedVersions = quote.versions.filter((v) => v.status === "approved");
   const withdrawnVersions = quote.versions.filter((v) => v.status === "withdrawn");
   const canWithdraw = approvedVersions.length > 0 || version.status === "pending_approval";
@@ -146,11 +165,12 @@ export default function QuotePage() {
               <tbody>
                 {lines.map((l, i) => {
                   const saved = version.lines[i];
+                  const stale = canEdit && saved && (blockers ?? quote.blockers).some((b) => b.code === "catalog_version_mismatch" && b.line_no === saved.line_no);
                   return (
                     <tr key={l.id ?? `new-${i}`} data-testid={`quote-line-${i + 1}`}>
                       <td>{i + 1}</td>
                       <td className="font-mono text-xs">{l.sku ?? "—"}</td>
-                      <td>{canEdit ? <input aria-label={`Description ${i + 1}`} className={inputClass} value={l.description} onChange={(e) => updateLine(i, { description: e.target.value })} /> : l.description}{l.is_custom && <Badge value="custom" />}{saved?.price_source === "manual" && <Badge value="manual price" />}{saved?.margin_override_reason && <p className="text-xs text-amber-800">Price confirmed by owner/admin: {saved.margin_override_reason}</p>}</td>
+                      <td>{canEdit ? <input aria-label={`Description ${i + 1}`} className={inputClass} value={l.description} onChange={(e) => updateLine(i, { description: e.target.value })} /> : l.description}{l.is_custom && <Badge value="custom" />}{saved?.price_source === "manual" && <Badge value="manual price" />}{stale && <Button variant="secondary" className="ml-2" onClick={() => void relinkToActiveCatalog(i)} testId={`relink-${i + 1}`}>Use active catalog</Button>}{saved?.margin_override_reason && <p className="text-xs text-amber-800">Price confirmed by owner/admin: {saved.margin_override_reason}</p>}</td>
                       <td>{canEdit ? <input aria-label={`Quantity ${i + 1}`} className={`${inputClass} w-20`} value={l.quantity} onChange={(e) => updateLine(i, { quantity: e.target.value })} inputMode="decimal" /> : qty(l.quantity)}</td>
                       <td>{l.unit}</td>
                       <td>{canEdit ? <input aria-label={`Unit price ${i + 1}`} className={`${inputClass} w-28`} value={l.unit_price} placeholder="required" onChange={(e) => updateLine(i, { unit_price: e.target.value, price_touched: true })} inputMode="decimal" data-testid={`unit-price-${i + 1}`} /> : money(l.unit_price || null, quote.currency)}</td>

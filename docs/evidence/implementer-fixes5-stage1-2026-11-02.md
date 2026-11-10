@@ -29,7 +29,10 @@ choice, not a weakening, and is explained there).
   moved); `test_new13_archived_catalog_lines_…` asserts the D2-2 behaviour (re-save 200 + blocker, submit 409) instead
   of a 422 on re-save; `test_new15_…` asserts the chosen remedy (one tenant-scoped row, readable in the tenant scope,
   no NULL-organisation rows).
-- `tests/qa/test_qa_reverify_review2.py` and `tests/e2e/specs/qa-reverify-review2.spec.ts`: unchanged.
+- `tests/e2e/specs/qa-reverify-review2.spec.ts`: unchanged. `tests/qa/test_qa_reverify_review2.py`: one edit in a
+  follow-up commit (4cef4d4) — `_replay_migration_0005` steps back with `downgrade 0005` instead of `downgrade -1`, so the
+  replay targets the withdrawal data fix (moved to 0005b) and keeps working on later stages whose head is above 0005b.
+  (Correction recorded after release review 3 finding R3-4; the earlier sentence said "unchanged".)
 - `tests/integration/test_review2_fixes.py`: assertion text updated for the corrected 422 message (O2-4).
 
 ## Runs (this round, APP_ENV=test, local PostgreSQL 16, DB `quotepilot_test`)

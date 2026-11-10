@@ -127,7 +127,12 @@ def stale_catalog_lines(db: Session, org: Organization, version: QuoteVersion) -
         return set()
     allowed = _pricing_catalog_version_id(db, org, version)
     versions: dict[uuid.UUID, uuid.UUID] = {
-        pid: cv for pid, cv in db.execute(select(Product.id, Product.catalog_version_id).where(Product.id.in_(pids)))
+        pid: cv
+        for pid, cv in db.execute(
+            select(Product.id, Product.catalog_version_id).where(
+                Product.id.in_(pids), Product.organization_id == org.id
+            )
+        )
     }
     return {
         ln.line_no

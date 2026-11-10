@@ -45,6 +45,11 @@ jobs:
         run: cd apps/api && uv run alembic upgrade head && uv run alembic downgrade base && uv run alembic upgrade head
       - name: Tests with coverage
         run: cd apps/api && uv run pytest -q --cov=app --cov-report=term --cov-report=xml
+      - name: Compose topology renders and keeps owner credentials out of api/web (R3-3, NEW-16)
+        run: |
+          cp .env.example .env
+          docker compose --env-file .env -f infra/docker-compose.yml config > "$RUNNER_TEMP/compose.yml"
+          cd apps/api && uv run python ../../scripts/check_compose.py "$RUNNER_TEMP/compose.yml"
       - name: OpenAPI contract drift
         run: |
           cd apps/api && uv run python -c "import json; from app.main import app; print(json.dumps(app.openapi(), indent=2, sort_keys=True))" > /tmp/openapi.json
