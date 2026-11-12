@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import sys
 import tempfile
 from decimal import Decimal as D
 from pathlib import Path
@@ -13,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from app.services.money import parse_decimal
-from tests.conftest import API_DIR, login_as, make_tenant, upload
+from tests.conftest import login_as, make_tenant, upload
 from tests.integration.test_round11_fixes import MAPPING, _bulk_products
 from tests.qa.test_qa_reverify_review7 import PW1, ROOT, _login_ok, _RootEnv, _seed
 
@@ -81,9 +80,21 @@ def test_large_request_matches_like_small_requests_and_flags_skipped_lines(app, 
 
 
 CELLS = {
-    "1234,567": D("1234.567"), "1234,567,890": None, "0 500": None, "05 050": None, ". 5": None, "..-5": None,
-    ".5": D("0.5"), "$.50": D("0.50"), "Rs. 500": D("500"), "1,234": D("1234"), "1,234.56": D("1234.56"),
-    "1.234,56": D("1234.56"), "1 234,56": D("1234.56"), "0,500": D("0.500"), "12,5": D("12.5"),
+    "1234,567": D("1234.567"),
+    "1234,567,890": None,
+    "0 500": None,
+    "05 050": None,
+    ". 5": None,
+    "..-5": None,
+    ".5": D("0.5"),
+    "$.50": D("0.50"),
+    "Rs. 500": D("500"),
+    "1,234": D("1234"),
+    "1,234.56": D("1234.56"),
+    "1.234,56": D("1234.56"),
+    "1 234,56": D("1234.56"),
+    "0,500": D("0.500"),
+    "12,5": D("12.5"),
 }
 
 
@@ -100,7 +111,7 @@ def test_parser_cells_direct() -> None:
 def test_parser_cells_through_catalog_import(app) -> None:
     t = make_tenant("QA11 Parse", with_catalog=False)
     admin = login_as(app, t.users["admin"])
-    rows = [f"P{i},Item {i},EA,AED,\"{c}\",1,1" for i, c in enumerate(CELLS)]
+    rows = [f'P{i},Item {i},EA,AED,"{c}",1,1' for i, c in enumerate(CELLS)]
     content = b"SKU,Description,Unit,Currency,List Price,Cost,Stock\n" + ("\n".join(rows) + "\n").encode()
     r = upload(admin, "/catalogs/import", "c.csv", content, {"mapping": MAPPING, "catalog_name": "M"})
     assert r.status_code in (200, 201), r.text

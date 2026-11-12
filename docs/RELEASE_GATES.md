@@ -258,6 +258,13 @@ instead of triggering another fix round. This is a narrower verification than ro
   SEC8-1 (Low) the reader of the worker's output does not catch a `RecursionError`. The auditor's statement: no
   Critical or High finding it considers release-blocking is open, **subject to accepting the matching residual**.
 
+CI on 5195ee0 (the commit that added the two confirmation test files; runs 43206479891 push, 43206491750
+pull_request): `web` success, `security` workflow success on both events (gitleaks green again; SARIF python 0,
+javascript 0), CodeQL check success, **`api` failure at the lint step on both events** — `ruff check` found four
+errors in the confirmation agents' new test files (two unused imports, two unsorted import blocks), so pytest did not
+run and e2e was skipped. The orchestrator had committed those files without linting them. Fixed mechanically
+(`ruff check --fix`, `ruff format`; no assertion changed; both files re-run locally: 14 passed, 1 xfailed).
+
 ### Open for Stage 1 after round 11 (single list for the reviewer)
 | ID | Severity | State |
 |---|---|---|

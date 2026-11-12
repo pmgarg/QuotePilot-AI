@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 import subprocess
+import sys
 import threading
 import time
 
@@ -37,7 +37,9 @@ def test_worker_output_parser_rejects_hostile_lines() -> None:
     assert p(good + b'{"i": 1, "hits": [[5', 2, 3) == {0: [(91.0, 1)]}  # torn tail
 
 
-@pytest.mark.xfail(strict=True, reason="SEC8-1 (Low, defence in depth): RecursionError from deeply nested worker output is not caught")
+@pytest.mark.xfail(
+    strict=True, reason="SEC8-1 (Low, defence in depth): RecursionError from deeply nested worker output is not caught"
+)
 def test_sec8_1_deeply_nested_worker_output_does_not_raise() -> None:
     assert matching._parse_worker_lines(b"[" * 100000 + b"\n", 2, 3) == {}
 
@@ -111,7 +113,11 @@ def test_item1_worst_case_end_to_end_and_add_item_cost(app, tenant_a: Tenant) ->
     skipped = sum("match_skipped_budget" in i["flags"] for i in items)
     during = lat[before:]
     survivors = _pgrep()
-    detail = subprocess.run(["ps", "-o", "pid,ppid,stat,etimes,args", "-p", ",".join(survivors.split()) or "1"], capture_output=True, text=True).stdout
+    detail = subprocess.run(
+        ["ps", "-o", "pid,ppid,stat,etimes,args", "-p", ",".join(survivors.split()) or "1"],
+        capture_output=True,
+        text=True,
+    ).stdout
     time.sleep(1.5)
     later = _pgrep()
     # route NOT limited and not worker-bounded: manual add of an item = full catalog load + in-process match
@@ -119,15 +125,27 @@ def test_item1_worst_case_end_to_end_and_add_item_cost(app, tenant_a: Tenant) ->
     rfq_id = r.json()["id"]
     for _ in range(3):
         t1 = time.perf_counter()
-        a = sales.post(f"/rfqs/{rfq_id}/items", json={"description": "hex bolt size 77 steel zinc plated " * 5, "quantity": "1"})
+        a = sales.post(
+            f"/rfqs/{rfq_id}/items", json={"description": "hex bolt size 77 steel zinc plated " * 5, "quantity": "1"}
+        )
         times.append(time.perf_counter() - t1)
         assert a.status_code in (200, 201), a.text
-    with open("/tmp/claude-0/-home-user-QuotePilot-AI/98b61cc2-31d0-51f6-a519-b934aa445354/scratchpad/item1.json", "w") as fh:
+    with open(
+        "/tmp/claude-0/-home-user-QuotePilot-AI/98b61cc2-31d0-51f6-a519-b934aa445354/scratchpad/item1.json", "w"
+    ) as fh:
         json.dump(
             {
-                "elapsed": elapsed, "lines": len(items), "matched": len(items) - skipped, "skipped": skipped,
-                "probes": len(during), "max": max(during), "mean": sum(during) / len(during),
-                "survivors": survivors, "detail": detail, "later": later, "add_item_seconds": times,
+                "elapsed": elapsed,
+                "lines": len(items),
+                "matched": len(items) - skipped,
+                "skipped": skipped,
+                "probes": len(during),
+                "max": max(during),
+                "mean": sum(during) / len(during),
+                "survivors": survivors,
+                "detail": detail,
+                "later": later,
+                "add_item_seconds": times,
             },
             fh,
         )
@@ -148,15 +166,21 @@ def test_add_item_is_not_rate_limited(app, tenant_a: Tenant, monkeypatch: pytest
 
 
 @integration
-def test_worker_input_contains_only_callers_catalog(app, tenant_a: Tenant, tenant_b: Tenant, monkeypatch: pytest.MonkeyPatch) -> None:  # type: ignore[no-untyped-def]
+def test_worker_input_contains_only_callers_catalog(
+    app, tenant_a: Tenant, tenant_b: Tenant, monkeypatch: pytest.MonkeyPatch
+) -> None:  # type: ignore[no-untyped-def]
     _bulk_products(tenant_a, 3_000, 100)
     _bulk_products(tenant_b, 3_000, 100)
-    from sqlalchemy import create_engine, text
     import os
+
+    from sqlalchemy import create_engine, text
 
     eng = create_engine(os.environ["DATABASE_ADMIN_URL"], isolation_level="AUTOCOMMIT")
     with eng.connect() as c:
-        c.execute(text("UPDATE products SET description='tenantbmarker zzz' WHERE organization_id=:o AND sku='BULK-5'"), {"o": str(tenant_b.org_id)})
+        c.execute(
+            text("UPDATE products SET description='tenantbmarker zzz' WHERE organization_id=:o AND sku='BULK-5'"),
+            {"o": str(tenant_b.org_id)},
+        )
     eng.dispose()
     sent: list[list[str]] = []
     orig = matching.fuzzy_batch
@@ -167,7 +191,13 @@ def test_worker_input_contains_only_callers_catalog(app, tenant_a: Tenant, tenan
 
     monkeypatch.setattr(matching, "fuzzy_batch", spy)
     sales = login_as(app, tenant_a.users["sales"])
-    r = sales.post("/rfqs", json={"text": "\n".join(f"hex bolt size {i} steel" for i in range(30)), "customer_id": str(tenant_a.customer_id)})
+    r = sales.post(
+        "/rfqs",
+        json={
+            "text": "\n".join(f"hex bolt size {i} steel" for i in range(30)),
+            "customer_id": str(tenant_a.customer_id),
+        },
+    )
     assert r.status_code == 201
     assert sent and all("tenantbmarker" not in x for batch in sent for x in batch)
     assert not any(k for k in vars(matching) if k.lower().startswith("_cache"))
