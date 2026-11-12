@@ -547,6 +547,9 @@ def test_every_stage3_mutation_writes_an_audit_row_and_failed_mutations_write_no
     # quote used by the "failed mutations" part below is prepared before the approval
     sales = login_as(app, tenant_a.users["sales"])
     _, _, q = approved_quote(app, tenant_a)
+    # fix round 2 (SEC3-12, orchestrator edit, declared): an order can no longer be started for a customer pending
+    # erasure either, so the order used by the "failed mutations" part is proposed before the approval as well
+    o = sales.post(f"/quotes/{q['id']}/orders", json={}).json()
     assert owner.post(f"/retention/requests/{ids['deletion']}/approve", json={}).status_code == 200
     expected = {
         "order.propose",
@@ -574,7 +577,6 @@ def test_every_stage3_mutation_writes_an_audit_row_and_failed_mutations_write_no
                 assert "@" not in str(r.summary), r.action  # no e-mail addresses in audit summaries
         db.rollback()
     # failed mutations: state checks run before the audit row, nothing is written
-    o = sales.post(f"/quotes/{q['id']}/orders", json={}).json()
     with get_sessionmaker()() as db:
         set_tenant(db, tenant_a.org_id, None)
         base = db.scalar(

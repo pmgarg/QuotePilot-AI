@@ -132,3 +132,11 @@ test approves the erasure (line ~550) before ordering from that customer's quote
 | `pytest -q -p no:cacheprovider` on confirm, audit, audit_inputs, intelligence, `tests/qa/test_qa_stage3_*.py`, fixes2 | 1 | 140 passed, 1 failed (the audit test above), 1 xfailed, 244 s |
 | same audit file + confirm + fixes2 with `-k "not every_stage3_mutation"` (after the mypy fix) | 0 | 33 passed, 1 deselected, 1 xfailed |
 | `ruff check app tests` / `ruff format --check app tests` / `mypy app` | 0 / 0 / 0 | clean / 151 files formatted / no issues in 87 files |
+
+### Orchestrator addendum to fix round 2 — one verifier test reordered (declared)
+`tests/security/test_stage3_audit.py::test_every_stage3_mutation_writes_an_audit_row_and_failed_mutations_write_none`
+proposed an order from a quote of the customer whose erasure it had just approved; SEC3-12 now refuses that (404).
+The order is proposed before the approval instead (two lines moved, comment in the test); no assertion changed. The
+security re-verification's own evidence anticipated this. After the edit:
+`pytest tests/security/test_stage3_audit.py tests/security/test_stage3_confirm.py` → 30 passed, 1 xfailed (SEC3-14,
+which is fixed in the Stage 2 job queue and arrives by merge).
