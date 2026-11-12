@@ -157,3 +157,25 @@ which is fixed in the Stage 2 job queue and arrives by merge).
   tests/integration/test_stage3_fixes2.py tests/integration/test_stage3_intelligence.py` → exit 0, **151 passed**,
   no xfail. `ruff check`, `ruff format --check`, `mypy app` clean. The full API and browser suites on this tree run
   in CI (recorded in the gate log).
+
+## Fix round 3 (after release review 1; orchestrator, 2026-11-12)
+Scope: S3-RR1-4 (CSV same-key race), S3-RR1-3 in part (connector run rejection reasons redacted on purge), S3-RR1-9
+(multi-round confirm race in the implementing side's test), S3-RR1-5..7 (documents). No verifier test was edited.
+
+| Change | File |
+|---|---|
+| run row inserted in a savepoint; a lost race raises `ReplayedRun`, the endpoint answers as a sequential replay | `app/services/intelligence/data_io.py`, `app/api/routers/intelligence.py` |
+| `_redact_copies` walks `sync_runs` of kind `connector` too; counter `sync_rejections_redacted` | `app/services/intelligence/retention.py` |
+| three tests added/changed | `tests/integration/test_stage3_fixes2.py` |
+
+Runs (database `quotepilot_s3fix`, `APP_ENV=test`, at 096d9d4):
+
+| Command | Exit | Result |
+|---|---|---|
+| `uv run pytest -q tests/integration/test_stage3_fixes2.py` | 0 | `6 passed` |
+| `uv run ruff check app tests && uv run ruff format --check app tests && uv run mypy app` | 0 | `All checks passed!`, `155 files already formatted`, `Success: no issues found in 87 source files` |
+| `uv run pytest -q -p no:cacheprovider` (whole API suite; collected before the C3 verifier files existed) | 0 | `1687 passed, 2 skipped, 5 xfailed in 1505.45s (0:25:05)` |
+
+A first attempt at the whole-suite run was stopped by the 10-minute background limit of the tooling before it
+finished (no result); the run above is the repeat with a longer limit. The five expected failures are Stage 1/2 items
+(none in Stage 3). Browser suite: not run by the implementing side in this round (the QA C3 re-check runs it).
