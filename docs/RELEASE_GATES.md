@@ -390,6 +390,14 @@ process described in the Stage 1 gate log). Verified at 43ec762.
   part of an over-long (RFC-invalid) address visible. No Critical or High finding open; nothing the auditor considers
   release-blocking.
 
+### CI evidence for 0d610fd — the gated Stage 2 head (GitHub Actions, queried 2026-11-12): all 15 checks green
+`ci` runs 43295840234 and 43295851515 (the latter on the pull-request merge commit of 0d610fd): api, web, e2e success
+on both; pytest `1521 passed, 5 skipped, 4 xfailed, 1 xpassed in 1030.61s`; Playwright `53 passed (2.3m)`, `1 skipped`,
+no flaky line, no failed line. `security` workflow jobs (CodeQL python and javascript-typescript, gitleaks,
+pip-audit/npm audit/bandit/semgrep) success on both events; CodeQL code-scanning check success.
+Expected failures (4): S2-SEC-06 (accepted), S2-SEC-12 (new Low), and Stage 1's two (matching latency residual,
+SEC8-1). Skips (5): three tests that need git history, two compose-render tests that need a repo-root `.env`.
+
 ### Open for Stage 2 (single list for the reviewer)
 | ID | Severity | State |
 |---|---|---|
