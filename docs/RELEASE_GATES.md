@@ -439,7 +439,7 @@ for the Stage 2 tables including migration 0006b, an opt-out-versus-in-flight-se
 then re-invoke the reviewer.
 ---
 
-# Stage 3 gate log (branch `claude/stage3-customer-order-intelligence`, PR #3) — status: OPEN, not reviewed
+# Stage 3 gate log (branch `claude/stage3-customer-order-intelligence`, PR #3) — status: re-verified, fix round 2 applied, release review requested
 
 Stage 3 has its own gate. Nothing in this section is a PASS; the release reviewer has not been invoked for Stage 3.
 
@@ -482,6 +482,13 @@ sections "Fix round 2" and the two orchestrator addenda). The verifiers' own rep
 fixes — now pass with their xfail decorators removed (151 passed across the Stage 3 QA and security files). One
 earlier security test was reordered (declared). These fixes have **not** been re-checked by a verifier agent; the
 evidence is the pre-written tests plus CI.
+
+### CI evidence for e2e6c3f — the gated Stage 3 head: all 15 checks green on both events
+Details in `docs/evidence/ci-stage3-e2e6c3f-2026-11-12.md`: pytest `1682 passed, 5 skipped, 4 xfailed, 1 xpassed`;
+Playwright `62 passed`, `1 skipped`, no flaky or failed line; CodeQL check success. No Stage 3 test is an expected
+failure. Earlier red runs of this PR (inherited Stage 1 timing test, browser click failures on the customers page,
+`py/polynomial-redos` alerts) are described in the Stage 2 and Stage 3 evidence files; one CI run of the previous
+green head had one flaky browser test (the accessibility scan, passed on retry; not reproduced by QA).
 
 ### Open for Stage 3 (single list for the reviewer)
 | Item | Severity | State |
