@@ -437,3 +437,19 @@ inbound adapter ships), S2-RR1-11 (Low, process: the orchestrator wrote fix roun
 tests and chose the narrow verification). Required retest per the reviewer: the C4 items, an RLS/cross-tenant re-run
 for the Stage 2 tables including migration 0006b, an opt-out-versus-in-flight-send race, a scan on the gated head;
 then re-invoke the reviewer.
+
+### After review 1 — fix round 3 (2026-11-12): S2-RR1-2 and S2-RR1-4
+`docs/evidence/implementer-fixes2-stage2-2026-11-12.md`, section "Fix round 3" (implementer agent): the job queue has
+a visibility timeout (`queue.reclaim_abandoned`, default 900 s, setting `JOB_VISIBILITY_TIMEOUT_SECONDS`) — a job left
+`running` by a dead worker is re-queued with its attempt count preserved or, with attempts exhausted, marked `dead`
+through the normal terminal path; ten new tests (`tests/integration/test_stage2_fixes3.py`) cover a terminally failed
+schedule job, the admin retry re-arming it exactly once, and the reclaim cases including no second delivery for a
+reclaimed send job. Targeted runs by the implementer: 10 passed (new file); 170 passed, 2 xfailed (Stage 2 security,
+QA and integration set); lint and types clean. Not independently re-verified. Documented residual: a worker that dies
+after the provider accepted a message but before the draft is committed `sent` can redeliver on reclaim.
+Condition C4 state: the two findings are addressed by the implementing side; the independent full run on the final
+head and the adversarial session are still owed.
+CI on 7d5cf4a: push event — api, web, e2e success (`53 passed`, `1 skipped` in the browser job); pull_request event —
+the api job failed in the `setup-uv` step with a GitHub "Server Error" before any test ran (infrastructure, not code),
+so its e2e job was skipped. The next push re-runs both.
+
