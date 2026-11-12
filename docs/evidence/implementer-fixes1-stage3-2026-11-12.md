@@ -78,3 +78,15 @@ A full API run on the tree that contains the worker-scope change has **not** bee
 the Stage 4 branch after the merge (recorded there) and is owed here by the independent re-verification.
 The Stage 1 CI issue noted in the Stage 2 evidence (five QA tests reading `DATABASE_ADMIN_URL_TEST` directly) applies
 to this branch's `api` job as well until the corrected file is merged.
+
+## Runs after merging Stage 2 with Stage 1 fix round 10 (commit 620835e; DB `quotepilot_s3fix`, ports 8081/3081; other suites running)
+| Command (cwd) | Exit | Result |
+|---|---|---|
+| `ruff check` / `ruff format --check` / `mypy app` (`apps/api`) | 0 / 0 / 0 | clean; 141 files formatted; 85 source files |
+| `.venv/bin/pytest -q -p no:cacheprovider -rfEx` (full API suite) | 0 | **1436 passed, 2 skipped, 2 xfailed** in 1430 s (xfails: S2-SEC-06 accepted in Stage 2; Stage 1 SEC6-2 open) |
+| `npx tsc --noEmit`, `npx eslint .` (`apps/web`) | 0 / 0 | clean |
+| `npx playwright test --reporter=list --trace off` (`tests/e2e`) | 0 | **60 passed, 1 skipped**, 0 failed, 0 flaky |
+
+This is the first full API run of this branch that includes the worker-scope change (`queue.due_purge_requests`); it
+supersedes the note above that such a run was still owed by the implementing side. The Stage 1 CI timing issue
+described in the Stage 2 evidence applies to this branch's `api` job as well until Stage 1 fix round 11 is merged.

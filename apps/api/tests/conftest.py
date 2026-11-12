@@ -29,6 +29,10 @@ os.environ.setdefault("SECRET_KEY", "test-secret-key-test-secret-key-test-secret
 _STORAGE_TMP = tempfile.mkdtemp(prefix="qp-storage-")
 os.environ["STORAGE_DIR"] = _STORAGE_TMP
 os.environ.setdefault("LOG_LEVEL", "WARNING")
+# the suite creates far more RFQs / imports per user than the production limits allow (SEC7-7); the limiter has its
+# own tests with low limits (tests/integration/test_round11_fixes.py)
+os.environ.setdefault("RFQ_PARSE_RATE_LIMIT_ATTEMPTS", "1000000")
+os.environ.setdefault("CATALOG_IMPORT_RATE_LIMIT_ATTEMPTS", "1000000")
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -37,6 +41,7 @@ from sqlalchemy import create_engine, text  # noqa: E402
 from app.core.config import get_settings  # noqa: E402
 from app.db.session import get_sessionmaker, reset_engine  # noqa: E402
 from app.services.auth import account_limiter, login_limiter  # noqa: E402
+from app.services.ratelimit import action_limiter  # noqa: E402
 from app.services.storage import reset_storage  # noqa: E402
 
 API = "/api/v1"
@@ -80,6 +85,7 @@ def clean_tables(migrated_database: None) -> Iterator[None]:
     eng.dispose()
     login_limiter.reset()
     account_limiter.reset()
+    action_limiter.reset()
     reset_storage()
     get_settings.cache_clear()
     yield

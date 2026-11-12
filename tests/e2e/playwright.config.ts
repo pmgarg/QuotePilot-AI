@@ -23,6 +23,11 @@ const apiEnv = {
   // Python buffers stdout when piped, so the buffer must be disabled or nothing appears before exit.
   LOG_LEVEL: process.env.CI ? "INFO" : "WARNING",
   PYTHONUNBUFFERED: "1",
+  // The browser suite creates far more RFQs/imports for one user than the production per-user limits allow (SEC7-7), and
+  // its 5,000-product x 405-line specs must hit the comparison budget, not the 8 s matching deadline, to be deterministic.
+  RFQ_PARSE_RATE_LIMIT_ATTEMPTS: "100000",
+  CATALOG_IMPORT_RATE_LIMIT_ATTEMPTS: "100000",
+  MATCH_TIMEOUT_SECONDS: "120",
 };
 
 export default defineConfig({

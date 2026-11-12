@@ -12,6 +12,7 @@ from app.models.catalog import Catalog, CatalogVersion, Product
 from app.schemas.common import CatalogOut, CatalogVersionOut, Page, ProductOut, ProductPrivileged
 from app.services import catalog_import
 from app.services.authz import Permission, has_permission
+from app.services.ratelimit import limit_catalog_import
 
 router = APIRouter(prefix="/catalogs", tags=["catalogs"])
 
@@ -57,6 +58,7 @@ async def import_catalog(
     catalog_name: str | None = Form(default=None),
 ) -> CatalogVersionOut:
     principal.require(Permission.IMPORT_CATALOG)
+    limit_catalog_import(principal.user.id)
     try:
         mapping_obj = json.loads(mapping)
     except json.JSONDecodeError as exc:

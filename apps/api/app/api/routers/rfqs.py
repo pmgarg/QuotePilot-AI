@@ -25,6 +25,7 @@ from app.services import quotes as quote_service
 from app.services import rfqs as rfq_service
 from app.services.authz import Permission
 from app.services.money import is_supported_currency
+from app.services.ratelimit import limit_rfq_parse
 
 router = APIRouter(prefix="/rfqs", tags=["rfqs"])
 
@@ -139,6 +140,8 @@ async def create_rfq(
     currency: str | None = Form(default=None),
 ) -> RFQOut:
     principal.require(Permission.EDIT_QUOTES)
+    # the per-user rate limit comes first, so that a refused call does not consume the plan's monthly allowance
+    limit_rfq_parse(principal.user.id)
     from app.services.platform import entitlements  # S4-A06: monthly RFQ allowance enforced server-side
 
     entitlements.consume(db, principal.org_id, "rfqs_per_month")
@@ -211,7 +214,8 @@ def get_rfq(rfq_id: uuid.UUID, principal: PrincipalDep, db: DB) -> RFQOut:
 @router.post("/{rfq_id}/reparse", response_model=RFQOut)
 def reparse(rfq_id: uuid.UUID, principal: PrincipalDep, db: DB) -> RFQOut:
     principal.require(Permission.EDIT_QUOTES)
-    rfq = rfq_service.get_rfq(db, principal.org_id, rfq_id)
+    rfq = rfq_service.get_rfq(db, principal.org_id, rfq_id)  # 404 for another tenant's RFQ before anything is counted
+    limit_rfq_parse(principal.user.id)
     rfq_service.parse_rfq(db, rfq, actor_user_id=principal.user.id, ip=principal.ip)
     from app.services import audit
 

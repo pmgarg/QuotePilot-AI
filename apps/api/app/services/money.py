@@ -6,6 +6,7 @@ import math
 import re
 import unicodedata
 from decimal import ROUND_HALF_EVEN, ROUND_HALF_UP, Decimal, InvalidOperation
+from functools import lru_cache
 
 # ISO 4217 minor units (subset covering the target markets; default 2)
 MINOR_UNITS: dict[str, int] = {
@@ -127,6 +128,13 @@ MAX_QUANTITY = Decimal("10000000")  # the same cap the API schemas enforce for R
 MAX_STORED_PRICE = Decimal("1000000000000")  # exclusive: NUMERIC(18,6) holds values below 10^12
 
 
+@lru_cache(maxsize=2048)
+def _not_a_plain_digit(ch: str) -> bool:
+    """True for a non-ASCII, non-decimal character that carries a numeric value ("²", "①", "½") or whose
+    compatibility form contains a digit ("㋀" → "1月", "㎡" → "m2")."""
+    return unicodedata.numeric(ch, None) is not None or any(c.isdecimal() for c in unicodedata.normalize("NFKC", ch))
+
+
 def _bounded(d: Decimal) -> Decimal | None:
     if not d.is_finite():
         return None
@@ -161,14 +169,17 @@ def parse_decimal(raw: object) -> Decimal | None:
         return _bounded(Decimal(repr(raw))) if math.isfinite(raw) else None
     s = str(raw)
     if len(s) > 4 * MAX_NUMBER_TEXT:
-        return None  # checked before normalisation so that hostile megabyte cells cost nothing
+        return None  # checked before anything else so that hostile megabyte cells cost nothing
+    s = s.strip()
+    if len(s) > MAX_NUMBER_TEXT:
+        return None  # the per-character work below is bounded by the cap, whatever the characters expand to
     # "5²", "10³", "5①", "½": NFKC would turn these into ordinary digits glued to the number (52, 103, 51, 1/2).
     # A character that carries a numeric value without being a decimal digit makes the cell not-a-plain-number.
     # The same holds for symbols that only *expand* to something containing a digit ("㋀" → "1月", "㎡" → "m2").
     for ch in s:
         if ch.isdecimal() or ch.isascii():
             continue
-        if unicodedata.numeric(ch, None) is not None or any(c.isdecimal() for c in unicodedata.normalize("NFKC", ch)):
+        if _not_a_plain_digit(ch):
             return None
     s = unicodedata.normalize("NFKC", s).translate(_TRANSLATE)
     # every dash and hyphen (category Pd: U+2010..U+2015, U+2E3A, U+FE58, U+FE63, U+FF0D …) and the minus signs are
@@ -213,6 +224,8 @@ def parse_decimal(raw: object) -> Decimal | None:
         if sign:
             return None
         sign, head = head[-1], head[:-1].rstrip()
+    if head and all(ch == "." or ch.isspace() for ch in head):
+        return None  # ". 5", "..-5": dots without a word are not a currency marker (SEC7-6)
     if any(ch in _NOT_DECORATION for ch in head) or any(ch in _NOT_DECORATION for ch in tail):
         return None  # a second sign, parentheses, separators or an apostrophe outside the number
     if tail.lstrip().startswith("."):
@@ -220,6 +233,8 @@ def parse_decimal(raw: object) -> Decimal | None:
     if any(ch in _GROUP_SEPARATORS for ch in core):
         if not _SPACE_GROUPED.match(core):
             return None  # "12 6", "1 e3" (letters), "10 5": two numbers, never glued together
+        if core.startswith("0"):
+            return None  # "0 500", "05 050": a thousands group never starts with a zero (SEC7-3)
         for ch in _GROUP_SEPARATORS:
             core = core.replace(ch, "")
     if not _CORE.match(core):
@@ -244,9 +259,11 @@ def parse_decimal(raw: object) -> Decimal | None:
             core = core.replace(",", ".")  # 12,5 or 12,50
         elif len(parts) == 2 and len(parts[1]) == 3 and len(parts[0]) <= 3:
             core = core.replace(",", "")  # 1,234 → thousands (ambiguous; documented)
-        elif all(len(p) == 3 for p in parts[1:]):
-            core = core.replace(",", "")
+        elif len(parts[0]) <= 3 and all(len(p) == 3 for p in parts[1:]):
+            core = core.replace(",", "")  # 1,234,567
         else:
+            # "1234,567" is 1234.567, never 1,234,567 (a thousands group needs 1-3 digits in front, SEC7-2);
+            # "1234,567,890" and other multi-group forms are not numbers (the replacement leaves two dots)
             core = core.replace(",", ".")
     try:
         d = Decimal(core)
