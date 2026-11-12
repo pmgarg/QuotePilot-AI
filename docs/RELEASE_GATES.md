@@ -515,7 +515,7 @@ IMPLEMENTED, **not VERIFIED**.
 |---|---|---|
 | C1 named decision on the erasure scope the purge does not cover (`rfq_items.raw_text`, uploaded RFQ files, audit summaries, order and quote notes, backups; also order `external_ref`/notes — S3-RR1-1, S3-RR1-3) | human | **open** |
 | C2 ratify two product decisions taken by an agent: replayed idempotency key with a different payload → 409; customer pending erasure → 404 for roles without `manage_retention` | human | **open** |
-| C3 targeted verifier re-check of fix round 2 at the final head, with a fresh full API + browser run and a scan with counts for that head | QA + security verifiers | see "After review 1" below |
+| C3 targeted verifier re-check of fix round 2 at the final head, with a fresh full API + browser run and a scan with counts for that head | QA + security verifiers | re-checks recorded below ("C3 re-check"); green CI on the final head still to be recorded; not yet seen by the reviewer |
 | C4 correct the stale documents (S3-RR1-5..7) | implementing side | done in this commit (KNOWN_LIMITATIONS, LLD, ROADMAP, traceability rewritten from the reviewer's table) — not yet looked at by the reviewer |
 | C5 Stage 1 and Stage 2 conditions closed (Stage 3 cannot be VERIFIED before they are) | human | **open** |
 
@@ -539,3 +539,36 @@ were not blocking.
 Not changed: order `external_ref` and notes are kept after erasure (part of C1, a human decision); S3-RR1-10 items
 stay in the backlog. Commands, exit codes and counts: `docs/evidence/implementer-fixes1-stage3-2026-11-12.md`
 ("Fix round 3"). These changes are **not** independently verified until the C3 re-check is recorded.
+
+### C3 re-check by fresh verifier agents (2026-11-12, at 096d9d4)
+- **Security** (`docs/evidence/security-stage3-c3-2026-11-12.md`, tests `tests/security/test_stage3_c3.py`):
+  SEC3-12..17 MITIGATED (file `12 passed`, three times; git shows only xfail decorators were removed and the reordered
+  audit test keeps every assertion). Purge reclaim: a stale job is re-queued once and executed once, a rerun on an
+  executed request is quiet, an unrelated follow-up job is untouched, legal hold still blocks. Cross-tenant: tenant B
+  cannot move tenant A's jobs. Fix round 3: CSV same-key race (8 rounds, three racers) all 201 and applied once,
+  different payloads → one 201 and one 409, a non-replay integrity error is not swallowed; connector and CSV run
+  reports carry no identifier after a purge. 17 GET routes checked for a customer pending erasure: no name or e-mail for
+  roles without `manage_retention`. **New finding SEC3-C3-1 (Low, privacy):** the PDF of an approved quote still
+  prints the name until the purge runs — kept as a strict-xfail test, documented in KNOWN_LIMITATIONS, not fixed
+  (belongs to the human decision C1). Scan at this head (`make security-scan`, exit 0, `scan-20261112-221628.md`):
+  pip-audit 0, bandit (medium and above) 0, ruff S rules pass, `npm audit --omit=dev` 0, full `npm audit` 8 moderate
+  dev-only; gitleaks and semgrep not available locally (they run in CI).
+- **QA** (`docs/evidence/qa-stage3-c3-2026-11-12.md`, tests `tests/qa/test_qa_stage3_c3.py`,
+  `tests/e2e/specs/qa-stage3-c3.spec.ts`): declared edits CONFIRMED legitimate (the audit-test reordering was judged
+  from the diff); D6 fixed; Stage 3 set `158 passed`; new tests `5 passed` — order refusal per role, name visibility per
+  role in quote list/search/detail, 6-round concurrent confirm, 6-round CSV replay; browser path for a sales user and a
+  customer pending erasure passes. Full API run: exit 0, `1703 passed, 2 skipped, 6 xfailed` (the sixth expected
+  failure is SEC3-C3-1). Full browser run: exit 1, `1 failed, 1 skipped, 62 passed` — the failure was QA's own new
+  spec (it expected search-as-you-type; the page searches on submit), corrected by QA and green in isolation
+  (`1 passed`). **No complete browser run has been green locally after that correction**; CI on the pushed head is the
+  remaining evidence for that (see the CI entry when recorded).
+- Observations for the human decision C1, measured after a purge on synthetic data: `orders.external_ref`,
+  `rfq_items.raw_text` and `quote_versions.notes` keep the identifiers they contained; redaction of copies is by
+  substring, so spelling variants are missed; `/customers` hides a customer pending erasure from every role, owner and
+  admin included (they reach it through the retention screens and the quote list).
+- Not checked by either verifier: the real worker loop, the real LLM/SMTP/storage adapters, backups, audit summaries
+  of `customer.create`, the legal-hold race (no row lock, unchanged), the flaky accessibility spec noted in S3-RR1-8
+  (it did not fail in this run).
+
+State of C3: both re-checks are recorded; what remains is a green CI run (API + browser + scans) on the pushed head.
+The reviewer asked to be re-invoked after the human decisions C1 and C2 — not before.

@@ -213,6 +213,10 @@
   in connector run rejection reasons; it can over-redact, and a copy that spells the subject differently is not found.
   Orders keep their `customer_id`, `external_ref` and notes after erasure (commercial record; human decision pending,
   release review 1 condition C1).
+- Between approval of an erasure and the purge, the PDF of an approved quote still prints the customer name for every
+  role that can open the quote (SEC3-C3-1, Low; the JSON routes withhold it from roles without `manage_retention`).
+  After the purge the PDF is re-rendered from the pseudonymised snapshot. Measured after a purge on synthetic data:
+  `orders.external_ref`, `rfq_items.raw_text` and `quote_versions.notes` keep whatever identifiers they contained.
 - Order numbers are per tenant (`SO-YYYY-NNNNN`); there is no year roll-over reset of the sequence.
 
 ## Stage 4
