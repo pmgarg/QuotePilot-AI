@@ -80,10 +80,10 @@
     not keep raw addresses), so a contact created later for that address is not opted out automatically.
   - "No follow-ups" (`preferred_channel=none`) blocks manual drafts/sends as well as automation for that address; a
     user who wants to write to such a person must change the preference first.
-  - When automation consent is withdrawn after schedules were planned, the due follow-up is **not** converted into a
-    draft: the job is dead-lettered, the schedule becomes `failed` with the reason, and an admin retry re-arms it
-    once consent is restored (QA D-13 asked for a draft instead; that conflicts with the security regression tests
-    that require a dead-lettered job in this situation, see the fix-round evidence).
+  - When automation consent is withdrawn after schedules were planned, a due follow-up degrades to the default
+    draft-only behaviour: a draft is prepared for a human, nothing is sent, the schedule becomes `drafted` with
+    `mode = draft_only`, and `followup.degraded_to_draft` is audited (QA D-13, fix round 2). Restoring consent later
+    does not auto-send that draft.
   - The edited draft is stored without the opt-out footer; it is appended when the message is sent. Placeholders are
     resolved when an edit is saved (a customer name that itself contains a placeholder-like token is therefore
     expanded once at edit time if the user changes the body).

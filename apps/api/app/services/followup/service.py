@@ -831,12 +831,27 @@ def process_due_schedule(db: Session, *, org: Organization, schedule: FollowUpSc
             schedule_id=schedule.id,
         )
         schedule.draft_id = draft.id
-    if schedule.mode == "auto_send":
+    policy = ensure_policy(db, org.id)
+    consented = bool(policy.automation_enabled and policy.automation_consented_at)
+    if schedule.mode == "auto_send" and consented:
         send_draft(
             db, org=org, draft=draft, actor=None, ip=None, mode="automation", idempotency_key=f"schedule:{schedule.id}"
         )
     else:
-        # draft-only mode (default): the schedule is fulfilled by preparing a draft for a human to review and send
+        # draft-only mode (default): the schedule is fulfilled by preparing a draft for a human to review and send.
+        # A schedule planned as auto_send whose consent was withdrawn meanwhile degrades to the same safe default
+        # (QA D-13): nothing is sent, the follow-up is not lost, and the change is recorded.
+        if schedule.mode == "auto_send":
+            schedule.mode = "draft_only"
+            audit.record(
+                db,
+                organization_id=org.id,
+                actor_user_id=None,
+                action="followup.degraded_to_draft",
+                entity_type="follow_up_schedule",
+                entity_id=schedule.id,
+                summary={"reason": "automation consent withdrawn after planning"},
+            )
         schedule.status = "drafted"
         schedule.last_error = None
     db.flush()

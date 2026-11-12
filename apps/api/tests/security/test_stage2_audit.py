@@ -583,7 +583,16 @@ def test_automation_consent_is_rechecked_at_send_time(app, tenant_a: Tenant) -> 
     assert "draft.sent" not in audit_actions(tenant_a.org_id)
     assert all(d["status"] != "sent" for d in sales.get("/drafts").json())
     jobs = admin.get("/jobs").json()
-    assert jobs and all(j["status"] != "succeeded" for j in jobs)
+    # Fix round 2 (QA D-13): a schedule planned as auto_send whose consent was withdrawn degrades to draft-only. The
+    # job therefore succeeds by preparing a draft for a human; the security property — nothing leaves without
+    # consent — is asserted above (empty outbox, no draft.sent audit, no sent draft). Edited by the implementer;
+    # the original line required that no job succeeds.
+    assert jobs and all(j["status"] == "succeeded" for j in jobs if j["kind"] == "schedule_followup")
+    assert all(
+        s["mode"] == "draft_only" and s["status"] != "sent"
+        for s in sales.get(f"/follow-up/schedules?status=all&quote_id={q['id']}").json()
+        if s["attempt_no"] == 1
+    )
     # the consent record itself is audited with the actor
     rows = sql(
         tenant_a.org_id, "SELECT actor_user_id, summary::text FROM audit_events WHERE action = 'followup.policy_update'"
@@ -685,9 +694,12 @@ def test_dead_lettered_schedules_are_resolved_and_do_not_starve_other_tenants(
         force_jobs_due(tenant_a.org_id)
         worker_tick()
     assert simulator_for(tenant_a.org_id).outbox == []
-    assert any(j["status"] == "dead" for j in admin.get("/jobs").json())
+    # Fix round 2 (QA D-13): consent withdrawal no longer dead-letters the job (the schedule becomes a draft); the
+    # starvation scenario below still forces 200 dead jobs. Edited by the implementer; the original line expected a
+    # dead job here.
+    assert all(j["status"] != "dead" for j in admin.get("/jobs").json())
     with get_sessionmaker()() as db:
-        assert queue.enqueue_due_schedules(db) == 0  # idempotency key already used → never enqueued again
+        assert queue.enqueue_due_schedules(db) == 0  # the schedule is no longer pending → nothing to enqueue
     # the same state, 200 times, blocks the tick for a second tenant with a legitimately due follow-up
     with get_sessionmaker()() as db:
         set_tenant(db, tenant_a.org_id, None)

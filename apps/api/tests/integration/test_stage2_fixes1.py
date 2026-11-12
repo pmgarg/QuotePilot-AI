@@ -399,22 +399,39 @@ def test_run_once_endpoint_processes_only_the_callers_tenant_and_is_audited(
     assert login_as(app, tenant_a.users["sales"]).post("/jobs/run-once").status_code == 403
 
 
-def test_policy_refusal_is_not_retried_and_the_schedule_leaves_pending_with_a_visible_error(
+def test_consent_withdrawal_degrades_to_draft_and_a_queued_automated_send_is_refused_terminally(
     app, tenant_a: Tenant
 ) -> None:  # type: ignore[no-untyped-def]
+    """Fix round 2 (QA D-13): withdrawing consent after planning turns the due schedule into a draft for a human
+    (nothing sent, nothing lost). A policy refusal on the send path itself is still terminal, never retried."""
     sales, admin, q = _due_auto_schedule(app, tenant_a, "buyer@customer.example")
     admin.patch("/follow-up/policy", json={"automation_enabled": False})
     assert tick() == 1
     job = admin.get("/jobs").json()[0]
-    assert job["status"] == "dead" and job["attempts"] == 1 and job["last_error"] and "@" not in job["last_error"]
+    assert job["status"] == "succeeded" and job["attempts"] == 1
     s = sales.get(f"/follow-up/schedules?status=all&quote_id={q['id']}").json()[0]
-    assert s["status"] == "failed" and "ForbiddenError" in s["last_error"]
-    assert tick() == 0 and simulator_for(tenant_a.org_id).outbox == []
-    # an admin retry after restoring consent re-arms the schedule and delivers once
-    admin.patch("/follow-up/policy", json={"automation_enabled": True})
-    assert admin.post(f"/jobs/{job['id']}/retry").status_code == 200
-    assert sales.get(f"/follow-up/schedules?quote_id={q['id']}").json()[0]["status"] == "pending"
+    assert s["status"] == "drafted" and s["mode"] == "draft_only" and s["draft_id"]
+    assert simulator_for(tenant_a.org_id).outbox == []
+    assert (
+        sql(tenant_a.org_id, "SELECT count(*) FROM audit_events WHERE action = 'followup.degraded_to_draft'")[0][0] == 1
+    )
+    # an automated send job for that draft (e.g. queued before the withdrawal) is refused once and dead-lettered
+    with get_sessionmaker()() as db:
+        set_tenant(db, tenant_a.org_id, None)
+        assert queue.enqueue(
+            db,
+            org_id=tenant_a.org_id,
+            kind="send_draft",
+            idempotency_key="late-automated-send",
+            payload={"draft_id": s["draft_id"]},
+        )
+        db.commit()
     assert tick() == 1
+    send_job = next(j for j in admin.get("/jobs").json() if j["kind"] == "send_draft")
+    assert send_job["status"] == "dead" and send_job["attempts"] == 1 and "@" not in send_job["last_error"]
+    assert tick() == 0 and simulator_for(tenant_a.org_id).outbox == []
+    # the human path still works: the prepared draft can be sent by a person
+    assert sales.post(f"/drafts/{s['draft_id']}/send").status_code == 200
     assert len(simulator_for(tenant_a.org_id).outbox) == 1
 
 

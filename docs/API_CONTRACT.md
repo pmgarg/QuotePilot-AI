@@ -112,8 +112,10 @@ HTTP 409
   `GET/POST /integrations`, `POST /integrations/{id}/revoke`, `POST /integrations/sync-inbound` (audited;
   a provider error is stored on the connection and audited as `integration.sync_failed`),
   `POST /integrations/simulator/inbound` (development/test only; `from_email` is validated).
-  Job outcomes: a refusal by our own rules (consent withdrawn, opt-out, wrong state) dead-letters at once with the
-  schedule marked `failed`; transient provider errors and the hourly limit are retried with capped backoff.
+  Job outcomes: a due schedule whose automation consent was withdrawn becomes a draft (`drafted`, `draft_only`); a
+  refusal by our own rules on the send path (no consent for a queued automated send, opt-out, wrong state)
+  dead-letters at once with the schedule marked `failed`; transient provider errors and the hourly limit are retried
+  with capped backoff.
 - Stage 3: `/orders{,/{id}/events}`, `/kpis?from&to&currency`, `/imports`, `/exports` (role-aware), `/connectors`,
   `/sync/conflicts{,/{id}/resolve}`, `/stock/{product_id}`, `/deletion-requests`.
 - Stage 4: `/assistant/sessions{,/{id}/messages}`, `/tools` (allowed list), `/workflows{,/{id}/versions,/{id}/dry-run,/{id}/runs}`,
