@@ -270,3 +270,42 @@ tests are declared there: removed xfail markers, and four QA tests whose expecta
 4. CI on the gated HEAD for both events with job-level results, counts and the CodeQL code-scanning check.
 5. Release review by the read-only `release-reviewer` with a fresh context; findings recorded here verbatim.
 Stage 3 depends on Stages 1 and 2 being VERIFIED; both gates are still open.
+
+---
+
+# Stage 4 gate log (branch `claude/stage4-governed-platform`, PR #4) — status: OPEN, not reviewed
+
+Stage 4 has its own gate. Nothing in this section is a PASS; the release reviewer has not been invoked for Stage 4.
+Scope note: the onboarding wizard, in-app help pages and a demo-reset action (parts of S4-F06) are **not built**.
+
+## Independent verification of the first implementation (2026-11-10 / 2026-11-12)
+- **Security audit** (`docs/evidence/security-stage4-2026-11-10.md`; 83 adversarial tests over S4-A01..A09):
+  **S4-SEC-01 (Medium)** approval of a tool invocation had no row lock → double execution; **S4-SEC-02 (Medium)**
+  seat limit bypass by reactivating a member; S4-SEC-03..07 (Low): seat race, no durable record of a failed approved
+  action, NUL byte → HTTP 500, unaudited compensation, subscription get-or-create race. No Critical or High.
+- **QA** (`docs/evidence/qa-stage4-2026-11-10.md`; 115 API + 11 browser tests): S4-F01..F03, S4-A01..A03, A05, A06,
+  A09 pass. **Defects: D-QA4-01 (Medium)** kill switch also blocked workflow dry runs; **D-QA4-02 (Medium)**
+  `GET /workflows` readable by every role; **D-QA4-05 (Medium)** validation errors carried customer text into the
+  support export that claims to contain none; D-QA4-03 (Low–Medium) NUL byte → 500; D-QA4-04 (Low) trigger
+  `quote.won` accepted but never fired. Three full browser runs each had one failing pre-existing Stage 1/2 spec
+  (passing in isolation; machine under load; the commit-before-response defect D5 was still present then).
+
+## Fix round 1 (`docs/evidence/implementer-fixes1-stage4-2026-11-12.md`, implementer agent)
+All seven security findings and all five QA defects addressed; self-reported targeted runs green (security audit file
+91 passed with no xfail left, QA files 115 passed, fixes file 22 passed, Stage 4 integration 16 passed). Declared edits
+to verifier files: seven xfail markers removed; lint/format fixes without assertion changes.
+Orchestrator decisions recorded here:
+- Dry runs under the kill switch: only **workflow** dry runs are exempt; a manual `POST /actions` with `dry_run` stays
+  blocked (503) while the switch is engaged, as the security audit's kill-switch test requires. QA's defect test
+  covers the workflow path and passes. The narrower exemption is deliberate (fail closed) and must be judged by QA.
+- `quote.won` was removed from the accepted workflow triggers instead of being dispatched (documented in the API
+  contract and KNOWN_LIMITATIONS).
+Known gaps stated by the implementer: compensation does not run when an approved step fails at approval time; a
+failure on the propose path of non-approval tools is rolled back with the request and leaves no failure record.
+
+## Still required before any Stage 4 verdict
+1. A green full API and browser run on the merged tree (Stages 1–3 fix rounds included).
+2. Independent QA and security re-verification of fix round 1 (including the two decisions above and the declared edits).
+3. CI on the gated HEAD for both events with job-level results, counts and the CodeQL code-scanning check.
+4. Release review by the read-only `release-reviewer` with a fresh context; findings recorded here verbatim.
+Stage 4 depends on Stages 1–3 being VERIFIED; all three gates are still open.

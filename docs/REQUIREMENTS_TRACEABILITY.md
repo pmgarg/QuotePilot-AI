@@ -88,6 +88,11 @@ tests; the verifiers' per-requirement verdicts are in their evidence files. Noth
 | S3-A09 cross-tenant regression | X-01 | migration 0007 RLS policies | test_stage3_cross_tenant_ids_are_404_and_rls_holds, test_order_number_sequence_is_per_tenant | implementer-stage3 | 404 matrix + raw RLS + WITH CHECK | pending | | IMPLEMENTED |
 
 ## Stage 4 (implemented on `claude/stage4-governed-platform`; gate pending)
+Gate status 2026-11-12: independent security audit (`security-stage4-2026-11-10.md`, S4-SEC-01..07) and QA
+(`qa-stage4-2026-11-10.md`, D-QA4-01..05) ran on the first implementation; fix round 1
+(`implementer-fixes1-stage4-2026-11-12.md`) addresses all of them. Independent re-verification and the release review
+have **not** run yet. The rows below still cite the implementer's tests; the verifiers' per-requirement verdicts are in
+their evidence files. Onboarding wizard, help pages and demo reset (S4-F06) are not built. Nothing below is VERIFIED.
 | requirement_id | design_reference | code_reference | test_id | test_result/evidence | security_check | reviewer_verdict | open_issue | status |
 |---|---|---|---|---|---|---|---|---|
 | S4-F01 command center | PRD §Stage 4 | `routers/platform.py::command_center`, web `/command-center` | test_command_center_queues_are_role_aware; e2e S4-F02/F03 | implementer-stage4 | role-filtered queues | pending | no org-configurable dashboard layout | IMPLEMENTED |
