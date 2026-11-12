@@ -125,5 +125,54 @@
   catalog-priced line above that amount can be quoted at the catalog price but not manually re-priced.
 
 
-## Stage 2–4
+## Stage 2 (implemented on `claude/stage2-followup-assistant`, gate pending)
+- Providers: the simulator (default) and SMTP are implemented; Gmail and Microsoft Graph adapters are designed and
+  the OAuth setup is documented, but intentionally not shipped untested (the API rejects connecting them).
+- Inbound synchronisation exists for the simulator only; SMTP is outbound-only (IMAP/Graph inbound is a follow-up).
+- Quiet hours / weekend skipping use the organisation policy time zone, not each contact's time zone.
+- The background worker is a single process; the `app.worker` RLS scope is a trusted-code boundary (see ADR-012).
+- Draft bodies are plain text; HTML templates and attachments (e.g. the quote PDF) are not sent yet.
+- **Log redaction of malformed addresses (S2-SEC-12).** Addresses are removed from log lines with a bounded pattern:
+  a local part longer than 64 characters is only partly redacted and a domain label longer than 63 characters not at
+  all. Such addresses are invalid and are rejected as contacts; they can only reach a log through hostile or corrupt
+  text.
+- **Abandoned jobs (S2-RR1-4, fixed in round 3).** A job `running` longer than `JOB_VISIBILITY_TIMEOUT_SECONDS`
+  (default 900) is reclaimed at the start of every worker tick and every tenant-scoped run-once: back to `queued` with
+  its attempt count kept, or `dead` (schedule marked `failed`, admin retry re-arms it) when attempts are exhausted.
+  Residual: the timeout must exceed the longest legitimate handler run, otherwise a slow but live job could be run a
+  second time. A send is not delivered twice once the draft is committed as `sent`; if a worker dies after the provider
+  accepted the message but before that commit, the redelivery is possible (at-least-once; the idempotency key is
+  stored on the draft but not passed to the provider). Reclaims are logged, not audited (no actor).
+- **Terminal schedule failure (S2-RR1-2, tested in round 3).** A permanent provider error ends the job `failed`, an
+  exhausted/abandoned job ends `dead`; both mark the schedule `failed`, and the admin retry re-arms it.
+- **S2-A05 (expired or invalid OAuth token).** Only exercised by proxy (a misconfigured SMTP provider, an outage);
+  no OAuth provider exists, and "job paused, admin notified" is not demonstrated.
+- **Opt-out matching.** Suppression compares addresses case-insensitively after trimming; plus-tags and dots are
+  significant (`jane+x@…` is a different address from `jane@…`).
+- **Inbound replies.** A message is linked to a quote by sender/reply headers; linking by `In-Reply-To` alone has no
+  sender check (only the simulator exists today).
+- Fix round 1 (2026-11-10) behaviour worth knowing:
+  - Suppression is keyed on the e-mail address inside the tenant. An unsubscribe reply from an address that has **no
+    contact row** is recorded as an unlinked event only; the address itself is not stored as a suppression (events do
+    not keep raw addresses), so a contact created later for that address is not opted out automatically.
+  - "No follow-ups" (`preferred_channel=none`) blocks manual drafts/sends as well as automation for that address; a
+    user who wants to write to such a person must change the preference first.
+  - When automation consent is withdrawn after schedules were planned, a due follow-up degrades to the default
+    draft-only behaviour: a draft is prepared for a human, nothing is sent, the schedule becomes `drafted` with
+    `mode = draft_only`, and `followup.degraded_to_draft` is audited (QA D-13, fix round 2). Restoring consent later
+    does not auto-send that draft.
+  - The edited draft is stored without the opt-out footer; it is appended when the message is sent. Placeholders are
+    resolved when an edit is saved (a customer name that itself contains a placeholder-like token is therefore
+    expanded once at edit time if the user changes the body).
+  - A quote number in an inbound message links it to the quote only when the sender is a contact of the quote's
+    customer or the message answers one of our own messages for that quote; otherwise it stays an unlinked event.
+  - Per-tenant SMTP credentials are stored encrypted but **not used for sending** (S2-SEC-06, accepted): every tenant
+    sends through the process-wide `SMTP_*` account. Using the stored secret needs per-tenant host/user configuration
+    and is a Stage 2 follow-up; the strict-xfail test for it remains.
+  - The hourly send limit is serialised per organisation by a row lock on the policy; the provider call happens
+    inside that lock, so sends of one organisation are sequential.
+  - Provider acknowledgement followed by a database failure before commit can still produce a duplicate on retry
+    (no provider-side idempotency key); the window is small and unchanged.
+
+## Stage 3–4
 Not implemented; designs and backlogs exist (ROADMAP.md, PRD.md, LLD.md).

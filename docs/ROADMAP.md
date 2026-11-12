@@ -5,8 +5,8 @@ independent reviewer PASS) / BLOCKED.
 
 | Stage | Status | Gate record | Notes |
 |---|---|---|---|
-| 1 RFQ-to-Quotation | IN PROGRESS | RELEASE_GATES.md § Stage 1 | see milestone plan below |
-| 2 Follow-up Assistant | NOT STARTED (designed) | — | depends on Stage 1 VERIFIED |
+| 1 RFQ-to-Quotation | IMPLEMENTED — release review 2 pending/recorded in RELEASE_GATES.md | RELEASE_GATES.md § Stage 1 | QA + security re-verified; CI green on 60adb00 |
+| 2 Follow-up Assistant | IMPLEMENTED (branch `claude/stage2-followup-assistant`) — QA/security/review gate not yet run | RELEASE_GATES.md § Stage 2 | separate PR and gate |
 | 3 Customer & Order Intelligence | NOT STARTED (designed) | — | depends on Stage 2 lifecycle |
 | 4 Governed AI Sales Ops | NOT STARTED (designed) | — | depends on Stages 1–3 |
 

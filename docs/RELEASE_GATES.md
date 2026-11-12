@@ -339,3 +339,117 @@ Required retest per the reviewer: none for the conditions as written; a targeted
 - Decide whether a manual screen-reader audit (X-08) is required for Stage 1.
 - Decide whether running the Docker Compose topology (never executed in the development container) is required before
   calling Stage 1 released.
+
+---
+
+# Stage 2 gate log (branch `claude/stage2-followup-assistant`, PR #2) — status: release review 1 = PASS WITH CONDITIONS; not VERIFIED
+
+Stage 2 has its own gate. Nothing in this section is a PASS; the release reviewer has not been invoked for Stage 2.
+
+## Independent verification of the first implementation (2026-11-02)
+- **QA** (`docs/evidence/qa-stage2-2026-11-02.md`; 55 API + 8 browser tests derived from the PRD): **15 defects —
+  2 Critical** (D-01 opt-out bypass, D-03 concurrent duplicate send), **4 High** (D-02, D-04, D-05, D-06), 8 Medium
+  (D-07..D-14), 1 Low (D-15). Acceptance criteria S2-A02 and S2-A03 failed, S2-A05 partial. Stage 1 did not regress.
+- **Security audit** (`docs/evidence/security-stage2-2026-11-02.md`): S2-SEC-01..S2-SEC-04 Medium (cross-tenant worker
+  on the request path, opt-out bound to the contact row instead of the address, dead-lettered schedules starving
+  other tenants, removable opt-out instruction), S2-SEC-05..S2-SEC-11 Low.
+
+## Fix rounds
+- **Round 1** (`implementer-fixes1-stage2-2026-11-10.md`, implementer agent): all QA defects except the disputed D-13
+  and all security findings except S2-SEC-06 (per-tenant provider secret stored but unused — accepted, documented in
+  KNOWN_LIMITATIONS, strict xfail kept). Self-reported runs: API 476 passed, 1 failed (D-13), 1 skipped, 1 xfailed;
+  browser 37 passed, 1 skipped.
+- **Round 2** (`implementer-fixes2-stage2-2026-11-12.md`, orchestrator): D-13 decided in QA's favour (a withdrawn
+  consent degrades a due automated follow-up to a draft); migration renumbered to `0006b`; Stage 1 fix rounds 6–8b
+  merged (including the commit-before-response fix D5). Declared edits to two security-audit tests.
+
+## Latest local runs on the merged tree (see the fixes2 evidence file for commands and exit codes)
+Recorded there; the table is updated with every merge. A green browser run on the tree that contains D5 exists
+(49 passed, 1 skipped, 0 failed at f09a842).
+
+## CI on the head with fix rounds 1–2 and Stage 1 round 11 merged (PR #2, 2026-11-12)
+First run after the merge: `api` and `web` green, **e2e red** (three follow-up tests timed out clicking a customer's
+Contacts button — the directory table slid under the neighbouring panel on the runner) and the **CodeQL check red**
+(`py/polynomial-redos` in the log redaction and e-mail validation patterns). Both fixed (table scrolls inside its
+card; bounded patterns). Next run: **all 15 checks green on both events** — pytest `1509 passed, 5 skipped, 3 xfailed,
+1 xpassed`; Playwright `53 passed`, `1 skipped`, no flaky or failed line; CodeQL 0 results.
+
+## Independent re-verification of the fix rounds (2026-11-12) — narrow, checklist-driven
+Two fresh verifier agents, fixed checklists, no full-suite re-runs and no exploratory campaign (the cost-driven
+process described in the Stage 1 gate log). Verified at 43ec762.
+- QA (`docs/evidence/qa-stage2-reverify-2026-11-12.md`): 7 of 7 items CONFIRMED, no defect. All 55 original QA defect
+  tests pass with **no QA assertion edited**; both Critical fixes re-proven with new tests (an opted-out address
+  cannot be mailed through a case variant, padded address, duplicate contact, earlier draft or the automation path;
+  8 concurrent sends → one delivery, one audit row); the four High fixes and the D-13 decision confirmed; S2-A01..A08
+  pass (A05/A06 only against simulator/fake providers — no real provider exists); the two Stage 2 browser specs
+  8 passed on a fresh database. The customer-table layout change was confirmed by code reading only.
+- Security (`docs/evidence/security-stage2-reverify-2026-11-12.md`): S2-SEC-01/07/11, 02, 03, 04, 09, 10 and the
+  consent re-check CLOSED; S2-SEC-05 MITIGATED; S2-SEC-06 ACCEPTED as documented; the declared edits to the audit
+  tests judged legitimate (ten xfail markers removed with test bodies unchanged; two assertions changed by the D-13
+  decision keep the security property). **New: S2-SEC-12 (Low, backlog)** — the bounded log-redaction pattern leaves
+  part of an over-long (RFC-invalid) address visible. No Critical or High finding open; nothing the auditor considers
+  release-blocking.
+
+### CI evidence for 0d610fd — the gated Stage 2 head (GitHub Actions, queried 2026-11-12): all 15 checks green
+`ci` runs 43295840234 and 43295851515 (the latter on the pull-request merge commit of 0d610fd): api, web, e2e success
+on both; pytest `1521 passed, 5 skipped, 4 xfailed, 1 xpassed in 1030.61s`; Playwright `53 passed (2.3m)`, `1 skipped`,
+no flaky line, no failed line. `security` workflow jobs (CodeQL python and javascript-typescript, gitleaks,
+pip-audit/npm audit/bandit/semgrep) success on both events; CodeQL code-scanning check success.
+Expected failures (4): S2-SEC-06 (accepted), S2-SEC-12 (new Low), and Stage 1's two (matching latency residual,
+SEC8-1). Skips (5): three tests that need git history, two compose-render tests that need a repo-root `.env`.
+
+### Open for Stage 2 (single list for the reviewer)
+| ID | Severity | State |
+|---|---|---|
+| S2-SEC-06 per-tenant provider secret stored but unused | Low | accepted, documented, strict xfail |
+| S2-SEC-12 partial redaction of RFC-invalid addresses in logs | Low | open, backlog, strict xfail |
+| O-1 plus-tag / dot variants of an opted-out address are not suppressed | Low (policy) | needs a product decision |
+| O-4 inbound linking by `in_reply_to` alone has no sender check | Low today | backlog; matters once a real inbound adapter ships |
+| duplicate contact rows accepted at creation; `{Foo}`-style unknown braces sent literally; a dead send job leaves its draft un-failed; stale copy on the customers page | Info | observations |
+| no real e-mail provider has ever been exercised (simulator and fakes only) | — | limitation |
+
+## Still required before any Stage 2 verdict
+1. ~~Independent QA re-verification of fix rounds 1–2~~ — done (narrow), see above.
+2. ~~Independent security re-verification~~ — done (narrow), see above.
+3. CI on the gated HEAD for both events, with job-level results and counts, including the CodeQL code-scanning check.
+4. Release review by the read-only `release-reviewer` with a fresh context; findings recorded here verbatim.
+Stage 2 also depends on Stage 1 being VERIFIED (ROADMAP); Stage 1's gate is still open.
+
+## Review 1 — Stage 2 @0d610fd (2026-11-12) — verdict PASS WITH CONDITIONS
+Full report, verbatim: `docs/evidence/release-review-1-stage2-2026-11-12.md` (project `release-reviewer` agent, fresh
+context, read-only; it ran no tests and could not query GitHub). No open Critical or High defect; the send gate,
+address-level suppression, exactly-once send, tenant scoping of the worker and RLS on the nine Stage 2 tables are
+implemented as claimed in the code it read. **Stage 2 is not VERIFIED.** A simulator-only demo is acceptable after C3,
+C5 and the human decisions in C2; real-provider or real-tenant use is blocked until S2-RR1-7 and C1 are resolved.
+
+| Condition | Who | State |
+|---|---|---|
+| **C1** Stage 1's two open human conditions must be closed first (Stage 2 is stacked on Stage 1) | Human owner | **OPEN** |
+| **C2** A signed decision on each of: D-13 (withdrawn consent → draft; decided by the orchestrator, not a human); O-1 (plus-tag/dot variants of an opted-out address are not suppressed); S2-SEC-06 (all tenants send through one process-wide SMTP account — "accepted" so far only by an agent); S2-SEC-12 (Low, partial log redaction of invalid addresses); the scope gap on S2-F06/S2-A05 (Gmail and Graph not shipped, "job paused, admin notified" not demonstrated); an unsubscribe from an address with no contact row does not suppress a contact created later (S2-RR1-3) | Named human owner | **OPEN** |
+| **C3** Per-requirement-group traceability for Stage 2; stale statements corrected | Orchestrator | done in this commit (matrix rebuilt from the reviewer's table; PRD S2-F07 and LLD no longer say Redis; this heading) |
+| **C4** Close S2-RR1-2 (no test produces a terminally failed schedule job, so `_fail_schedule` and the retry re-arm are untested) and S2-RR1-4 (a job left `running` after a worker crash is never reclaimed) with tests or a documented limitation; one independent full API and browser run on the final head; one hostile exploratory session on the send and consent paths | QA, then reviewer | **OPEN** — S2-RR1-4 is documented as a limitation in this commit; the rest is not done |
+| **C5** CI result for the gated head stored as an evidence file | Orchestrator | done: `docs/evidence/ci-stage2-0d610fd-2026-11-12.md` |
+
+Other findings: S2-RR1-5 (Low, stale documents → C3), S2-RR1-6 (Medium: S2-A05 is proxy-tested only — now marked
+PARTIAL), S2-RR1-7 (Medium: shared SMTP identity, no real provider ever exercised), S2-RR1-8 (Low → C5), S2-RR1-9
+(Low: some QA confirmation tests are permissive), S2-RR1-10 (Low: inbound linking / follow-up suppression once a real
+inbound adapter ships), S2-RR1-11 (Low, process: the orchestrator wrote fix round 2, decided D-13, edited auditor
+tests and chose the narrow verification). Required retest per the reviewer: the C4 items, an RLS/cross-tenant re-run
+for the Stage 2 tables including migration 0006b, an opt-out-versus-in-flight-send race, a scan on the gated head;
+then re-invoke the reviewer.
+
+### After review 1 — fix round 3 (2026-11-12): S2-RR1-2 and S2-RR1-4
+`docs/evidence/implementer-fixes2-stage2-2026-11-12.md`, section "Fix round 3" (implementer agent): the job queue has
+a visibility timeout (`queue.reclaim_abandoned`, default 900 s, setting `JOB_VISIBILITY_TIMEOUT_SECONDS`) — a job left
+`running` by a dead worker is re-queued with its attempt count preserved or, with attempts exhausted, marked `dead`
+through the normal terminal path; ten new tests (`tests/integration/test_stage2_fixes3.py`) cover a terminally failed
+schedule job, the admin retry re-arming it exactly once, and the reclaim cases including no second delivery for a
+reclaimed send job. Targeted runs by the implementer: 10 passed (new file); 170 passed, 2 xfailed (Stage 2 security,
+QA and integration set); lint and types clean. Not independently re-verified. Documented residual: a worker that dies
+after the provider accepted a message but before the draft is committed `sent` can redeliver on reclaim.
+Condition C4 state: the two findings are addressed by the implementing side; the independent full run on the final
+head and the adversarial session are still owed.
+CI on 7d5cf4a: push event — api, web, e2e success (`53 passed`, `1 skipped` in the browser job); pull_request event —
+the api job failed in the `setup-uv` step with a GitHub "Server Error" before any test ran (infrastructure, not code),
+so its e2e job was skipped. The next push re-runs both.
+

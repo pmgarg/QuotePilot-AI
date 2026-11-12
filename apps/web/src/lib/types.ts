@@ -48,3 +48,16 @@ export interface Quote {
 export interface QuoteSummary { id: string; number: string; customer_id: string | null; customer_name: string | null; currency: string; status: string; effective_status: string; current_version_no: number; grand_total: string; valid_until: string | null; created_at: string; updated_at: string }
 export interface AuditEvent { id: number; actor_user_id: string | null; action: string; entity_type: string | null; entity_id: string | null; request_id: string | null; summary: Record<string, unknown>; created_at: string }
 export interface History { versions: QuoteVersion[]; audit: AuditEvent[] }
+
+// ---------------------------------------------------------------- Stage 2
+export interface Contact { id: string; customer_id: string; full_name: string; email: string | null; phone: string | null; preferred_channel: string; language: string; timezone: string; is_primary: boolean; opted_out_at: string | null; opt_out_source: string | null; notes: string | null }
+export interface FollowUpPolicy { offsets_days: number[]; max_attempts: number; quiet_hours_start: number; quiet_hours_end: number; timezone: string; skip_weekends: boolean; automation_enabled: boolean; automation_consented_at: string | null; hourly_send_limit: number; sender_name: string | null; reply_to_email: string | null; dev_endpoints_enabled?: boolean }
+export interface MessageTemplate { id: string; key: string; name: string; language: string; subject: string; body: string; is_active: boolean }
+export interface Draft { id: string; quote_id: string; contact_id: string | null; schedule_id: string | null; channel: string; to_email: string | null; subject: string; body: string; template_key: string | null; status: string; generated_reasons: string[]; provider: string | null; provider_message_id: string | null; sent_by: string | null; sent_at: string | null; last_error: string | null; created_at: string }
+export interface Schedule { id: string; quote_id: string; contact_id: string | null; attempt_no: number; due_at: string; status: string; mode: string; reason: string | null; draft_id: string | null; last_error: string | null }
+export interface Recommendation { action: string; template_key: string | null; priority: string; reasons: string[]; blocked_by: string[]; suggested_contact_id: string | null }
+export interface StatusEvent { id: string; from_status: string; to_status: string; source: string; evidence: string | null; actor_user_id: string | null; occurred_at: string }
+export interface TimelineItem { at: string; kind: string; title: string; detail: string | null; source: string | null }
+export interface Lifecycle { status: string; allowed_transitions: Record<string, boolean>; events: StatusEvent[]; recommendation: Recommendation; contacts: Contact[]; drafts: Draft[]; schedules: Schedule[]; timeline: TimelineItem[] }
+export interface Job { id: string; kind: string; status: string; attempts: number; max_attempts: number; next_run_at: string; last_error: string | null; finished_at: string | null; created_at: string }
+export interface Integration { id: string; provider: string; status: string; scopes: string[]; account_email: string | null; last_error: string | null; last_sync_at: string | null; created_at: string }

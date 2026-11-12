@@ -61,6 +61,31 @@ services:
       timeout: 3s
       retries: 10
 
+  worker:
+    build: { context: ../apps/api, dockerfile: Dockerfile }
+    command: ["python", "-m", "app.workers.runner", "--interval", "30"]
+    # Same allow-list discipline as `api` (NEW-16): the worker runs as the app role (RLS enforced) and never holds
+    # the owner DSN or password. Provider secrets are decrypted with TOKEN_ENCRYPTION_KEY only.
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env}
+      DATABASE_URL: postgresql+psycopg://quotepilot_app:${QP_APP_PASSWORD:-quotepilot_app}@postgres:5432/quotepilot
+      DATABASE_ADMIN_URL: ""
+      STORAGE_DIR: /data/storage
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:-}
+      MAIL_PROVIDER_DEFAULT: ${MAIL_PROVIDER_DEFAULT:-simulator}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-}
+      FOLLOWUP_WORKER_ID: ${FOLLOWUP_WORKER_ID:-worker-1}
+    volumes:
+      - storage:/data/storage
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
   web:
     build:
       context: ../apps/web

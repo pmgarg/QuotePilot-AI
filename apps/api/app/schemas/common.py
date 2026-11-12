@@ -5,7 +5,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, SerializeAsAny
+from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, SerializeAsAny, field_validator
 
 
 def _dec(v: Decimal) -> str:
@@ -387,3 +387,204 @@ class AuditOut(ORMModel):
 class HistoryOut(BaseModel):
     versions: list[QuoteVersionOut]
     audit: list[AuditOut]
+
+
+# ---------------------------------------------------------------- Stage 2 — follow-up assistant
+class ContactIn(BaseModel):
+    full_name: str = Field(min_length=1, max_length=200)
+    email: str | None = Field(default=None, max_length=320)
+    phone: str | None = Field(default=None, max_length=50)
+    preferred_channel: str = Field(default="email", pattern="^(email|phone|none)$")
+    language: str = Field(default="en", min_length=2, max_length=8)
+    timezone: str = Field(default="UTC", max_length=64)
+    is_primary: bool = False
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class ContactOut(ORMModel):
+    id: uuid.UUID
+    customer_id: uuid.UUID
+    full_name: str
+    email: str | None
+    phone: str | None
+    preferred_channel: str
+    language: str
+    timezone: str
+    is_primary: bool
+    opted_out_at: datetime | None
+    opt_out_source: str | None
+    notes: str | None
+
+
+class OptOutIn(BaseModel):
+    opted_out: bool
+    source: str = Field(default="manual", max_length=64)
+
+
+class PolicyOut(ORMModel):
+    offsets_days: list[int]
+    max_attempts: int
+    quiet_hours_start: int
+    quiet_hours_end: int
+    timezone: str
+    skip_weekends: bool
+    automation_enabled: bool
+    automation_consented_at: datetime | None
+    hourly_send_limit: int
+    sender_name: str | None
+    reply_to_email: str | None
+    dev_endpoints_enabled: bool = False
+
+
+class PolicyUpdate(BaseModel):
+    offsets_days: list[int] | None = Field(default=None, max_length=10)
+    max_attempts: int | None = Field(default=None, ge=0, le=10)
+    quiet_hours_start: int | None = Field(default=None, ge=0, le=23)
+    quiet_hours_end: int | None = Field(default=None, ge=0, le=23)
+    timezone: str | None = Field(default=None, max_length=64)
+    skip_weekends: bool | None = None
+    automation_enabled: bool | None = None  # admin/owner only; records consent
+    hourly_send_limit: int | None = Field(default=None, ge=1, le=1000)
+    sender_name: str | None = Field(default=None, max_length=200)
+    reply_to_email: str | None = Field(default=None, max_length=320)
+
+    @field_validator("sender_name")
+    @classmethod
+    def _no_control_chars(cls, v: str | None) -> str | None:
+        if v is not None and any(ord(ch) < 32 or ord(ch) == 127 for ch in v):
+            raise ValueError("sender_name must not contain control characters (CR/LF)")
+        return v
+
+
+class TemplateOut(ORMModel):
+    id: uuid.UUID
+    key: str
+    name: str
+    language: str
+    subject: str
+    body: str
+    is_active: bool
+
+
+class TemplateUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    subject: str | None = Field(default=None, min_length=1, max_length=300)
+    body: str | None = Field(default=None, min_length=1, max_length=20000)
+    is_active: bool | None = None
+
+
+class TransitionIn(BaseModel):
+    expected_lock_version: int = Field(ge=0)
+    to_status: str = Field(pattern="^(sent|acknowledged|awaiting_customer|won|lost)$")
+    evidence: str | None = Field(default=None, max_length=2000)
+    occurred_at: datetime | None = None
+
+
+class StatusEventOut(ORMModel):
+    id: uuid.UUID
+    from_status: str
+    to_status: str
+    source: str
+    evidence: str | None
+    actor_user_id: uuid.UUID | None
+    occurred_at: datetime
+
+
+class DraftCreate(BaseModel):
+    contact_id: uuid.UUID | None = None
+    template_key: str | None = Field(default=None, max_length=64)
+
+
+class DraftUpdate(BaseModel):
+    subject: str | None = Field(default=None, min_length=1, max_length=300)
+    body: str | None = Field(default=None, min_length=1, max_length=20000)
+    to_email: str | None = Field(default=None, max_length=320)
+
+
+class DraftOut(ORMModel):
+    id: uuid.UUID
+    quote_id: uuid.UUID
+    contact_id: uuid.UUID | None
+    schedule_id: uuid.UUID | None
+    channel: str
+    to_email: str | None
+    subject: str
+    body: str
+    template_key: str | None
+    status: str
+    generated_reasons: list[str]
+    provider: str | None
+    provider_message_id: str | None
+    sent_by: uuid.UUID | None
+    sent_at: datetime | None
+    last_error: str | None
+    created_at: datetime
+
+
+class ScheduleOut(ORMModel):
+    id: uuid.UUID
+    quote_id: uuid.UUID
+    contact_id: uuid.UUID | None
+    attempt_no: int
+    due_at: datetime
+    status: str
+    mode: str
+    reason: str | None
+    draft_id: uuid.UUID | None
+    last_error: str | None
+
+
+class RescheduleIn(BaseModel):
+    due_at: datetime
+
+
+class CancelIn(BaseModel):
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class CommEventOut(ORMModel):
+    id: uuid.UUID
+    quote_id: uuid.UUID | None
+    contact_id: uuid.UUID | None
+    kind: str
+    direction: str
+    provider: str | None
+    subject: str | None
+    snippet: str | None
+    occurred_at: datetime
+
+
+class JobOut(ORMModel):
+    id: uuid.UUID
+    kind: str
+    status: str
+    attempts: int
+    max_attempts: int
+    next_run_at: datetime
+    last_error: str | None
+    finished_at: datetime | None
+    created_at: datetime
+
+
+class SimulatedInboundIn(BaseModel):
+    from_email: str = Field(max_length=320)
+    subject: str = Field(max_length=300)
+    snippet: str = Field(max_length=500)
+    in_reply_to: str | None = Field(default=None, max_length=300)
+
+
+class IntegrationOut(ORMModel):
+    id: uuid.UUID
+    provider: str
+    status: str
+    scopes: list[str]
+    account_email: str | None
+    last_error: str | None
+    last_sync_at: datetime | None
+    created_at: datetime
+
+
+class IntegrationCreate(BaseModel):
+    provider: str = Field(pattern="^(simulator|smtp|gmail|msgraph)$")
+    account_email: str | None = Field(default=None, max_length=320)
+    secret: str | None = Field(default=None, max_length=4000)  # encrypted at rest; never returned

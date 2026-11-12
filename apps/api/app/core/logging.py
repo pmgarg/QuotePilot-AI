@@ -16,6 +16,8 @@ _SENSITIVE_KEYS = re.compile(
     r"(password|passwd|secret|token|cookie|authorization|api[_-]?key|set-cookie)", re.IGNORECASE
 )
 _SECRET_LIKE = re.compile(r"(sk-ant-[A-Za-z0-9_\-]{10,}|AKIA[0-9A-Z]{16}|eyJ[A-Za-z0-9_\-]{20,}\.)")
+# bounded repetitions (RFC 5321 sizes): an unbounded local part made `sub` quadratic on long runs of such characters
+_EMAIL = re.compile(r"[A-Za-z0-9._%+\-']{1,64}@[A-Za-z0-9\-]{1,63}(?:\.[A-Za-z0-9\-]{1,63}){1,8}")
 
 
 def redact(value: Any) -> Any:
@@ -24,7 +26,7 @@ def redact(value: Any) -> Any:
     if isinstance(value, list | tuple):
         return [redact(v) for v in value]
     if isinstance(value, str):
-        return _SECRET_LIKE.sub("[REDACTED]", value)
+        return _EMAIL.sub("[EMAIL]", _SECRET_LIKE.sub("[REDACTED]", value))  # S2-F11: no addresses in logs
     return value
 
 

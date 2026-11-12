@@ -5,6 +5,7 @@ import { api, describeError } from "@/lib/api";
 import type { Member, Organization, Role } from "@/lib/types";
 import { useSession } from "@/components/session";
 import { Alert, Badge, Button, Card, Field, Forbidden, inputClass, Loading, PageHeader } from "@/components/ui";
+import { FollowUpSettings } from "@/components/contacts";
 
 const ROLES: Role[] = ["owner", "admin", "sales", "approver", "readonly"];
 
@@ -194,6 +195,7 @@ export default function SettingsPage() {
       <PageHeader title="Settings" subtitle="Organisation, pricing rules, branding and members." />
       <div className="grid gap-6">
         <OrgSettings />
+        <FollowUpSettings />
         <Members />
       </div>
     </>

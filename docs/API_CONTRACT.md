@@ -93,8 +93,31 @@ HTTP 409
 ```
 
 ## Stage 2–4 endpoints (designed)
-- Stage 2: `/contacts`, `/follow-up/policies`, `/follow-up/schedules{,/{id}/cancel}`, `/quotes/{id}/transition`,
-  `/drafts{,/{id}/send}`, `/integrations{,/{id}/revoke}`, `/jobs/dead-letters`, `/timeline?quote_id|customer_id`.
+- Stage 2 (implemented): `GET/POST /customers/{id}/contacts`, `PATCH /contacts/{id}`, `POST /contacts/{id}/opt-out`
+  (opt-out and opt-in act on the **e-mail address**: every contact row of the tenant with that address (case-insensitive)
+  changes together; a new or re-addressed contact with an opted-out address starts opted out; opt-in is owner/admin
+  only); `GET/PATCH /follow-up/policy` (automation consent owner/admin, audited; `sender_name` rejects control
+  characters with 422; the response carries `dev_endpoints_enabled` for the UI);
+  `GET /follow-up/templates`, `PATCH /follow-up/templates/{id}` (whitelisted placeholders, plain text);
+  `POST /quotes/{id}/transition` `{expected_lock_version,to_status,evidence?,occurred_at?}` (evidence mandatory for
+  acknowledged/won/lost); `GET /quotes/{id}/lifecycle` (status, allowed transitions, events, recommendation with reasons,
+  contacts, drafts, schedules, timeline); `POST /quotes/{id}/drafts`, `GET /drafts`, `GET/PATCH /drafts/{id}`
+  (placeholders in an edit are resolved when it is saved, unknown ones give 422; `to_email` must be the draft's own
+  contact, else 422), `POST /drafts/{id}/send` (explicit, CSRF, sales+; the opt-out instruction is always present in
+  what is delivered; concurrent clicks deliver once; 403 `opt_out` or `no_follow_ups` (per address), 429 hourly limit,
+  400/503 provider errors), `POST /drafts/{id}/cancel`; `GET /follow-up/schedules?status=` (statuses include `failed`
+  with the reason in `last_error`), `POST …/{id}/cancel`, `POST …/{id}/reschedule`, `POST /quotes/{id}/follow-up/plan`
+  (schedule keys include the quote version; a system send of an approved quote plans follow-ups too);
+  `GET /communication-events`; `GET /jobs`, `POST /jobs/{id}/retry` (re-arms a `failed` schedule);
+  `POST /jobs/run-once` (development/test only, i.e. `APP_ENV` is `development` or `test`; processes only the
+  caller's tenant, at most 25 jobs per call, audited as `worker.run_once`; 403 `worker` otherwise);
+  `GET/POST /integrations`, `POST /integrations/{id}/revoke`, `POST /integrations/sync-inbound` (audited;
+  a provider error is stored on the connection and audited as `integration.sync_failed`),
+  `POST /integrations/simulator/inbound` (development/test only; `from_email` is validated).
+  Job outcomes: a due schedule whose automation consent was withdrawn becomes a draft (`drafted`, `draft_only`); a
+  refusal by our own rules on the send path (no consent for a queued automated send, opt-out, wrong state)
+  dead-letters at once with the schedule marked `failed`; transient provider errors and the hourly limit are retried
+  with capped backoff.
 - Stage 3: `/orders{,/{id}/events}`, `/kpis?from&to&currency`, `/imports`, `/exports` (role-aware), `/connectors`,
   `/sync/conflicts{,/{id}/resolve}`, `/stock/{product_id}`, `/deletion-requests`.
 - Stage 4: `/assistant/sessions{,/{id}/messages}`, `/tools` (allowed list), `/workflows{,/{id}/versions,/{id}/dry-run,/{id}/runs}`,

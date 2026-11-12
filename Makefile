@@ -32,6 +32,9 @@ api-test-security: ## Security-marked tests
 api-migrate: ## alembic upgrade head (owner role)
 	cd $(API_DIR) && $(UV) run alembic upgrade head
 
+worker-run: ## Run the Stage 2 follow-up worker (loop)
+	cd $(API_DIR) && $(UV) run python -m app.workers.runner --interval 30
+
 api-run: ## Run the API on :8000
 	cd $(API_DIR) && $(UV) run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 

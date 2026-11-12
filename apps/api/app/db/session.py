@@ -65,6 +65,11 @@ def set_auth_scope(db: Session, *, login_email: str | None = None, session_token
     )
 
 
+def set_worker_scope(db: Session) -> None:
+    """Transaction-local cross-tenant scope for the background worker's scheduler tick / queue claim only."""
+    db.execute(text("SELECT set_config('app.worker', 'true', true)"))
+
+
 def get_db() -> Generator[Session, None, None]:
     db = get_sessionmaker()()
     try:
