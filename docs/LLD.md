@@ -152,7 +152,7 @@ remains. Pricing snapshot (currency, rounding, tax default, min margin, catalog 
   (opt-out → `suppressed`). `services/followup/recommend.py` rule set emits `{action, reason_facts[]}`.
 - `services/comms/providers/{simulator,smtp,gmail,msgraph}.py` behind `MailProvider` protocol: `send(draft) ->
   ProviderResult`, `fetch_inbound(since)`; tokens encrypted with envelope key from env (`TOKEN_ENCRYPTION_KEY`).
-- `workers/runner.py`: Redis list queue; job row with `idempotency_key` UNIQUE; backoff `min(2^n * 30s, 1h)` ≤ 5 attempts;
+- `workers/runner.py`: PostgreSQL job queue (`job_runs`, claimed with `SKIP LOCKED`; ADR-012 as amended — not Redis); job row with `idempotency_key` UNIQUE; backoff `min(2^n * 30s, 1h)` ≤ 5 attempts;
   dead-letter table + `/api/v1/jobs/dead-letters`.
 - Sending gate: `policy.automation_enabled && consented_by admin && contact.not_opted_out && rate_limit.ok` or explicit
   `POST /drafts/{id}/send` by Sales+ with CSRF; both audited; provider message id stored; no "sent" without provider ack.

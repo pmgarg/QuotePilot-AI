@@ -100,3 +100,42 @@ each also failing its retry) and **CodeQL code-scanning check failure** (python 
 Local browser suite on this tree, web app rebuilt, fresh database: **53 passed, 1 skipped**, exit 0. (A second run on
 the same database had 1 failure, `stage2-followup.spec.ts:66`, the spec QA recorded as order-dependent on accumulated
 data — it failed in 2 s on its data assumption, not on the click.)
+
+## CI on the head with the fixes above (PR #2, queried 2026-11-12): all 15 checks green on both events
+`api` success: pytest `1509 passed, 5 skipped, 3 xfailed, 1 xpassed`; `e2e` success: Playwright `53 passed`, `1 skipped`,
+no flaky or failed line; `web` success; `security` jobs success; CodeQL code-scanning check success (the two
+`py/polynomial-redos` alerts are gone). The three browser tests that timed out on the Contacts button pass.
+This is CI evidence for the implementing side's fixes; independent re-verification and the release review are still owed.
+
+## Fix round 3 (review 1 findings S2-RR1-2, S2-RR1-4; same root cause as SEC3-14)
+What changed:
+- `apps/api/app/services/jobs/queue.py` `reclaim_abandoned()` (new) is called first by `run_once()`, which is used by the
+  worker tick (`app/workers/runner.py`, all tenants, worker scope bound inside `queue.py` only) and by the tenant-scoped
+  run-once (`org_id`, normal tenant scope). Two conditional `UPDATE ... RETURNING` statements on `status='running' AND
+  locked_at < now() - make_interval(secs => timeout)`: attempts < max_attempts goes back to `queued` (attempt count
+  kept, lock cleared, `last_error` says abandoned); attempts exhausted goes to `dead` and `_fail_schedule()` marks the
+  schedule `failed`, so the admin retry (`POST /jobs/{id}/retry`) re-arms it. A row can be won by one reclaimer only.
+- `apps/api/app/core/config.py` `job_visibility_timeout_seconds` (default 900, >= 1); `.env.example`
+  `JOB_VISIBILITY_TIMEOUT_SECONDS`. No migration, no API contract change, no new dependency.
+- Recording: structured log line `job reclaimed` (job id, kind, status), the module's existing convention for job state
+  changes (`run_job` logs, it does not audit; there is no actor).
+- Send safety: a reclaimed `send_draft` job re-enters `send_draft`, which locks the draft row and returns early for a
+  `sent` draft. Not covered: crash between provider acceptance and the commit (at-least-once), see KNOWN_LIMITATIONS.
+- `docs/KNOWN_LIMITATIONS.md`: the two S2-RR1 entries rewritten.
+Tests (`apps/api/tests/integration/test_stage2_fixes3.py`, 10): `test_permanent_provider_error_fails_the_job_and_schedule_and_admin_retry_rearms_it`,
+`test_exhausted_attempts_dead_letter_the_job_and_fail_the_schedule`, `test_retry_of_another_tenants_dead_job_is_404`,
+`test_abandoned_schedule_job_is_requeued_with_attempts_preserved_and_processed_once`,
+`test_worker_tick_reclaims_without_a_separate_call`,
+`test_abandoned_job_with_exhausted_attempts_is_dead_and_fails_its_schedule`, `test_fresh_running_job_is_not_touched`,
+`test_timeout_setting_is_honoured`, `test_tenant_scoped_reclaim_and_run_once_leave_another_tenants_abandoned_job_alone`,
+`test_reclaimed_send_job_does_not_deliver_twice`. Not tested: two truly concurrent reclaimers (relies on the single
+conditional UPDATE). The permanent-provider-error case ends `failed` (not `dead`) by the existing status rule.
+
+| Command (APP_ENV=test, DB quotepilot_s2, from apps/api) | Exit | Result |
+|---|---|---|
+| `.venv/bin/pytest -q -p no:cacheprovider tests/integration/test_stage2_fixes3.py` | 0 | 10 passed in 20.5 s |
+| `.venv/bin/pytest -q -p no:cacheprovider tests/security/test_stage2_audit.py tests/security/test_stage2_confirm.py tests/qa/test_qa_stage2*.py tests/integration/test_stage2_*.py` | 0 | 170 passed, 2 xfailed (S2-SEC-06, S2-SEC-12) in 268 s |
+| `.venv/bin/ruff check app tests` | 0 | All checks passed |
+| `.venv/bin/ruff format --check app tests` | 0 | 128 files already formatted |
+| `.venv/bin/mypy app` | 0 | no issues in 74 source files |
+Full API suite and Playwright were not run (out of scope).

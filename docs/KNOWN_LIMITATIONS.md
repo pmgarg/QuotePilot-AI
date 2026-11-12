@@ -132,6 +132,25 @@
 - Quiet hours / weekend skipping use the organisation policy time zone, not each contact's time zone.
 - The background worker is a single process; the `app.worker` RLS scope is a trusted-code boundary (see ADR-012).
 - Draft bodies are plain text; HTML templates and attachments (e.g. the quote PDF) are not sent yet.
+- **Log redaction of malformed addresses (S2-SEC-12).** Addresses are removed from log lines with a bounded pattern:
+  a local part longer than 64 characters is only partly redacted and a domain label longer than 63 characters not at
+  all. Such addresses are invalid and are rejected as contacts; they can only reach a log through hostile or corrupt
+  text.
+- **Abandoned jobs (S2-RR1-4, fixed in round 3).** A job `running` longer than `JOB_VISIBILITY_TIMEOUT_SECONDS`
+  (default 900) is reclaimed at the start of every worker tick and every tenant-scoped run-once: back to `queued` with
+  its attempt count kept, or `dead` (schedule marked `failed`, admin retry re-arms it) when attempts are exhausted.
+  Residual: the timeout must exceed the longest legitimate handler run, otherwise a slow but live job could be run a
+  second time. A send is not delivered twice once the draft is committed as `sent`; if a worker dies after the provider
+  accepted the message but before that commit, the redelivery is possible (at-least-once; the idempotency key is
+  stored on the draft but not passed to the provider). Reclaims are logged, not audited (no actor).
+- **Terminal schedule failure (S2-RR1-2, tested in round 3).** A permanent provider error ends the job `failed`, an
+  exhausted/abandoned job ends `dead`; both mark the schedule `failed`, and the admin retry re-arms it.
+- **S2-A05 (expired or invalid OAuth token).** Only exercised by proxy (a misconfigured SMTP provider, an outage);
+  no OAuth provider exists, and "job paused, admin notified" is not demonstrated.
+- **Opt-out matching.** Suppression compares addresses case-insensitively after trimming; plus-tags and dots are
+  significant (`jane+x@…` is a different address from `jane@…`).
+- **Inbound replies.** A message is linked to a quote by sender/reply headers; linking by `In-Reply-To` alone has no
+  sender check (only the simulator exists today).
 - Fix round 1 (2026-11-10) behaviour worth knowing:
   - Suppression is keyed on the e-mail address inside the tenant. An unsubscribe reply from an address that has **no
     contact row** is recorded as an unlinked event only; the address itself is not stored as a suppression (events do

@@ -74,6 +74,7 @@ class Settings(BaseSettings):
     retention_grace_days: int = 30
     max_import_rows: int = 10_000
     max_sync_records: int = 5_000
+    job_visibility_timeout_seconds: int = Field(default=900, ge=1)  # a job `running` longer than this is abandoned
 
     @field_validator("cors_origins", mode="before")
     @classmethod

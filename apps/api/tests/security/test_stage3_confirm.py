@@ -134,11 +134,6 @@ def test_sec3_01_stalled_purge_is_requeued_then_flagged_and_a_hold_still_blocks(
         db.rollback()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SEC3-14: a purge job left 'running' by a crashed worker is never reclaimed; the request is neither "
-    "re-queued nor flagged purge_stalled",
-)
 def test_sec3_14_a_crashed_worker_cannot_stall_an_approved_erasure_silently(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
     rid = _approve_erasure(app, tenant_a)
     _make_due(tenant_a, rid)

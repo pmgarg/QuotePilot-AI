@@ -326,7 +326,9 @@ def enqueue_due_purges(db: Session) -> int:
     job, so an approved erasure cannot silently stall (SEC3-01); after MAX_PURGE_JOBS it is flagged instead."""
     from app.services.jobs import queue
 
-    n = 0
+    # a purge job whose worker died is put back in the queue first (visibility timeout), so an approved erasure
+    # cannot stall silently behind a job that is `running` forever (SEC3-14); it counts as queued here
+    n = queue.reclaim_abandoned(db, kind="purge_customer", count_dead=False)
     for rid, org_id in queue.due_purge_requests(db):
         set_tenant(db, org_id, None)
         prior = [
