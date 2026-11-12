@@ -74,7 +74,17 @@
   wrapped in a currency code/symbol or unit, and returns nothing for anything else ("12 per 6", "1 e3", "Rs.500",
   exponent notation mixed with text). Such cells become row errors (catalog import) or an empty, flagged quantity (RFQ
   items) for a human to fix; they are never guessed. Two ambiguities remain by design and are documented in the code:
-  "1,234" is read as 1234 (thousands) and "12,5" as 12.5. Thousands written with dots only ("1.234.567") are rejected.
+  "1,234" is read as 1234 (thousands) and "12,5" as 12.5; "0,500" is 0.500 (a group never starts with a zero).
+  Thousands written with dots only ("1.234.567") are rejected (as before round 8). Cells a person would understand
+  but the parser refuses on purpose: "Rs.500", "12 m²", "12 (approx)", "12,", "(-5)". Cells it reads although a person
+  might hesitate: a short text with exactly one number ("delivery within 2 weeks" → 2, "2k pcs" → 2), a dash used as
+  a separator ("AED - 5" → −5, which the catalog import then rejects as negative), mixed digit scripts in one number
+  ("1٢3" → 123) and "5%" → 5. None of these assembles a number from fragments.
+- **RFQ text lines (round 9).** Lines longer than 1,000 characters (after collapsing blanks) are not searched for a
+  quantity; they are kept as an item without quantity only if they name a SKU. Tokens longer than 64 characters are
+  never treated as SKUs.
+- **Demo seed.** `make demo` and the Compose `migrate` service need `DEMO_PASSWORD` (≥ 12 characters); the seed
+  never prints or generates a password. Demo accounts that already exist keep the password they were created with.
 - **Value ranges.** RFQ quantities read from files are stored only up to 10,000,000 with three decimals (the same cap
   as manual entry); larger values are left empty with the flag `quantity_out_of_range`. Catalog list and cost prices
   must be below 10^12 (the column capacity). The quote editor accepts manual unit prices up to 10,000,000 only, so a

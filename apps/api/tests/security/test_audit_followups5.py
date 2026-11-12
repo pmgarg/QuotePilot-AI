@@ -137,11 +137,11 @@ def test_sec4_3_unicode_minus_does_not_flip_sign() -> None:
     assert d is None or d == Decimal(-5)
 
 
-@pytest.mark.xfail(strict=True, reason="SEC4-4 (Low): digits separated by words are concatenated ('12 per 6' -> 126)")
 def test_sec4_4_digit_groups_separated_by_words_are_not_concatenated() -> None:
+    """Repaired in re-verification 5: the original expected value called Decimal('0x10') (raises). Fixed in round 8:
+    every one of these is now None instead of a glued number."""
     for raw in ("12 per 6", "10 x 5", "3 boxes of 12", "0x10"):
-        assert parse_decimal(raw) in (None, Decimal(raw.split()[0]) if raw[0].isdigit() else None), raw
-    assert parse_decimal("12 per 6") != Decimal(126)
+        assert parse_decimal(raw) is None, raw
 
 
 def test_sec4_5_negative_zero_is_never_returned() -> None:

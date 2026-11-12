@@ -37,7 +37,7 @@ make web-install    # cd apps/web && npm ci
 make web-check      # tsc --noEmit + eslint + next build
 make e2e            # Playwright: boots api+web against seeded demo DB, runs tests/e2e
 make security-scan  # pip-audit, npm audit, bandit, gitleaks/semgrep when available; writes docs/evidence/
-make demo           # migrate + seed synthetic demo org(s) and print local-only credentials
+make demo           # migrate + seed synthetic demo org(s); needs DEMO_PASSWORD, lists demo accounts (never the password)
 ```
 Environment variables are documented in `.env.example`. Tests use `DATABASE_URL_TEST` (default
 `postgresql+psycopg://quotepilot_app:quotepilot_app@localhost:5432/quotepilot_test`) and `DATABASE_ADMIN_URL_TEST`

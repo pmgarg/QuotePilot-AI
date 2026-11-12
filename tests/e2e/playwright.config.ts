@@ -51,11 +51,15 @@ export default defineConfig({
       stderr: "pipe",
     },
     {
-      command: `npx next start --port ${WEB_PORT}`,
+      // Build first, then serve: a build that replaces the files under a running `next start` leaves it serving
+      // pages whose script chunks no longer exist (every page then shows "This page couldn't load").
+      command: process.env.E2E_SKIP_WEB_BUILD
+        ? `npx next start --port ${WEB_PORT}`
+        : `npm run build && npx next start --port ${WEB_PORT}`,
       cwd: WEB_DIR,
       url: `http://localhost:${WEB_PORT}/login`,
       reuseExistingServer: false,
-      timeout: 180_000,
+      timeout: 420_000,
       env: { ...process.env, API_INTERNAL_URL: `http://127.0.0.1:${API_PORT}`, PORT: String(WEB_PORT) },
       stdout: process.env.CI ? "pipe" : "ignore",
       stderr: "pipe",
