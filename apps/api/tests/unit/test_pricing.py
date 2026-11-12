@@ -146,3 +146,27 @@ def test_parser_never_returns_negative_zero_or_non_finite_or_absurd_magnitudes()
     for raw in (float("nan"), float("inf"), float("-inf"), 1e300, D("NaN"), D("Infinity"), D("1e40")):
         assert parse_decimal(raw) is None, raw
     assert parse_decimal(12.5) == D("12.5") and parse_decimal(7) == D(7)
+
+
+def test_parser_is_fast_on_hostile_long_cells_and_refuses_overlong_text() -> None:
+    """Round 8b: the first strict parser used a backtracking pattern for the text before the number and needed
+    seconds for a cell of 40,000 whitespace characters (flagged by CodeQL). Parsing is now linear and length-capped."""
+    import time
+
+    hostile = [
+        " " * 200_000 + "x" + " " * 200_000 + "+ 5",
+        "\t" * 200_000 + "+.5",
+        "a " * 100_000 + "+-5",
+        "5" + " " * 200_000 + "+",
+        "1" + " 234" * 50_000 + "x",
+        "e " * 100_000 + "5",
+        "1" * 200_000,
+    ]
+    for cell in hostile:
+        started = time.perf_counter()
+        assert parse_decimal(cell) is None
+        assert time.perf_counter() - started < 0.5, cell[:12]
+    assert parse_decimal("9" * 129) is None and parse_decimal(" " * 300 + "5") == D(5)
+    assert parse_decimal("(-5)") is None and parse_decimal("--5") is None and parse_decimal("- AED -5") is None
+    assert parse_decimal("-AED 5") == D(-5) and parse_decimal("AED -5") == D(-5)
+    assert parse_decimal("(+5)") is None  # parentheses plus a sign: ambiguous, refused

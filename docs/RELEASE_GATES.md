@@ -118,6 +118,40 @@ locked during saves; R4-2 compose check no longer vacuous; SEC3-11 (scientific n
 reported by the Stage 3 security audit). Product code changed, so independent QA and security re-verification 4 and a
 review 5 are required before PASS.
 
+### CI evidence for bf05198 (fix round 7; GitHub Actions, queried 2026-11-12) — closes RR4-1 for that commit
+| workflow | event | run id | job results | counts read from the job logs |
+|---|---|---|---|---|
+| ci | push | 43145985640 | api success, web success, e2e success | pytest `380 passed, 1 skipped in 368.94s`, coverage TOTAL 90 %; Playwright `Running 33 tests using 1 worker` → `32 passed (1.7m)`, `1 skipped`, no flaky line, no `retry #` |
+| ci | pull_request | 43145992231 | api success, web success, e2e success | pytest `380 passed, 1 skipped in 376.54s`, coverage TOTAL 90 %; Playwright `32 passed (1.8m)`, `1 skipped`, no flaky line, no `retry #` |
+| security | push | 43145985620 | success | — |
+| security | pull_request | 43145992151 | success | — |
+
+The pytest skip is `tests/security/test_audit_followups4.py:402` (compose render needs a repo-root `.env`, RR4-5); the
+Playwright skip is `screenshots.spec.ts` (self-skipped by design). Local counts for the same commit were 379 passed,
+1 skipped, 1 xfailed (the xfail was R4-1, fixed in the same round and re-run) and 32 passed / 1 skipped — consistent.
+
+## Independent re-verification 4 — Stage 1 @bf05198 (2026-11-12) — defects found, gate stays open
+- QA (`qa-stage1-reverify4-2026-11-12.md`; 71 API tests, 6 browser tests): round-7 editor fixes verified in the
+  browser (row pairing, save lock, re-link), ordinary number formats unchanged, D2-1..D2-5 / R3-6 / R3-10 still closed;
+  full browser suite 38 passed, 0 failed, 0 flaky, 1 skipped. **Defects: D4-1 (Medium)** catalog price ≥ 1e12 in
+  scientific notation → unhandled numeric overflow (HTTP 500); **D4-2 (Low)** `1 e3`, `1e 3`, `1ee3`, `e3`, `12e`
+  still misread. Full API suite at bf05198 with the new tests: exit 1, 14 failed (all D4-1/D4-2), 505 passed,
+  2 skipped, 18 xfailed.
+- Security (`security-stage1-reverify4-2026-11-12.md`, scan `scan-20261112-031237.md` naming bf05198): R4-1 and R4-2
+  confirmed fixed; provenance rules hold. **Findings: SEC4-0 (Medium)** = D4-2 with end-to-end proof (a price of 13
+  stored for `1 e3`); **SEC4-6 (Medium)** RFQ quantity ≥ 1e15 → HTTP 500 and quantities above the API cap copied into
+  quote lines; SEC4-2 (Low/Medium) oversized prices → 500; SEC4-1, SEC4-3, SEC4-4, SEC4-5 (Low). No Critical or High.
+- Found outside Stage 1's own verification, by the Stage 3 QA run: **D5 (Medium)** — responses were sent before the
+  transaction committed (`app/db/session.py` / `api/deps.py`, unchanged since the first Stage 1 commit).
+The round-7 parser fix was therefore **incomplete**, and review 4's "no Medium defect in the code" no longer holds
+for the gated tree. No review was requested for bf05198.
+
+### Fix round 8 (Stage 1)
+`docs/evidence/implementer-fixes8-stage1-2026-11-12.md`: strict one-number parser (SEC4-0/1/3/4/5, D4-2), column and
+API caps for imported prices and RFQ quantities (SEC4-2, SEC4-6, D4-1), commit before response (D5; probable cause of
+I-3, recorded as an inference). Declared verifier-test edits are listed there. Product code changed again, so
+independent QA and security **re-verification 5** and a **review 5** are required before PASS.
+
 ## Human actions required
 - Enable branch protection on `main` requiring checks `api`, `web`, `e2e`, `security` and one review (repository settings → Branches).
 - Sign any risk acceptance in this file with name, date and rationale. Documented Lows awaiting acknowledgement:
