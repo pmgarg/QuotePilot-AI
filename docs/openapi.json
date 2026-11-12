@@ -1513,8 +1513,8 @@
           "rate": {
             "anyOf": [
               {
-                "exclusiveMinimum": 0.0,
                 "maximum": 1000000.0,
+                "minimum": 1e-08,
                 "type": "number"
               },
               {
@@ -5436,6 +5436,50 @@
           }
         },
         "summary": "Disable Connector",
+        "tags": [
+          "intelligence"
+        ]
+      }
+    },
+    "/api/v1/connectors/{connector_id}/enable": {
+      "post": {
+        "description": "Undo a disable (SEC3-07). Refused with 409 while another connector of the same kind is active.",
+        "operationId": "enable_connector_api_v1_connectors__connector_id__enable_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Connector Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Enable Connector",
         "tags": [
           "intelligence"
         ]
