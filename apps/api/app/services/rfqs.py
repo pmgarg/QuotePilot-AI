@@ -303,6 +303,9 @@ def parse_rfq(db: Session, rfq: RFQ, *, actor_user_id: uuid.UUID, ip: str | None
         if version
         else None
     )
+    if index is not None:
+        # all lines of the request are fuzzy-matched in one bounded batch (worker process for large jobs)
+        index.prefetch((i.sku_hint, i.description, i.raw_text) for i in items)
     seen_keys: set[str] = set()
     for n, parsed_item in enumerate(items, start=1):
         unit_norm = normalize_unit(parsed_item.unit_raw)
@@ -445,6 +448,7 @@ def update_item(
             item.selected_product_id = product.id
             item.match_status = "resolved"
             item.is_custom = False
+            item.flags = [f for f in item.flags if f != "match_skipped_budget"]  # a person has matched the line
             item.unit_mismatch = bool(item.unit_normalized and product.unit and item.unit_normalized != product.unit)
             if not item.unit_mismatch:
                 item.unit_confirmed = False

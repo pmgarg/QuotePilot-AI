@@ -53,7 +53,7 @@ test("round 10: a line beyond the matching budget shows the flag, 'no candidate'
     // what the user sees
     await expect(row).toContainText(/match skipped budget/i);
     await expect(page.getByTestId("match-401")).toHaveText(/unmatched/i);
-    await expect(row).toContainText(/No catalog candidate/);
+    await expect(row).toContainText(/Automatic matching was not run/);
     await expect(page.getByTestId("select-401")).toHaveCount(0); // the UI offers no product choice for a line without candidates
     await expect(row.getByRole("button", { name: /Mark custom/ })).toBeVisible();
     // lines inside the budget carry no flag; the exact SKU line after the budget still matches

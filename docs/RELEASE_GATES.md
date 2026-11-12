@@ -221,6 +221,14 @@ head was **not green in CI** and has no CI browser evidence. QA corrected its he
 **SEC6-2 mitigated only** (query cap and per-request comparison budget) and listed under human actions below.
 Independent re-verification 7 and a release review are required before PASS.
 
+### Fix round 11 (Stage 1)
+`docs/evidence/implementer-fixes11-stage1-2026-11-12.md`: fuzzy matching of large jobs now runs in a resource-limited
+worker process with an 8 s deadline (at most two per API process), so the API stays responsive; lines that were not
+matched are flagged `match_skipped_budget` (SEC7-1 / SEC6-2 mitigated, not closed: the auditor's per-call latency
+assertions for `index.match` cannot be met by design and stay xfail); per-user rate limits on RFQ create/re-parse and
+catalog import (SEC7-7); parser SEC7-2, SEC7-3, SEC7-5, SEC7-6; seed reads only `DEMO_PASSWORD` (SEC7-4, QA J7-3); QA J7-2
+and J7-4. Nothing is marked VERIFIED. Independent re-verification 8 and a release review are still required before PASS.
+
 ## Human actions required
 - Enable branch protection on `main` requiring checks `api`, `web`, `e2e`, `security` and one review (repository settings → Branches).
 - Sign any risk acceptance in this file with name, date and rationale. Documented Lows awaiting acknowledgement:
@@ -231,9 +239,11 @@ Independent re-verification 7 and a release review are required before PASS.
   ad-hoc quote whose catalog moved on must be rejected (which returns the same version to draft), re-linked with "Use
   active catalog" and re-submitted; a SKU dropped from the new catalog can only be removed or replaced by a custom line
   that an owner/admin confirms.
-- **Decide on SEC6-2** (Medium, open): fuzzy matching runs in the API process and scans the whole catalog per line.
-  It is bounded by a per-request budget (see KNOWN_LIMITATIONS "Matching cost"); either accept that for Stage 1 with a
-  signature here, or require matching to move into the worker before release.
+- **Decide on SEC6-2 / SEC7-1** (High/Medium, mitigated in round 11, not independently re-verified): fuzzy matching of
+  large jobs runs in a worker process with a deadline, at most two per API process, and per-user rate limits apply
+  (see KNOWN_LIMITATIONS "Matching cost" and "Rate limits"). Remaining: limits are per process, a parse can hold a
+  database transaction for the 8 s deadline, and long RFQs against very large catalogs lose suggestions for later
+  lines. Either accept that for Stage 1 with a signature here after re-verification 8, or require more.
 - Decide whether Stage 1 may ship with S1-F21 (AI extraction adapter present, disabled, not wired) partial.
 - Decide whether a manual screen-reader audit (X-08) is required for Stage 1.
 - Decide whether running the Docker Compose topology (never executed in the development container) is required before

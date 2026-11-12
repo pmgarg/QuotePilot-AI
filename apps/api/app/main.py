@@ -85,7 +85,8 @@ def create_app() -> FastAPI:
             "request_id": request_id_var.get(),
         }
         body.update(exc.extra)
-        return JSONResponse(status_code=exc.status_code, content=body)
+        headers = {"Retry-After": str(exc.extra["retry_after"])} if "retry_after" in exc.extra else None
+        return JSONResponse(status_code=exc.status_code, content=body, headers=headers)
 
     @app.exception_handler(RequestValidationError)
     async def validation_handler(request: Request, exc: RequestValidationError) -> JSONResponse:

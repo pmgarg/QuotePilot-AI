@@ -200,21 +200,12 @@ def test_exhaustive_short_strings_no_value_outside_the_reference_readings_except
     assert unexpected == [], unexpected[:15]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SEC7-2 (Medium): a comma followed by exactly three digits after a 4+ digit first group is read as "
-    "thousands: '1234,567' -> 1234567 (1000x); '1234,567,890' -> 1234567890",
-)
 def test_sec7_2_four_digit_first_group_before_a_comma_group_is_not_thousands() -> None:
     for raw in ("1234,567", "12345,678", "5550,000", "1234,567,890", "5005,505"):
         d = parse_decimal(raw)
         assert d is None or d < Decimal(10) ** 5, (raw, d)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SEC7-3 (Low): the leading-zero rule is not applied to space/apostrophe grouping: '0 500' -> 500, '05 050' -> 5050",
-)
 def test_sec7_3_leading_zero_first_group_with_space_grouping_is_rejected() -> None:
     for raw in ("0 500", "0 005", "00 500", "05 050", "0'500"):
         assert parse_decimal(raw) is None, (raw, parse_decimal(raw))
@@ -225,11 +216,6 @@ def test_info_sec7_6_punctuation_only_head_is_accepted_documented() -> None:
     assert parse_decimal(". 5") == Decimal(5) and parse_decimal("..-5") == Decimal(-5)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SEC7-5 (Medium): the per-character digit-expansion scan costs ~10 us per expanding character: a 6.7 MB "
-    "RFQ of U+FDFA cells held the API process for 19.6 s, a 6.8 MB catalog import for 6.7 s",
-)
 def test_sec7_5_digit_expansion_scan_is_cheap_on_expanding_characters() -> None:
     cell = "ﷺ" * 500
     t = time.perf_counter()
@@ -338,7 +324,7 @@ def _adversarial_query() -> str:
 
 
 @pytest.mark.xfail(
-    strict=True,
+    strict=False,  # round 11: per-call latency (18-28 ms) straddles this test's 20 ms line, so XPASS must not fail
     reason="SEC7-1 (High, availability): the budget counts comparisons, not work; with 300-character descriptions one "
     "line costs about 0.2 ms per product, so the 2,000,000-comparison budget is about 420 s of GIL-held API CPU per request "
     "(measured end to end: 390 s, 30,000 products x 300 chars, 450 lines; 41.7 s with 60-char descriptions)",
@@ -497,11 +483,6 @@ def test_seed_root_env_precedence_and_robustness(tmp_path: Path) -> None:
 
 
 @integration
-@pytest.mark.xfail(
-    strict=True,
-    reason="SEC7-4 (Low): the whole root .env is validated as Settings; an invalid value (for example a short "
-    "SECRET_KEY) makes the seed crash and pydantic echoes the value (input_value='...') to stderr",
-)
 def test_sec7_4_invalid_root_env_value_is_not_echoed_by_the_seed(tmp_path: Path) -> None:
     root = tmp_path / ".env"
     root.write_text("DEMO_PASSWORD=Root-Env-Pass-Marker-77\nSECRET_KEY=tiny-secret-visible\n")
