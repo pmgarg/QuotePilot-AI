@@ -154,6 +154,21 @@ def enqueue_due_schedules(
     return enqueued
 
 
+def due_purge_requests(db: Session, limit: int = 200) -> list[tuple[uuid.UUID, uuid.UUID]]:
+    """(request id, organisation id) of approved deletion requests whose grace period is over and that are not on
+    legal hold — across tenants. Worker process only: this module is the single place that binds the cross-tenant
+    worker scope (S2-SEC-01); callers switch to the owning tenant's scope before touching anything else."""
+    set_worker_scope(db)
+    rows = db.execute(
+        text(
+            "SELECT id, organization_id FROM deletion_requests WHERE status = 'approved' AND legal_hold = false "
+            "AND purge_after <= now() ORDER BY purge_after LIMIT :limit"
+        ),
+        {"limit": limit},
+    ).all()
+    return [(rid, org_id) for rid, org_id in rows]
+
+
 def claim_next(db: Session, worker_id: str, org_id: uuid.UUID | None = None) -> JobRun | None:
     """Claim one due job (SKIP LOCKED). `org_id` restricts the claim to one tenant under the normal tenant scope."""
 

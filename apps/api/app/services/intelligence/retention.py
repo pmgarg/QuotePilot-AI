@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.errors import ForbiddenError, NotFoundError, StateError, ValidationFailed
 from app.db.base import utcnow
-from app.db.session import set_tenant, set_worker_scope
+from app.db.session import set_tenant
 from app.models.customer import Customer
 from app.models.followup import CommunicationDraft, Contact, FollowUpSchedule
 from app.models.intelligence import DeletionRequest, SyncConflict, SyncRun
@@ -306,15 +306,8 @@ def enqueue_due_purges(db: Session) -> int:
     job, so an approved erasure cannot silently stall (SEC3-01); after MAX_PURGE_JOBS it is flagged instead."""
     from app.services.jobs import queue
 
-    set_worker_scope(db)
-    rows = db.execute(
-        text(
-            "SELECT id, organization_id FROM deletion_requests WHERE status = 'approved' AND legal_hold = false "
-            "AND purge_after <= now() ORDER BY purge_after LIMIT 200"
-        )
-    ).all()
     n = 0
-    for rid, org_id in rows:
+    for rid, org_id in queue.due_purge_requests(db):
         set_tenant(db, org_id, None)
         prior = [
             st
