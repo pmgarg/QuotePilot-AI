@@ -34,7 +34,10 @@ def test_no_side_effect_tool_executes_on_proposal(app, tenant_a: Tenant) -> None
     set_plan(login_as(app, tenant_a.users["owner"]), "scale")
     sales, q = approved_quote(app, tenant_a)
     approver = login_as(app, tenant_a.users["approver"])
-    sales.post(f"/customers/{tenant_a.customer_id}/contacts", json={"full_name": "B", "email": "b@c.example", "is_primary": True})
+    sales.post(
+        f"/customers/{tenant_a.customer_id}/contacts",
+        json={"full_name": "B", "email": "b@c.example", "is_primary": True},
+    )
     d = sales.post("/actions", json={"tool": "draft_follow_up", "args": {"quote_number": q["number"]}}).json()
     draft_id = d["result"]["draft_id"]
     assert d["status"] == "executed" and d["requires_approval"] is False  # a draft is not a send
@@ -43,7 +46,10 @@ def test_no_side_effect_tool_executes_on_proposal(app, tenant_a: Tenant) -> None
         sales.post("/actions", json={"tool": "send_follow_up", "args": {"draft_id": draft_id}}),
         sales.post(
             "/actions",
-            json={"tool": "request_customer_deletion", "args": {"customer_id": str(tenant_a.customer_id), "reason": "qa test"}},
+            json={
+                "tool": "request_customer_deletion",
+                "args": {"customer_id": str(tenant_a.customer_id), "reason": "qa test"},
+            },
         ),
         approver.post("/actions", json={"tool": "export_customers", "args": {}}),
     ]
@@ -66,7 +72,10 @@ def test_deletion_tool_only_opens_request_and_downstream_gate_still_applies(app,
     sales = login_as(app, tenant_a.users["sales"])
     inv = sales.post(
         "/actions",
-        json={"tool": "request_customer_deletion", "args": {"customer_id": str(tenant_a.customer_id), "reason": "gdpr"}},
+        json={
+            "tool": "request_customer_deletion",
+            "args": {"customer_id": str(tenant_a.customer_id), "reason": "gdpr"},
+        },
     ).json()
     ok = sales.post(f"/actions/{inv['id']}/approve", json={})
     assert ok.status_code == 200 and ok.json()["status"] == "executed"
@@ -86,7 +95,9 @@ def test_order_proposal_for_unapproved_withdrawn_or_expired_quote_is_refused_dow
     _, q2 = approved_quote(app, tenant_a)
     with get_sessionmaker()() as db:
         set_tenant(db, tenant_a.org_id, None)
-        db.execute(update(Quote).where(Quote.number == q2["number"]).values(valid_until=date.today() - timedelta(days=2)))
+        db.execute(
+            update(Quote).where(Quote.number == q2["number"]).values(valid_until=date.today() - timedelta(days=2))
+        )
         db.commit()
     inv2 = _propose_order(sales, q2)
     assert sales.post(f"/actions/{inv2['id']}/approve", json={}).status_code == 409
@@ -175,14 +186,14 @@ def test_plan_downgrade_or_kill_switch_between_proposal_and_approval_blocks_exec
 def test_export_via_assistant_is_formula_safe_and_not_stored(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
     set_plan(login_as(app, tenant_a.users["owner"]), "growth")
     admin = login_as(app, tenant_a.users["admin"])
-    admin.post("/customers", json={"name": "=HYPERLINK(\"http://evil.example\",\"x\")", "reference": "CUST-INJ"})
+    admin.post("/customers", json={"name": '=HYPERLINK("http://evil.example","x")', "reference": "CUST-INJ"})
     inv = admin.post("/actions", json={"tool": "export_customers", "args": {}}).json()
     ok = admin.post(f"/actions/{inv['id']}/approve", json={}).json()
     csv = base64.b64decode(ok["download"]["content_b64"]).decode("utf-8-sig")
     for line in csv.splitlines():
         assert not any(cell.startswith(("=", "@")) for cell in line.split(",")), line
     assert "content_b64" not in str(admin.get("/actions").json())
-    assert "content_b64" not in str(admin.get(f"/actions?status=executed").json())
+    assert "content_b64" not in str(admin.get("/actions?status=executed").json())
     # the same bulk export is audited like the REST export (high-impact action)
     acts = audit_actions(tenant_a.org_id)
     assert "export.customers" in acts or "tool.execute" in acts

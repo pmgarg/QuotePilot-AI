@@ -109,5 +109,8 @@
   enforced server-side. Onboarding wizard, in-app help pages and a demo-workspace reset are not built.
 - The circuit breaker looks at the last N live runs of the tenant in the cooldown window; it is per tenant, not per
   workflow. The platform kill switch is an environment flag (process restart to change).
+- Workflow compensation after a failed *approved* step is not run (the run ends `failed`; earlier executed steps are not
+  undone). A failed approved manual action is persisted, but the handler's partial work is rolled back to a savepoint.
+- Workflow trigger `quote.won` is not supported (no dispatch exists); validation rejects it.
 - Step timeouts are measured after the step returns (no pre-emptive cancellation of a running handler).
 

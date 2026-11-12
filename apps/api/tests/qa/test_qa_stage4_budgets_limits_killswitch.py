@@ -3,7 +3,6 @@ S4-A05/A06/A07/A08 and a Stage 1-3 regression through the new limits. Integratio
 
 from __future__ import annotations
 
-import json
 from datetime import timedelta
 from typing import Any
 
@@ -53,18 +52,26 @@ OK_WF = {"name": "ok", "steps": [{"id": "k", "tool": "kpis_summary", "args": {}}
 
 # ------------------------------------------------------------------ assistant budgets (S4-A05)
 @pytest.mark.parametrize(("n", "budget_msg"), [(8, False), (9, True), (40, True)])
-def test_assistant_step_budget_boundary(app, tenant_a: Tenant, monkeypatch: pytest.MonkeyPatch, n: int, budget_msg: bool) -> None:  # type: ignore[no-untyped-def]
+def test_assistant_step_budget_boundary(
+    app, tenant_a: Tenant, monkeypatch: pytest.MonkeyPatch, n: int, budget_msg: bool
+) -> None:  # type: ignore[no-untyped-def]
     sales = login_as(app, tenant_a.users["sales"])
-    monkeypatch.setattr(assistant, "planner_for", lambda org: FakePlanner([PlannedAction("kpis_summary", {}, "loop")] * n))
+    monkeypatch.setattr(
+        assistant, "planner_for", lambda org: FakePlanner([PlannedAction("kpis_summary", {}, "loop")] * n)
+    )
     m = chat(sales, "go").json()
     assert len(m["proposed_actions"]) == min(n, 8) and ("budget" in m["content"]) is budget_msg
     assert count_rows(tenant_a.org_id, ToolInvocation) == min(n, 8)
 
 
-def test_looping_side_effect_proposals_are_capped_and_never_execute(app, tenant_a: Tenant, monkeypatch: pytest.MonkeyPatch) -> None:  # type: ignore[no-untyped-def]
+def test_looping_side_effect_proposals_are_capped_and_never_execute(
+    app, tenant_a: Tenant, monkeypatch: pytest.MonkeyPatch
+) -> None:  # type: ignore[no-untyped-def]
     sales, q = approved_quote(app, tenant_a)
     monkeypatch.setattr(
-        assistant, "planner_for", lambda org: FakePlanner([PlannedAction("propose_order", {"quote_number": q["number"]}, "loop")] * 30)
+        assistant,
+        "planner_for",
+        lambda org: FakePlanner([PlannedAction("propose_order", {"quote_number": q["number"]}, "loop")] * 30),
     )
     m = chat(sales, "go").json()
     assert len(m["proposed_actions"]) == 8 and all(a["status"] == "proposed" for a in m["proposed_actions"])
@@ -80,7 +87,9 @@ def test_session_turn_limit(app, tenant_a: Tenant) -> None:  # type: ignore[no-u
     assert chat(sales, "hello").status_code == 201  # a new session works
 
 
-def test_daily_ai_call_budget_is_per_org_exact_and_not_consumed_by_rejections(app, tenant_a: Tenant, tenant_b: Tenant) -> None:  # type: ignore[no-untyped-def]
+def test_daily_ai_call_budget_is_per_org_exact_and_not_consumed_by_rejections(
+    app, tenant_a: Tenant, tenant_b: Tenant
+) -> None:  # type: ignore[no-untyped-def]
     sales = login_as(app, tenant_a.users["sales"])
     sid = sales.post("/assistant/sessions", json={}).json()["id"]
     codes = [chat(sales, "hi", sid).status_code for _ in range(25)]
@@ -119,7 +128,9 @@ def test_workflow_depth_limit(app, tenant_a: Tenant) -> None:  # type: ignore[no
     assert run["status"] == "succeeded" and run["budget_used"] == 8
 
 
-def test_circuit_breaker_opens_per_tenant_resets_after_cooldown_and_spares_dry_runs(app, tenant_a: Tenant, tenant_b: Tenant) -> None:  # type: ignore[no-untyped-def]
+def test_circuit_breaker_opens_per_tenant_resets_after_cooldown_and_spares_dry_runs(
+    app, tenant_a: Tenant, tenant_b: Tenant
+) -> None:  # type: ignore[no-untyped-def]
     set_plan(login_as(app, tenant_a.users["owner"]), "growth")
     admin = login_as(app, tenant_a.users["admin"])
     w = make_workflow(admin, "fails", FAIL_WF)
@@ -132,7 +143,10 @@ def test_circuit_breaker_opens_per_tenant_resets_after_cooldown_and_spares_dry_r
     # cooldown: age the failed runs past the window; the breaker closes
     with get_sessionmaker()() as db:
         set_tenant(db, tenant_a.org_id, None)
-        db.execute(text("UPDATE workflow_runs SET created_at = now() - interval '1 day' WHERE organization_id = :o"), {"o": str(tenant_a.org_id)})
+        db.execute(
+            text("UPDATE workflow_runs SET created_at = now() - interval '1 day' WHERE organization_id = :o"),
+            {"o": str(tenant_a.org_id)},
+        )
         db.commit()
     assert run_wf(admin, w["id"], "live").status_code == 201
 
@@ -237,7 +251,9 @@ def test_platform_wide_kill_switch_flag(app, tenant_a: Tenant, monkeypatch: pyte
 # ------------------------------------------------------------------ plan limits (S4-A06)
 def test_plan_change_is_owner_only_audited_and_test_mode(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
     for role in ("admin", "sales", "approver", "readonly"):
-        assert login_as(app, tenant_a.users[role]).post("/platform/plan", json={"plan_code": "scale"}).status_code == 403
+        assert (
+            login_as(app, tenant_a.users[role]).post("/platform/plan", json={"plan_code": "scale"}).status_code == 403
+        )
     owner = login_as(app, tenant_a.users["owner"])
     for bad in ("", "GROWTH", "enterprise", "../x", "growth; drop table"):
         assert owner.post("/platform/plan", json={"plan_code": bad}).status_code == 422, bad
@@ -258,7 +274,12 @@ def test_seat_limit_blocks_member_creation_only_and_respects_upgrade(app, tenant
     def add(i: int):  # type: ignore[no-untyped-def]
         return admin.post(
             "/org/members",
-            json={"email": f"qa{i}@alphatrading.example", "full_name": f"Q {i}", "role": "sales", "password": "Another-Long-Pass-77"},
+            json={
+                "email": f"qa{i}@alphatrading.example",
+                "full_name": f"Q {i}",
+                "role": "sales",
+                "password": "Another-Long-Pass-77",
+            },
         )
 
     assert add(1).status_code == 201
@@ -284,9 +305,12 @@ def test_rfq_monthly_allowance_counts_only_successes(app, tenant_a: Tenant, tena
     assert (first.status_code, second.status_code) == (201, 201), (first.text, second.text)
     assert third.status_code == 429
     assert count_rows(tenant_a.org_id, RFQ) == 2
-    assert login_as(app, tenant_b.users["sales"]).post(
-        "/rfqs", json={"text": "10 pcs SKU-1001", "customer_id": str(tenant_b.customer_id)}
-    ).status_code == 201
+    assert (
+        login_as(app, tenant_b.users["sales"])
+        .post("/rfqs", json={"text": "10 pcs SKU-1001", "customer_id": str(tenant_b.customer_id)})
+        .status_code
+        == 201
+    )
     assert sales.get("/platform/plan").json()["usage"]["rfqs_per_month"] == 2
 
 
@@ -309,7 +333,12 @@ def test_support_export_and_usage_contain_no_customer_or_message_data(app, tenan
     admin.post("/customers", json={"name": "ZZQA Secret Customer Ltd", "reference": "ZZQA-REF"})
     chat(sales, "please remember zzqa-confidential-phrase and show quote " + q["number"])
     w = make_workflow(
-        admin, "leaky", {"name": "leaky", "steps": [{"id": "c", "tool": "get_customer_profile", "args": {"customer_name": "{{customer_name}}"}}]}
+        admin,
+        "leaky",
+        {
+            "name": "leaky",
+            "steps": [{"id": "c", "tool": "get_customer_profile", "args": {"customer_name": "{{customer_name}}"}}],
+        },
     )
     run = run_wf(admin, w["id"], "live", {"customer_name": "ZZQA Secret Customer Ltd " + "x" * 600}).json()
     assert run["status"] == "failed"
@@ -349,12 +378,26 @@ def test_stage1_to_3_flows_unaffected_by_starter_limits_and_usage_counts_rfqs(ap
 
 
 def test_every_stage4_route_requires_login_and_csrf(client, app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
-    gets = ["/command-center", "/platform/plan", "/platform/usage", "/platform/support-export", "/platform/kill-switch",
-            "/assistant/tools", "/assistant/sessions", "/actions", "/workflows", "/workflow-runs"]
+    gets = [
+        "/command-center",
+        "/platform/plan",
+        "/platform/usage",
+        "/platform/support-export",
+        "/platform/kill-switch",
+        "/assistant/tools",
+        "/assistant/sessions",
+        "/actions",
+        "/workflows",
+        "/workflow-runs",
+    ]
     for g in gets:
         assert client.get(f"/api/v1{g}").status_code == 401, g
     owner = login_as(app, tenant_a.users["owner"])
-    for path, body in (("/platform/plan", {"plan_code": "growth"}), ("/platform/kill-switch", {"reason": "csrf test"}),
-                       ("/actions", {"tool": "kpis_summary", "args": {}}), ("/workflows", {"key": "x", "definition": OK_WF})):
+    for path, body in (
+        ("/platform/plan", {"plan_code": "growth"}),
+        ("/platform/kill-switch", {"reason": "csrf test"}),
+        ("/actions", {"tool": "kpis_summary", "args": {}}),
+        ("/workflows", {"key": "x", "definition": OK_WF}),
+    ):
         assert owner.client.post(f"/api/v1{path}", json=body).status_code == 403, path  # missing CSRF header
     assert owner.get("/platform/kill-switch").json()["engaged"] is False

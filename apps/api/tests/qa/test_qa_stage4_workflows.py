@@ -77,7 +77,9 @@ INVALID = {
     "extra_arg": _wf([{"id": "a", "tool": "kpis_summary", "args": {"sql": "drop table x"}}]),
     "plan_blocked_tool": _wf([{"id": "a", "tool": "send_follow_up", "args": {"draft_id": "{{draft_id}}"}}]),
     "role_blocked_tool_depth": _wf([{"id": f"s{i}", "tool": "kpis_summary"} for i in range(9)]),
-    "max_depth_lower_than_steps": _wf([{"id": "a", "tool": "kpis_summary"}, {"id": "b", "tool": "kpis_summary"}], max_depth=1),
+    "max_depth_lower_than_steps": _wf(
+        [{"id": "a", "tool": "kpis_summary"}, {"id": "b", "tool": "kpis_summary"}], max_depth=1
+    ),
     "max_depth_zero": _wf([{"id": "a", "tool": "kpis_summary"}], max_depth=0),
     "name_missing": {"steps": [{"id": "a", "tool": "kpis_summary"}]},
     "huge_arg": _wf([{"id": "a", "tool": "search_quotes", "args": {"query": "z" * 100000}}]),
@@ -111,7 +113,11 @@ def test_request_shape_errors_are_422(app, tenant_a: Tenant) -> None:  # type: i
 
 
 def test_valid_definition_has_approval_warning_and_no_errors(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
-    rep = login_as(app, tenant_a.users["admin"]).post("/workflows/validate", json={"key": "w", "definition": WF_ORDER}).json()
+    rep = (
+        login_as(app, tenant_a.users["admin"])
+        .post("/workflows/validate", json={"key": "w", "definition": WF_ORDER})
+        .json()
+    )
     assert rep["ok"] is True and rep["errors"] == [] and any("approval" in w for w in rep["warnings"])
 
 
@@ -166,7 +172,9 @@ def test_workflow_active_before_downgrade_cannot_use_removed_scope(app, tenant_a
     owner = login_as(app, tenant_a.users["owner"])
     admin = login_as(app, tenant_a.users["admin"])
     set_plan(owner, "growth")
-    w = make_workflow(admin, "sender", _wf([{"id": "send", "tool": "send_follow_up", "args": {"draft_id": "{{draft_id}}"}}]))
+    w = make_workflow(
+        admin, "sender", _wf([{"id": "send", "tool": "send_follow_up", "args": {"draft_id": "{{draft_id}}"}}])
+    )
     set_plan(owner, "starter")
     run = run_wf(admin, w["id"], "live", {"draft_id": "00000000-0000-0000-0000-000000000001"}).json()
     assert run["status"] == "failed" and "send" in (run["failure_explanation"] or "")
@@ -179,13 +187,20 @@ def test_dry_run_of_every_side_effect_tool_changes_no_business_data(app, tenant_
     owner = login_as(app, tenant_a.users["owner"])
     set_plan(owner, "scale")
     sales, q = approved_quote(app, tenant_a)
-    sales.post(f"/customers/{tenant_a.customer_id}/contacts", json={"full_name": "B", "email": "b@c.example", "is_primary": True})
+    sales.post(
+        f"/customers/{tenant_a.customer_id}/contacts",
+        json={"full_name": "B", "email": "b@c.example", "is_primary": True},
+    )
     d = sales.post("/actions", json={"tool": "draft_follow_up", "args": {"quote_number": q["number"]}}).json()
     steps = [
         {"id": "draft", "tool": "draft_follow_up", "args": {"quote_number": "{{quote_number}}"}},
         {"id": "order", "tool": "propose_order", "args": {"quote_number": "{{quote_number}}"}},
         {"id": "send", "tool": "send_follow_up", "args": {"draft_id": d["result"]["draft_id"]}},
-        {"id": "del", "tool": "request_customer_deletion", "args": {"customer_id": str(tenant_a.customer_id), "reason": "qa dry"}},
+        {
+            "id": "del",
+            "tool": "request_customer_deletion",
+            "args": {"customer_id": str(tenant_a.customer_id), "reason": "qa dry"},
+        },
         {"id": "exp", "tool": "export_customers", "args": {}},
     ]
     admin = login_as(app, tenant_a.users["admin"])
@@ -218,14 +233,23 @@ def test_dry_run_with_missing_data_fails_with_explanation_and_still_no_side_effe
 def test_live_run_pauses_before_side_effect_and_only_continues_on_approval(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
     sales, q = approved_quote(app, tenant_a)
     admin = login_as(app, tenant_a.users["admin"])
-    wf = _wf([READ_STEP, {"id": "order", "tool": "propose_order", "args": {"quote_number": "{{quote_number}}"}}, {"id": "after", "tool": "kpis_summary", "args": {}}])
+    wf = _wf(
+        [
+            READ_STEP,
+            {"id": "order", "tool": "propose_order", "args": {"quote_number": "{{quote_number}}"}},
+            {"id": "after", "tool": "kpis_summary", "args": {}},
+        ]
+    )
     w = make_workflow(admin, "pause", wf)
     run = run_wf(admin, w["id"], "live", {"quote_number": q["number"]}).json()
     assert run["status"] == "awaiting_approval" and run["current_step"] == 1
     assert [s["status"] for s in run["steps"]] == ["executed", "awaiting_approval", "pending"]
     assert count_rows(tenant_a.org_id, Order) == 0
     # only owner/admin decide; other tenants/roles cannot
-    assert login_as(app, tenant_a.users["approver"]).post(f"/workflow-runs/{run['id']}/approve", json={}).status_code == 403
+    assert (
+        login_as(app, tenant_a.users["approver"]).post(f"/workflow-runs/{run['id']}/approve", json={}).status_code
+        == 403
+    )
     assert sales.post(f"/workflow-runs/{run['id']}/approve", json={}).status_code == 403
     assert count_rows(tenant_a.org_id, Order) == 0
     done = admin.post(f"/workflow-runs/{run['id']}/approve", json={}).json()
@@ -239,11 +263,20 @@ def test_live_run_pauses_before_side_effect_and_only_continues_on_approval(app, 
 def test_rejected_step_stops_run_and_later_steps_never_run(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
     _, q = approved_quote(app, tenant_a)
     admin = login_as(app, tenant_a.users["admin"])
-    wf = _wf([{"id": "order", "tool": "propose_order", "args": {"quote_number": "{{quote_number}}"}}, {"id": "after", "tool": "kpis_summary", "args": {}}])
+    wf = _wf(
+        [
+            {"id": "order", "tool": "propose_order", "args": {"quote_number": "{{quote_number}}"}},
+            {"id": "after", "tool": "kpis_summary", "args": {}},
+        ]
+    )
     w = make_workflow(admin, "stop", wf)
     run = run_wf(admin, w["id"], "live", {"quote_number": q["number"]}).json()
     rej = admin.post(f"/workflow-runs/{run['id']}/reject", json={"reason": "not today"}).json()
-    assert rej["status"] == "failed" and "not today" in rej["failure_explanation"] and "order" in rej["failure_explanation"]
+    assert (
+        rej["status"] == "failed"
+        and "not today" in rej["failure_explanation"]
+        and "order" in rej["failure_explanation"]
+    )
     assert rej["steps"][1]["status"] == "pending" and count_rows(tenant_a.org_id, Order) == 0
 
 
@@ -262,7 +295,10 @@ def test_failure_policies_stop_continue_and_compensate(app, tenant_a: Tenant) ->
     set_plan(login_as(app, tenant_a.users["owner"]), "growth")  # starter allows only one active workflow
     sales, q = approved_quote(app, tenant_a)
     admin = login_as(app, tenant_a.users["admin"])
-    sales.post(f"/customers/{tenant_a.customer_id}/contacts", json={"full_name": "B", "email": "b@c.example", "is_primary": True})
+    sales.post(
+        f"/customers/{tenant_a.customer_id}/contacts",
+        json={"full_name": "B", "email": "b@c.example", "is_primary": True},
+    )
     bad = {"id": "bad", "tool": "get_quote", "args": {"quote_number": "Q-1999-99999"}}
     # stop (default)
     w = make_workflow(admin, "f-stop", _wf([bad, READ_STEP]))
@@ -276,7 +312,10 @@ def test_failure_policies_stop_continue_and_compensate(app, tenant_a: Tenant) ->
     r = run_wf(admin, w["id"], "live", {"quote_number": q["number"]}).json()
     assert r["status"] == "succeeded" and [s["status"] for s in r["steps"]] == ["failed", "executed"]
     # compensate a draft created earlier in the run
-    steps = [{"id": "draft", "tool": "draft_follow_up", "args": {"quote_number": "{{quote_number}}"}}, {**bad, "on_failure": "compensate"}]
+    steps = [
+        {"id": "draft", "tool": "draft_follow_up", "args": {"quote_number": "{{quote_number}}"}},
+        {**bad, "on_failure": "compensate"},
+    ]
     w = make_workflow(admin, "f-comp", _wf(steps))
     r = run_wf(admin, w["id"], "live", {"quote_number": q["number"]}).json()
     assert r["status"] == "compensated" and "draft" in r["failure_explanation"]
@@ -309,8 +348,12 @@ def test_quote_approved_event_fires_only_matching_enabled_workflows(app, tenant_
     on = make_workflow(admin, "on-approve", {**WF_ORDER, "trigger": "quote.approved"})
     make_workflow(admin, "manual-only", {**WF_ORDER, "trigger": "manual"})
     make_workflow(admin, "on-confirm", {**WF_ORDER, "trigger": "order.confirmed"})
-    drafty = admin.post("/workflows", json={"key": "draft-only", "definition": {**WF_ORDER, "trigger": "quote.approved"}}).json()  # never activated
-    wb = make_workflow(login_as(app, tenant_b.users["admin"]), "b-on-approve", {**WF_ORDER, "trigger": "quote.approved"})
+    drafty = admin.post(
+        "/workflows", json={"key": "draft-only", "definition": {**WF_ORDER, "trigger": "quote.approved"}}
+    ).json()  # never activated
+    wb = make_workflow(
+        login_as(app, tenant_b.users["admin"]), "b-on-approve", {**WF_ORDER, "trigger": "quote.approved"}
+    )
     sales, q = approved_quote(app, tenant_a)
     runs = admin.get("/workflow-runs").json()
     assert [(r["definition_id"], r["trigger"], r["mode"]) for r in runs] == [(on["id"], "quote.approved", "live")]
@@ -342,7 +385,9 @@ def test_event_runs_never_undo_or_block_the_business_action(app, tenant_a: Tenan
 def test_quote_won_trigger_is_accepted_but_documented_triggers_only_fire(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
     """Observation (low): validator accepts 'quote.won' but no dispatch exists; assert what is documented only."""
     admin = login_as(app, tenant_a.users["admin"])
-    rep = admin.post("/workflows/validate", json={"key": "w", "definition": {**WF_ORDER, "trigger": "quote.won"}}).json()
+    rep = admin.post(
+        "/workflows/validate", json={"key": "w", "definition": {**WF_ORDER, "trigger": "quote.won"}}
+    ).json()
     assert rep["ok"] is False or any("won" in w for w in rep["warnings"]), (
         "workflow accepts trigger 'quote.won' silently although nothing ever dispatches it"
     )

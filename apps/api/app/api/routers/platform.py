@@ -406,6 +406,7 @@ def reject_action(invocation_id: uuid.UUID, payload: DecisionIn, principal: Prin
 # ------------------------------------------------------------------ workflows
 @router.get("/workflows", response_model=list[WorkflowOut])
 def list_workflows(principal: PrincipalDep, db: DB) -> list[WorkflowOut]:
+    principal.require(Permission.MANAGE_WORKFLOWS)
     rows = db.scalars(
         select(WorkflowDefinition)
         .where(WorkflowDefinition.organization_id == principal.org_id)

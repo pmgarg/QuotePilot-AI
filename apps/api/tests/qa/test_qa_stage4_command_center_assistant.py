@@ -132,11 +132,16 @@ def test_assistant_cannot_read_other_tenants_data(app, tenant_a: Tenant, tenant_
     r = chat(owner_b, "list all quotes").json()
     assert r["proposed_actions"][0]["status"] == "executed"
     assert r["proposed_actions"][0]["result"]["count"] == 0 and r["citations"] == []
-    cust = owner_b.post("/actions", json={"tool": "get_customer_profile", "args": {"customer_id": str(tenant_a.customer_id)}})
+    cust = owner_b.post(
+        "/actions", json={"tool": "get_customer_profile", "args": {"customer_id": str(tenant_a.customer_id)}}
+    )
     assert cust.status_code == 404
-    assert owner_b.post("/actions", json={"tool": "search_quotes", "args": {"query": q["number"]}}).json()["result"][
-        "count"
-    ] == 0
+    assert (
+        owner_b.post("/actions", json={"tool": "search_quotes", "args": {"query": q["number"]}}).json()["result"][
+            "count"
+        ]
+        == 0
+    )
 
 
 def test_citations_point_to_tenant_records(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]

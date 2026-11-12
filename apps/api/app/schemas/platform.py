@@ -6,7 +6,29 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+
+def contains_nul(value: Any) -> bool:
+    """True if any string, dict key or nested list/dict member contains the NUL control character."""
+    if isinstance(value, str):
+        return "\x00" in value
+    if isinstance(value, dict):
+        return any(contains_nul(k) or contains_nul(v) for k, v in value.items())
+    if isinstance(value, (list, tuple)):
+        return any(contains_nul(v) for v in value)
+    return False
+
+
+class RequestModel(BaseModel):
+    """Base of Stage 4 request bodies: rejects NUL (\\x00) anywhere in the payload (PostgreSQL cannot store it)."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_nul(cls, data: Any) -> Any:
+        if contains_nul(data):
+            raise ValueError("NUL characters are not allowed")
+        return data
 
 
 class ORM(BaseModel):
@@ -24,15 +46,15 @@ class PlanOut(BaseModel):
     plans: dict[str, dict[str, Any]]
 
 
-class PlanChangeIn(BaseModel):
+class PlanChangeIn(RequestModel):
     plan_code: str = Field(min_length=1, max_length=32)
 
 
-class AssistantSessionIn(BaseModel):
+class AssistantSessionIn(RequestModel):
     title: str | None = Field(default=None, max_length=200)
 
 
-class AssistantMessageIn(BaseModel):
+class AssistantMessageIn(RequestModel):
     text: str = Field(min_length=1, max_length=4000)
 
 
@@ -62,7 +84,7 @@ class ToolOut(BaseModel):
     args_schema: dict[str, Any]
 
 
-class InvocationProposeIn(BaseModel):
+class InvocationProposeIn(RequestModel):
     tool: str = Field(min_length=1, max_length=64)
     args: dict[str, Any] = Field(default_factory=dict)
     dry_run: bool = False
@@ -89,11 +111,11 @@ class InvocationOut(ORM):
     created_at: datetime
 
 
-class DecisionIn(BaseModel):
+class DecisionIn(RequestModel):
     reason: str | None = Field(default=None, max_length=2000)
 
 
-class WorkflowIn(BaseModel):
+class WorkflowIn(RequestModel):
     key: str = Field(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_-]*$")
     definition: dict[str, Any]
 
@@ -115,7 +137,7 @@ class WorkflowOut(ORM):
     versions: list[WorkflowVersionOut] = []
 
 
-class RunIn(BaseModel):
+class RunIn(RequestModel):
     mode: str = Field(pattern="^(dry_run|live)$")
     context: dict[str, Any] = Field(default_factory=dict)
     version_no: int | None = Field(default=None, ge=1)
@@ -149,7 +171,7 @@ class RunOut(ORM):
     steps: list[StepOut] = []
 
 
-class KillSwitchIn(BaseModel):
+class KillSwitchIn(RequestModel):
     reason: str = Field(min_length=3, max_length=2000)
 
 

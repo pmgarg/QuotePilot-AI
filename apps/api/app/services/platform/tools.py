@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
@@ -351,5 +351,10 @@ def validate_args(tool: Tool, raw: Any) -> _Args:
         raise ValidationFailed("Tool arguments must be an object", field="args")
     try:
         return tool.args_model.model_validate(raw)
-    except Exception as exc:  # pydantic ValidationError → 422 with no internals
-        raise ValidationFailed(f"Invalid arguments for {tool.name}: {str(exc)[:300]}", field="args") from exc
+    except ValidationError as exc:
+        # D-QA4-05: only field path + error type; pydantic's message/input_value would echo customer-supplied text
+        # into step errors, audit summaries and the support export
+        problems = "; ".join(
+            f"{'.'.join(str(p) for p in e['loc']) or 'args'}: {e['type']}" for e in exc.errors(include_input=False)
+        )
+        raise ValidationFailed(f"Invalid arguments for {tool.name}: {problems[:300]}", field="args") from None

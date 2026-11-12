@@ -24,7 +24,8 @@ from app.services import audit
 from app.services.platform import entitlements, invocations, killswitch
 from app.services.platform.tools import REGISTRY, Actor, allowed_tools, validate_args
 
-TRIGGERS = {"manual", "quote.approved", "quote.won", "order.confirmed"}
+# only events that are actually dispatched (quote.approved, order.confirmed); a trigger that can never fire is invalid
+TRIGGERS = {"manual", "quote.approved", "order.confirmed"}
 CONTEXT_KEYS = {"quote_id", "quote_number", "customer_id", "customer_name", "order_id", "draft_id"}
 TEMPLATE_RE = re.compile(r"^\{\{\s*([a-z_]+)\s*\}\}$")
 
@@ -332,6 +333,16 @@ def _compensate(db: Session, org: Organization, actor: Actor, run: WorkflowRun, 
                 draft = db.get(CommunicationDraft, uuid.UUID(out["draft_id"]))
                 if draft is not None and draft.status in ("draft", "approved"):
                     draft.status = "cancelled"
+                    audit.record(  # S4-SEC-06: the undo of a side effect is traceable
+                        db,
+                        organization_id=org.id,
+                        actor_user_id=None,
+                        action="draft.cancelled_by_workflow_compensation",
+                        entity_type="communication_draft",
+                        entity_id=draft.id,
+                        ip=actor.ip,
+                        summary={"reason": "workflow compensation", "run_id": str(run.id)},
+                    )
             else:
                 continue
             step.status = "compensated"
@@ -454,6 +465,15 @@ def get_run(db: Session, org_id: uuid.UUID, run_id: uuid.UUID) -> WorkflowRun:
 def decide_step(
     db: Session, *, org: Organization, actor: Actor, run: WorkflowRun, approve: bool, reason: str | None
 ) -> WorkflowRun:
+    # S4-SEC-01: serialise concurrent decisions on the run; refresh a possibly stale in-memory copy
+    db.execute(
+        select(WorkflowRun.id)
+        .where(WorkflowRun.id == run.id, WorkflowRun.organization_id == org.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    db.refresh(run)
+    db.expire(run, ["steps"])
     if run.status != "awaiting_approval":
         raise StateError("Run is not waiting for an approval")
     step = next(s for s in run.steps if s.index == run.current_step)
@@ -467,7 +487,28 @@ def decide_step(
         _finish(run, "failed", f"step '{step.step_id}' rejected: {reason or 'no reason given'}")
         db.flush()
         return run
-    invocations.decide(db, org=org, actor=actor, inv=inv, approve=True, reason=reason)
+    try:
+        invocations.decide(db, org=org, actor=actor, inv=inv, approve=True, reason=reason, durable_failure=False)
+    except AppError as exc:
+        if inv.status != "failed":
+            raise  # policy/state refusal before execution: nothing was attempted
+        # S4-SEC-04: the failure is recorded on the invocation; end the run instead of leaving it stuck
+        step.status = "failed"
+        step.error = f"{exc.code}: {exc.detail}"[:500]
+        step.finished_at = utcnow()
+        _finish(run, "failed", f"step '{step.step_id}' failed: {step.error}")
+        db.flush()
+        audit.record(
+            db,
+            organization_id=org.id,
+            actor_user_id=actor.user.id,
+            action="workflow.run_finished",
+            entity_type="workflow_run",
+            entity_id=run.id,
+            ip=actor.ip,
+            summary={"status": run.status, "steps": run.budget_used, "explanation": run.failure_explanation},
+        )
+        return run
     step.status = "executed"
     full = getattr(inv, "_last_result", None) or inv.result
     step.output = {k: v for k, v in full.items() if k not in ("content_b64", "_full")}

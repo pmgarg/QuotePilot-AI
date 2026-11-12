@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -83,9 +84,14 @@ def _period_key(metric: str, now: datetime) -> str:
 def subscription_for(db: Session, org_id: uuid.UUID) -> Subscription:
     sub = db.scalar(select(Subscription).where(Subscription.organization_id == org_id))
     if sub is None:
-        sub = Subscription(organization_id=org_id, plan_code=get_settings().default_plan_code, status="active")
-        db.add(sub)
-        db.flush()
+        # conflict-safe get-or-create (S4-SEC-07): concurrent first requests insert once, the others read it
+        db.execute(
+            pg_insert(Subscription)
+            .values(organization_id=org_id, plan_code=get_settings().default_plan_code, status="active")
+            .on_conflict_do_nothing(index_elements=["organization_id"])
+        )
+        sub = db.scalar(select(Subscription).where(Subscription.organization_id == org_id))
+        assert sub is not None
     return sub
 
 

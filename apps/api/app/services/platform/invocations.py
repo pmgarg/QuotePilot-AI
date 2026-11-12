@@ -11,7 +11,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.errors import ForbiddenError, NotFoundError, StateError
+from app.core.errors import AppError, ForbiddenError, NotFoundError, StateError
 from app.core.logging import redact
 from app.db.base import utcnow
 from app.db.session import set_tenant
@@ -32,8 +32,9 @@ def get_invocation(db: Session, org_id: uuid.UUID, invocation_id: uuid.UUID) -> 
     return inv
 
 
-def _policy_check(db: Session, org: Organization, actor: Actor, tool: Tool) -> None:
-    killswitch.check(db, org.id)
+def _policy_check(db: Session, org: Organization, actor: Actor, tool: Tool, *, skip_kill_switch: bool = False) -> None:
+    if not skip_kill_switch:
+        killswitch.check(db, org.id)
     plan_scopes = entitlements.entitlements_for(db, org.id).limits.get("tool_scopes", [])
     if tool.name not in {t.name for t in allowed_tools(actor.role, plan_scopes)}:
         raise ForbiddenError(f"Tool '{tool.name}' is not available to this user/plan", action=tool.scope)
@@ -63,7 +64,10 @@ def propose(
     if tool is None:
         raise ForbiddenError(f"Unknown tool '{tool_name[:40]}'", action="tool")
     args = validate_args(tool, raw_args)
-    _policy_check(db, org, actor, tool)
+    # D-QA4-01: a workflow DRY RUN stays possible while the kill switch is engaged. It is side-effect free (handlers get
+    # dry_run=True: no provider/LLM call, only the run/invocation record and audit rows are written). Live execution,
+    # approvals, the assistant and manual /actions (including dry_run) stay blocked.
+    _policy_check(db, org, actor, tool, skip_kill_switch=dry_run and origin == "workflow")
     payload = args.model_dump(mode="json")
     inv = ToolInvocation(
         organization_id=org.id,
@@ -102,7 +106,23 @@ def propose(
     return execute(db, org=org, actor=actor, inv=inv)
 
 
-def execute(db: Session, *, org: Organization, actor: Actor, inv: ToolInvocation) -> ToolInvocation:
+def lock_invocation(db: Session, inv: ToolInvocation) -> ToolInvocation:
+    """S4-SEC-01: take a row lock and refresh the in-memory copy, so a concurrent or stale decision sees the
+    committed status (the loser of a race gets a StateError -> 409 and executes nothing)."""
+    locked = db.scalar(
+        select(ToolInvocation)
+        .where(ToolInvocation.id == inv.id, ToolInvocation.organization_id == inv.organization_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if locked is None:
+        raise NotFoundError("Invocation not found")
+    return locked
+
+
+def execute(
+    db: Session, *, org: Organization, actor: Actor, inv: ToolInvocation, durable_failure: bool = False
+) -> ToolInvocation:
     tool = REGISTRY[inv.tool]
     if inv.status not in ("proposed", "approved"):
         raise StateError(f"Invocation is {inv.status}")
@@ -117,7 +137,8 @@ def execute(db: Session, *, org: Organization, actor: Actor, inv: ToolInvocation
             with db.begin_nested():
                 result = tool.handler(db, org, actor, args, False)
     except Exception as exc:
-        error = f"{type(exc).__name__}: {str(exc)[:300]}"
+        # bounded summary; only application errors (our own messages) carry text, unexpected ones just the type
+        error = f"{type(exc).__name__}: {str(exc)[:300]}" if isinstance(exc, AppError) else type(exc).__name__
         if tool.self_commits:
             # the service may have committed its own failure record and reset the transaction: start clean, reload
             inv_id, org_id, user_id = inv.id, org.id, actor.user.id  # read before rollback expires the instances
@@ -141,9 +162,11 @@ def execute(db: Session, *, org: Organization, actor: Actor, inv: ToolInvocation
             ip=actor.ip,
             summary={"tool": tool.name, "error": inv.error},
         )
-        if tool.self_commits:
+        if tool.self_commits or durable_failure:
+            # keep the failure record (status, error summary, audit row) although the caller still sees the
+            # error: the handler's partial work was already rolled back to the savepoint (S4-SEC-04)
             org_id, user_id = org.id, actor.user.id
-            db.commit()  # keep the failure record; the caller still sees the error
+            db.commit()
             set_tenant(db, org_id, user_id)
         raise
     inv.status = "executed"
@@ -166,8 +189,16 @@ def execute(db: Session, *, org: Organization, actor: Actor, inv: ToolInvocation
 
 
 def decide(
-    db: Session, *, org: Organization, actor: Actor, inv: ToolInvocation, approve: bool, reason: str | None
+    db: Session,
+    *,
+    org: Organization,
+    actor: Actor,
+    inv: ToolInvocation,
+    approve: bool,
+    reason: str | None,
+    durable_failure: bool = True,
 ) -> ToolInvocation:
+    inv = lock_invocation(db, inv)
     if inv.status != "proposed" or not inv.requires_approval:
         raise StateError("Nothing to decide for this invocation")
     tool = REGISTRY[inv.tool]
@@ -202,4 +233,4 @@ def decide(
         ip=actor.ip,
         summary={"tool": tool.name, "reason": reason},
     )
-    return execute(db, org=org, actor=actor, inv=inv)
+    return execute(db, org=org, actor=actor, inv=inv, durable_failure=durable_failure)

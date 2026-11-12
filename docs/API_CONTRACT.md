@@ -133,9 +133,14 @@ HTTP 409
   stores it). **Workflows** (owner/admin) `GET/POST /workflows` `{key, definition}` (each POST = new draft version with
   a validation report), `POST /workflows/validate`, `POST /workflows/{id}/activate?version_no=`, `/disable`,
   `POST /workflows/{id}/runs` `{mode: dry_run|live, context, version_no?}` (live needs the active version, kill switch
-  off, breaker closed, daily run allowance), `GET /workflow-runs`, `GET /workflow-runs/{id}`,
+  off, breaker closed, daily run allowance; a workflow `dry_run` stays possible while the kill switch is engaged, `POST
+  /actions` with `dry_run` does not), `GET /workflow-runs`, `GET /workflow-runs/{id}`,
   `POST /workflow-runs/{id}/approve|reject` (continues or stops a run paused at a side-effect step). Triggers:
-  `manual`, `quote.approved`, `order.confirmed` (dispatched after the business action; never undo it).
+  `manual`, `quote.approved`, `order.confirmed` (dispatched after the business action; never undo it); any other trigger fails validation.
+  Concurrent approvals of one action or workflow step: exactly one wins, the others get 409. A failed approved action
+  is persisted as `failed` (with a `tool.failed` audit row) and cannot be approved again; a workflow step whose
+  approved action fails ends the run as `failed` (HTTP 200 with the run). Request bodies containing a NUL character
+  anywhere (strings, keys, nested args) return 422. `GET /workflows` is 403 for roles without manage_workflows.
   **Plan & ops** `GET /platform/plan`, `POST /platform/plan` (owner; test-mode adapter), `GET /platform/usage`,
   `GET /platform/support-export` (owner/admin; configuration and counts only, audited), `GET/POST/DELETE
   /platform/kill-switch` (owner/admin). Limits enforced server-side: seats on `POST /org/members`, RFQs per month on
