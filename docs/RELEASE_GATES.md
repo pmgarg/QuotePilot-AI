@@ -237,3 +237,36 @@ Recorded there; the table is updated with every merge. A green browser run on th
 3. CI on the gated HEAD for both events, with job-level results and counts, including the CodeQL code-scanning check.
 4. Release review by the read-only `release-reviewer` with a fresh context; findings recorded here verbatim.
 Stage 2 also depends on Stage 1 being VERIFIED (ROADMAP); Stage 1's gate is still open.
+
+---
+
+# Stage 3 gate log (branch `claude/stage3-customer-order-intelligence`, PR #3) — status: OPEN, not reviewed
+
+Stage 3 has its own gate. Nothing in this section is a PASS; the release reviewer has not been invoked for Stage 3.
+
+## Independent verification of the first implementation (2026-11-02 / 2026-11-10)
+- **QA** (`docs/evidence/qa-stage3-2026-11-02.md`; 46 API + 5 browser tests derived from the PRD): S3-A02, A04, A05,
+  A06, A08, A09 pass. **Defects: D1 (Medium)** order totals differ from the approved quote when a line has a discount;
+  **D2 (Medium)** pending-value KPI ignores sent/acknowledged quotes; **D3 (Medium)** over-long CSV cell → HTTP 500;
+  **D4 (Low)** a customer whose deletion was approved still accepts new processing; **D5 (Medium, cross-stage)**
+  responses were sent before the transaction committed (Stage 1 code; fixed there in fix round 8). The first full
+  browser runs were not green (intermittent failures in Stage 1/2 specs, attributed by QA to D5 by symptom).
+- **Security audit** (`docs/evidence/security-stage3-2026-11-02.md`): **SEC3-01, 02, 03, 04, 09, 10, 11 Medium**
+  (stalled erasure, soft delete only a list filter, PII copies surviving the purge, unbounded import fields, superseded
+  approved version convertible, in-place catalog price change vs open quotes, scientific notation misparsed), SEC3-06,
+  07, 08 Low, SEC3-05 withdrawn. No Critical or High.
+
+## Fix round 1 (`docs/evidence/implementer-fixes1-stage3-2026-11-12.md`)
+All QA defects and security findings above are addressed (SEC3-11 and D5 through the Stage 1 merge). Edits to verifier
+tests are declared there: removed xfail markers, and four QA tests whose expectations contradicted a security fix
+(idempotency replay with a different payload → 409; a customer pending erasure is readable only with
+`manage_retention`). Migration `0007b` added; `0007` now follows Stage 2's `0006b`.
+
+## Still required before any Stage 3 verdict
+1. A green full API and browser run on the merged tree (recorded in the fixes1 evidence file when available).
+2. Independent QA re-verification (must judge the declared test edits and re-run the full browser suite, which QA
+   did not re-run after its last spec change).
+3. Independent security re-verification of SEC3-01..11 and of the new validation/idempotency/erasure code.
+4. CI on the gated HEAD for both events with job-level results, counts and the CodeQL code-scanning check.
+5. Release review by the read-only `release-reviewer` with a fresh context; findings recorded here verbatim.
+Stage 3 depends on Stages 1 and 2 being VERIFIED; both gates are still open.
