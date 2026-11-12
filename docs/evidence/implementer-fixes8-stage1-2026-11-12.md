@@ -45,5 +45,19 @@ being read as some number; `Rs. 500`, `AED 12.50`, `1 234,56`, `(12.50)`, `−5`
 - `ruff format` was applied to the verifier files where CI's format check required it (no assertion changed).
 `apps/api/tests/qa/test_qa_reverify_review4.py` (QA's file): not edited.
 
-## Runs
-See the table appended below.
+## Runs (2026-11-12, commit b114d9e, DB `quotepilot_s1`, Playwright ports 8051/3051, nothing else running)
+| Command (cwd) | Exit | Result |
+|---|---|---|
+| `.venv/bin/ruff check app tests -q` (`apps/api`) | 0 | clean |
+| `.venv/bin/ruff format --check app tests` | 0 | 90 files already formatted |
+| `.venv/bin/mypy app` | 0 | no issues in 58 source files |
+| `.venv/bin/pytest -q -p no:cacheprovider -rxs` (full API suite) | 0 | **582 passed, 2 skipped, 1 xfailed** in 442 s |
+| `npx tsc --noEmit`, `npx eslint .` (`apps/web`) | 0 / 0 | clean |
+| `npx playwright test --reporter=list --trace off` (`tests/e2e`; global setup migrates, seeds and rebuilds the web app) | 0 | **38 passed, 1 skipped**, 0 failed, 0 flaky |
+
+- Skips: `tests/security/test_audit_followups4.py:402` and `test_audit_followups5.py:474` (compose render needs a
+  repo-root `.env`); Playwright `screenshots.spec.ts` (self-skipped by design).
+- The xfail is the auditor's `test_sec4_4_…` (see "Left as is" above).
+- QA's 14 tests that failed at bf05198 (D4-1, D4-2) pass unedited.
+- An earlier run of the same code on a scratch worktree (before the verifier files were final) gave 582 passed,
+  2 skipped, 1 xfailed as well; the D5 test alone was also run against the old dependency scope: 1 failed, 1 passed.
