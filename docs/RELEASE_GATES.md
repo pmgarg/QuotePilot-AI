@@ -272,6 +272,19 @@ the security confirmation test `test_item1_worst_case_end_to_end_and_add_item_co
 path that exists only on the development machine (`FileNotFoundError`); its assertions had passed. e2e skipped.
 Fixed by writing the dump to the system temp directory (declared edit, no assertion changed).
 
+### CI evidence for 96e28ab — the gated head of fix round 11 (GitHub Actions, queried 2026-11-12): all 15 checks green
+| workflow | runs (both events) | job results | counts read from the job logs |
+|---|---|---|---|
+| ci | 43212316572, 43212324076 (the latter tested the pull-request merge commit of 96e28ab) | api success, web success, e2e success on both | pytest `1361 passed, 5 skipped, 2 xfailed, 1 xpassed in 728.18s` / `… in 779.34s`, coverage TOTAL 92 %; Playwright `42 passed (1.8m)` / `42 passed (1.7m)`, `1 skipped`, no flaky line, no failed line, no `retry #` |
+| security | 43212316545, 43212324258 | CodeQL python, CodeQL javascript-typescript, gitleaks, pip-audit/npm audit/bandit/semgrep: success on both | SARIF python 0 results, javascript 0 results |
+| CodeQL code-scanning check | 131163225529 | success | — |
+
+Skips in CI (5): two QA history-based differentials and one security history-based test (CI checks out without git
+history), two compose-render tests (no repo-root `.env`). Expected failures (2): the per-call matching latency test
+(SEC6-2 residual) and SEC8-1. One non-strict xfail passed on the runner (SEC7-1 per-call latency). Local runs of the
+same product code: API 1350 passed / 2 skipped / 2 xfailed at 8cfcff2 (before the 14 confirmation tests were added),
+browser 42 passed / 1 skipped — consistent with CI.
+
 ### Open for Stage 1 after round 11 (single list for the reviewer)
 | ID | Severity | State |
 |---|---|---|
