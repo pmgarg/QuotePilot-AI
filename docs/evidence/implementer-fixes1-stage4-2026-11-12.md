@@ -70,3 +70,14 @@ to an empty database (`quotepilot_s4`, recreated). Ports 8064/3064. Two other su
 This is the first full API and browser run of Stage 4 with every earlier stage's fixes; it is the implementing side's
 run, not a verification. CI on this branch is expected to show the Stage 1 QA-test environment issue (five tests in
 `tests/qa/test_qa_reverify_review5.py`) until the corrected file is merged from Stage 1.
+
+## Orchestrator addendum — full suites with Stage 1 fix round 10 merged (commit 92a6d5f, 2026-11-12)
+| Command (cwd) | Exit | Result |
+|---|---|---|
+| `ruff check` / `ruff format --check` / `mypy app` (`apps/api`) | 0 / 0 / 0 | clean; 159 files formatted; 95 source files |
+| `.venv/bin/pytest -q -p no:cacheprovider -rfEx` (full API suite) | 0 | **1680 passed, 2 skipped, 2 xfailed** in 1681 s (xfails: S2-SEC-06 accepted in Stage 2; Stage 1 SEC6-2 open) |
+| `npx tsc --noEmit`, `npx eslint .` (`apps/web`) | 0 / 0 | clean |
+| `npx playwright test --reporter=list --trace off` (`tests/e2e`) | 0 | **73 passed, 1 skipped**, 0 failed, 0 flaky |
+
+The implementing side's run, not a verification. No further Stage 1 fix round will be merged into this branch until
+the Stage 1 gate has been reviewed; CI on this branch can be red for the Stage 1 reasons described in the Stage 1 PR.
