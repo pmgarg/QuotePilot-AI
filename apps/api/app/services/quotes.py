@@ -27,7 +27,7 @@ from app.models.quote import ApprovalDecision, Quote, QuoteLine, QuoteVersion
 from app.models.rfq import RFQ
 from app.services import audit
 from app.services.authz import Permission, has_permission
-from app.services.money import is_supported_currency
+from app.services.money import MAX_QUANTITY, is_supported_currency
 from app.services.pricing import LineInput, compute_line, validate_line
 
 MAX_TOTAL = Decimal("100000000000000")  # 1e14 < NUMERIC(18,3) capacity; keeps every aggregate representable
@@ -335,7 +335,7 @@ def generate_from_rfq(db: Session, *, org: Organization, actor_user_id: uuid.UUI
                     item.line_no,
                 )
             )
-        if item.quantity is None:
+        if item.quantity is None or not (0 < item.quantity <= MAX_QUANTITY):
             problems.append(Blocker("quantity_missing", f"Line {item.line_no} has no valid quantity", item.line_no))
         if item.selected_product_id is None and not item.is_custom:
             problems.append(
@@ -384,7 +384,7 @@ def generate_from_rfq(db: Session, *, org: Organization, actor_user_id: uuid.UUI
             rfq_item_id=item.id,
             sku=product.sku if product else item.sku_hint,
             description=product.description if product else item.description,
-            quantity=item.quantity,
+            quantity=item.quantity if item.quantity is not None and 0 < item.quantity <= MAX_QUANTITY else None,
             unit=(product.unit if product else (item.unit_normalized or item.unit_raw or "EA")),
             tax_rate_pct=org.default_tax_rate,
             is_custom=item.is_custom,

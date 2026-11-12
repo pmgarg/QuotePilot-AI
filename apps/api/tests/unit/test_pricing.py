@@ -116,3 +116,33 @@ def test_parse_decimal_rejects_ambiguous_or_non_finite_exponent_forms(raw: str) 
 def test_parse_decimal_currency_codes_containing_e_still_parse() -> None:
     assert parse_decimal("12.50 AED") == D("12.50")
     assert parse_decimal("EUR 1.234,56") == D("1234.56")
+
+
+# --- fix round 8 (SEC4-0..5): the parser accepts one number or nothing; it never assembles a value from fragments ---
+@pytest.mark.parametrize(
+    "raw",
+    ["1 e3", "1e 3", "1 E 3", "1ee3", "1e  3", "1e+ 3", "12e", "e3", "1e+", "12 per 6", "10 x 5", "3 boxes of 12",
+     "0x10", "12 6", "Rs.500", "0e1000", "5-", "12-5", "(5", "5)", "1e3 AED", "AED 1e3"],
+)  # fmt: skip
+def test_ambiguous_or_fragmented_numbers_are_rejected_not_assembled(raw: str) -> None:
+    assert parse_decimal(raw) is None, (raw, parse_decimal(raw))
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [("−5", D(-5)), ("AED -5", D(-5)), ("- 5", D(-5)), ("(12.50)", D("-12.50")),
+     ("Rs. 500", D(500)), ("$.50", D("0.50")), ("1 234,56", D("1234.56")),
+     ("1'234.50", D("1234.50")), ("12 pcs.", D(12)), ("5EUR", D(5)), ("3 E", D(3)),
+     ("5%", D(5)), ("١٢٣", D(123))],
+)  # fmt: skip
+def test_single_decorated_numbers_keep_their_sign_and_value(raw: str, expected: D) -> None:
+    assert parse_decimal(raw) == expected
+
+
+def test_parser_never_returns_negative_zero_or_non_finite_or_absurd_magnitudes() -> None:
+    for raw in ("-0", "-0e5", "-0.00", "(0)", D("-0")):
+        d = parse_decimal(raw)
+        assert d is not None and d == 0 and not d.is_signed(), raw
+    for raw in (float("nan"), float("inf"), float("-inf"), 1e300, D("NaN"), D("Infinity"), D("1e40")):
+        assert parse_decimal(raw) is None, raw
+    assert parse_decimal(12.5) == D("12.5") and parse_decimal(7) == D(7)

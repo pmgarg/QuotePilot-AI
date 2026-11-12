@@ -59,16 +59,46 @@ def test_parse_decimal_exact_values(raw: str, expected: Decimal) -> None:
 
 @pytest.mark.parametrize(
     "raw",
-    ["1e31", "1e-31", "1e999999999", "0e1000", "Infinity", "-Infinity", "NaN", "sNaN", "1e3e3", "1,000e2",
-     "USD 1e3", "1e3 USD", "1.5e3,0", "1_0e2", "1e1.5", "1e--3", "--5", "5-", "1.2.3", "1,2,3", "", "   ", "e", "."],
+    [
+        "1e31",
+        "1e-31",
+        "1e999999999",
+        "0e1000",
+        "Infinity",
+        "-Infinity",
+        "NaN",
+        "sNaN",
+        "1e3e3",
+        "1,000e2",
+        "USD 1e3",
+        "1e3 USD",
+        "1.5e3,0",
+        "1_0e2",
+        "1e1.5",
+        "1e--3",
+        "--5",
+        "5-",
+        "1.2.3",
+        "1,2,3",
+        "",
+        "   ",
+        "e",
+        ".",
+    ],
 )
 def test_parse_decimal_rejects_hostile_or_ambiguous_text(raw: str) -> None:
     assert parse_decimal(raw) is None
 
 
 def test_parse_decimal_is_linear_time_on_hostile_long_input() -> None:
-    for s in ("1" * 200_000 + "e5", "1" * 200_000, "1" + "e" * 200_000, "1e" * 100_000, "." * 200_000 + "e1",
-              "0" * 200_000 + "e" + "9" * 200_000):
+    for s in (
+        "1" * 200_000 + "e5",
+        "1" * 200_000,
+        "1" + "e" * 200_000,
+        "1e" * 100_000,
+        "." * 200_000 + "e1",
+        "0" * 200_000 + "e" + "9" * 200_000,
+    ):
         t = time.perf_counter()
         parse_decimal(s)
         assert time.perf_counter() - t < 1.0, s[:20]
@@ -90,21 +120,18 @@ def test_parse_decimal_scientific_form_never_silently_reinterpreted() -> None:
 
 
 # ---------------------------------------------------------------------------------------------------------- findings
-@pytest.mark.xfail(strict=True, reason="SEC4-0 (Medium): exponent with whitespace/doubled e still collapses to 13 ('1 e3')")
 def test_sec4_0_spaced_or_malformed_exponent_is_rejected_not_misread() -> None:
     """Round-7 only guards `\\d[eE][+-]?\\d`; the letters are then stripped, so '1 e3' / '1e 3' / '1ee3' -> 13."""
     for raw in ("1 e3", "1e 3", "1 E 3", "1ee3", "1e  3", "1e+ 3"):
         assert parse_decimal(raw) in (None, Decimal(1000)), (raw, parse_decimal(raw))
 
 
-@pytest.mark.xfail(strict=True, reason="SEC4-1 (Low): float NaN/Infinity/1e300 bypass every check in parse_decimal")
 def test_sec4_1_float_non_finite_and_unbounded_inputs_are_rejected() -> None:
     for f in (float("nan"), float("inf"), float("-inf"), 1e300):
         d = parse_decimal(f)
         assert d is None or (d.is_finite() and d.adjusted() <= 30), f
 
 
-@pytest.mark.xfail(strict=True, reason="SEC4-3 (Low): U+2212 minus sign is stripped, '−5' imports as +5")
 def test_sec4_3_unicode_minus_does_not_flip_sign() -> None:
     d = parse_decimal("−5")
     assert d is None or d == Decimal(-5)
@@ -117,7 +144,6 @@ def test_sec4_4_digit_groups_separated_by_words_are_not_concatenated() -> None:
     assert parse_decimal("12 per 6") != Decimal(126)
 
 
-@pytest.mark.xfail(strict=True, reason="SEC4-5 (Low): '-0' and '(0)' sign/negative-zero handling inconsistent")
 def test_sec4_5_negative_zero_is_never_returned() -> None:
     for raw in ("-0", "-0e5", "-0.00"):
         d = parse_decimal(raw)
@@ -164,8 +190,8 @@ def test_import_exponent_and_unicode_digit_prices_exact_or_rejected(app) -> None
     r = _import_csv(
         admin,
         b"A1,a,EA,AED,1e3\nA2,a,EA,AED,\xef\xbc\x91e\xef\xbc\x93\nA3,a,EA,AED,1e999\nA4,a,EA,AED,NaN\n"
-        b"A5,a,EA,AED,Infinity\nA6,a,EA,AED,1.5e3 AED\nA7,a,EA,AED,\"1,000e2\"\nA8,a,EA,AED,-1e3\n"
-        b"A9,a,EA,AED,1e-31\nA10,a,EA,AED,\"(1e3)\"\nA11,a,EA,AED,1e1e1\n",
+        b'A5,a,EA,AED,Infinity\nA6,a,EA,AED,1.5e3 AED\nA7,a,EA,AED,"1,000e2"\nA8,a,EA,AED,-1e3\n'
+        b'A9,a,EA,AED,1e-31\nA10,a,EA,AED,"(1e3)"\nA11,a,EA,AED,1e1e1\n',
     )
     assert r.status_code == 201, r.text
     prods = _products(admin, r.json()["id"])
@@ -183,7 +209,7 @@ def test_import_negative_and_scientific_negative_prices_are_rejected(app) -> Non
     assert _products(admin, r.json()["id"]) == {"N4": "7"}
 
 
-_X2 = pytest.mark.xfail(strict=True, reason="SEC4-2 (Low/Medium): price >= 1e12 -> unhandled DataError/InvalidOperation (500)")
+_X2 = ()  # SEC4-2 fixed in fix round 8 (marker removed, declared)
 
 
 @integration
@@ -202,11 +228,13 @@ def test_sec4_2_oversized_prices_never_crash_or_store_garbage(app, price: str) -
 
 
 # ------------------------------------------------------------------------------------------------------ RFQ parsing
-_X6 = pytest.mark.xfail(strict=True, reason="SEC4-6 (Medium): RFQ quantity >= 1e15 -> 500; 1e7..1e15 accepted past the API cap")
+_X6 = ()  # SEC4-6 fixed in fix round 8 (marker removed, declared)
 
 
 @integration
-@pytest.mark.parametrize("qty", [pytest.param(q, marks=_X6) for q in ("1e30", "1" + "0" * 30, "99999999999999.5", "1e12")])
+@pytest.mark.parametrize(
+    "qty", [pytest.param(q, marks=_X6) for q in ("1e30", "1" + "0" * 30, "99999999999999.5", "1e12")]
+)
 def test_sec4_6_oversized_rfq_quantities_never_crash(app, tenant_a, qty: str) -> None:  # type: ignore[no-untyped-def]
     """Member-facing path: any sales user's RFQ upload. rfq_items.quantity is Numeric(18,3)."""
     sales = login_as(app, tenant_a.users["sales"])
@@ -231,7 +259,9 @@ def test_rfq_text_exponent_quantities_are_exact_or_unset(app, tenant_a) -> None:
 @integration
 def test_rfq_item_patch_rejects_nonfinite_negative_zero_and_huge_quantity(app, tenant_a) -> None:  # type: ignore[no-untyped-def]
     sales = login_as(app, tenant_a.users["sales"])
-    rfq = sales.post("/rfqs", json={"text": "5 pcs SKU-1001 hex bolt\n", "customer_id": str(tenant_a.customer_id)}).json()
+    rfq = sales.post(
+        "/rfqs", json={"text": "5 pcs SKU-1001 hex bolt\n", "customer_id": str(tenant_a.customer_id)}
+    ).json()
     iid = rfq["items"][0]["id"]
     for bad in ("NaN", "Infinity", "-Infinity", "-0", "0", "1e999", "1e30", "-1", "1e8", "0.0001"):
         r = sales.patch(f"/rfqs/{rfq['id']}/items/{iid}", json={"quantity": bad})
@@ -244,10 +274,20 @@ def test_quote_editor_numeric_inputs_reject_nonfinite_and_oversized(app, tenant_
     sales = login_as(app, tenant_a.users["sales"])
     prod = sales.get(f"/catalogs/versions/{tenant_a.catalog_version_id}/products?q=SKU-1001").json()["items"][0]
     q = sales.post("/quotes", json={"customer_id": str(tenant_a.customer_id)}).json()
-    for field, bad in [("quantity", "NaN"), ("quantity", "Infinity"), ("quantity", "-0"), ("quantity", "1e30"),
-                       ("quantity", "0"), ("unit_price", "NaN"), ("unit_price", "-0.01"), ("unit_price", "1e30"),
-                       ("unit_price", "Infinity"), ("discount_pct", "NaN"), ("discount_pct", "101"),
-                       ("tax_rate_pct", "NaN")]:
+    for field, bad in [
+        ("quantity", "NaN"),
+        ("quantity", "Infinity"),
+        ("quantity", "-0"),
+        ("quantity", "1e30"),
+        ("quantity", "0"),
+        ("unit_price", "NaN"),
+        ("unit_price", "-0.01"),
+        ("unit_price", "1e30"),
+        ("unit_price", "Infinity"),
+        ("discount_pct", "NaN"),
+        ("discount_pct", "101"),
+        ("tax_rate_pct", "NaN"),
+    ]:
         body = {"product_id": prod["id"], "quantity": "1"}
         body[field] = bad
         r = sales.patch(f"/quotes/{q['id']}", json={"expected_lock_version": q["lock_version"], "lines": [body]})
@@ -264,8 +304,9 @@ def test_sec4_2_catalog_xlsx_hostile_numeric_cell_is_a_row_error_not_a_500(app, 
     t = make_tenant("Sec Xlsx", with_catalog=False)
     admin = login_as(app, t.users["admin"])
     try:
-        r = upload(admin, "/catalogs/import", "c.xlsx", _xlsx_with_raw_cell(raw),
-                   {"mapping": MAPPING, "catalog_name": "Main"})
+        r = upload(
+            admin, "/catalogs/import", "c.xlsx", _xlsx_with_raw_cell(raw), {"mapping": MAPPING, "catalog_name": "Main"}
+        )
     except Exception as exc:  # TestClient re-raises unhandled server errors
         pytest.fail(f"unhandled server error for <v>{raw}</v>: {type(exc).__name__}: {str(exc)[:100]}")
     assert r.status_code in (201, 422), (raw, r.status_code)
@@ -274,7 +315,6 @@ def test_sec4_2_catalog_xlsx_hostile_numeric_cell_is_a_row_error_not_a_500(app, 
 
 
 @integration
-@pytest.mark.xfail(strict=True, reason="SEC4-6 (Medium): generate-quote copies an RFQ quantity of 1e12 into a quote line")
 def test_sec4_6b_rfq_quantity_above_api_cap_cannot_reach_a_quote(app, tenant_a) -> None:  # type: ignore[no-untyped-def]
     """Whatever the RFQ stores, generate-quote must never carry a quantity above the 10,000,000 cap into a quote."""
     sales = login_as(app, tenant_a.users["sales"])
@@ -330,8 +370,10 @@ def test_relink_of_custom_line_to_product_reprices_from_catalog_not_from_client(
     q = admin.post("/quotes", json={"customer_id": str(tenant_a.customer_id)}).json()
     r = admin.patch(
         f"/quotes/{q['id']}",
-        json={"expected_lock_version": q["lock_version"],
-              "lines": [{"description": "Manual widget", "quantity": "2", "unit_price": "1.00", "is_custom": True}]},
+        json={
+            "expected_lock_version": q["lock_version"],
+            "lines": [{"description": "Manual widget", "quantity": "2", "unit_price": "1.00", "is_custom": True}],
+        },
     )
     assert r.status_code == 200, r.text
     q = r.json()
@@ -352,8 +394,12 @@ def test_relink_of_custom_line_to_product_reprices_from_catalog_not_from_client(
 def _run_check(tmp: Path, doc: dict) -> subprocess.CompletedProcess[str]:  # type: ignore[type-arg]
     f = tmp / "c.yml"
     f.write_text(yaml.safe_dump(doc))
-    return subprocess.run([sys.executable, str(REPO_ROOT / "scripts" / "check_compose.py"), str(f)],
-                          capture_output=True, text=True, check=False)
+    return subprocess.run(
+        [sys.executable, str(REPO_ROOT / "scripts" / "check_compose.py"), str(f)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
 
 
 _OK_ENV = {"DATABASE_URL": "postgresql+psycopg://quotepilot_app:x@db/q", "DATABASE_ADMIN_URL": ""}
@@ -409,8 +455,21 @@ def test_compose_render_if_available_matches_check(tmp_path: Path) -> None:
         pytest.skip("docker CLI unavailable")
     env_dst = tmp_path / ".env"
     env_dst.write_text((REPO_ROOT / ".env.example").read_text())
-    r = subprocess.run(["docker", "compose", "--env-file", str(env_dst), "-f", str(REPO_ROOT / "infra" / "docker-compose.yml"),
-                        "config"], capture_output=True, text=True, check=False, cwd=REPO_ROOT)
+    r = subprocess.run(
+        [
+            "docker",
+            "compose",
+            "--env-file",
+            str(env_dst),
+            "-f",
+            str(REPO_ROOT / "infra" / "docker-compose.yml"),
+            "config",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=REPO_ROOT,
+    )
     if r.returncode != 0:
         pytest.skip(f"docker compose config unavailable: {r.stderr[:100]}")
     (tmp_path / "r.yml").write_text(r.stdout)
@@ -421,14 +480,16 @@ def test_compose_render_if_available_matches_check(tmp_path: Path) -> None:
 
 def test_revoke_sessions_script_source_has_no_platform_total_in_audit_insert() -> None:
     src = (REPO_ROOT / "scripts" / "revoke_sessions.py").read_text()
-    insert = src[src.index("INSERT INTO audit_events"):]
+    insert = src[src.index("INSERT INTO audit_events") :]
     insert = insert[: insert.index("\n    print(")]
     assert '"total"' not in insert and "res.rowcount" not in insert
     assert re.search(r'"count": n', insert)
 
 
 @integration
-def test_r4_1_recheck_each_tenant_row_holds_only_its_own_count_and_stdout_has_the_total(app, tenant_a, tenant_b) -> None:  # type: ignore[no-untyped-def]
+def test_r4_1_recheck_each_tenant_row_holds_only_its_own_count_and_stdout_has_the_total(
+    app, tenant_a, tenant_b
+) -> None:  # type: ignore[no-untyped-def]
     from sqlalchemy import create_engine, text
 
     login_as(app, tenant_a.users["sales"])  # 1 session in A
@@ -436,8 +497,14 @@ def test_r4_1_recheck_each_tenant_row_holds_only_its_own_count_and_stdout_has_th
         login_as(app, tenant_b.users[u])
 
     env = {**os.environ, "DATABASE_ADMIN_URL": os.environ["DATABASE_ADMIN_URL"]}
-    r = subprocess.run([sys.executable, str(REPO_ROOT / "scripts" / "revoke_sessions.py"), "--all", "--yes"],
-                       capture_output=True, text=True, check=False, env=env, cwd=API_DIR)
+    r = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "scripts" / "revoke_sessions.py"), "--all", "--yes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        cwd=API_DIR,
+    )
     assert r.returncode == 0, r.stderr[-400:]
     assert "revoked 4 session(s)" in r.stdout  # platform total only on the operator's stdout
     eng = create_engine(os.environ["DATABASE_ADMIN_URL"], future=True)
@@ -445,8 +512,11 @@ def test_r4_1_recheck_each_tenant_row_holds_only_its_own_count_and_stdout_has_th
         for org, expected in ((tenant_a.org_id, 1), (tenant_b.org_id, 3)):
             with eng.begin() as conn:
                 conn.execute(text("SELECT set_config('app.current_org', :o, true)"), {"o": str(org)})
-                rows = conn.execute(
-                    text("SELECT summary FROM audit_events WHERE action='ops.sessions_revoked'")).scalars().all()
+                rows = (
+                    conn.execute(text("SELECT summary FROM audit_events WHERE action='ops.sessions_revoked'"))
+                    .scalars()
+                    .all()
+                )
             assert len(rows) == 1, rows
             assert rows[0] == {"scope": "all", "count": expected}, rows[0]
             blob = json.dumps(rows[0])
@@ -459,18 +529,22 @@ def test_r4_1_recheck_each_tenant_row_holds_only_its_own_count_and_stdout_has_th
 def test_r4_1_recheck_org_scope_leaves_other_tenant_sessions_and_audit_untouched(app, tenant_a, tenant_b) -> None:  # type: ignore[no-untyped-def]
     a = login_as(app, tenant_a.users["sales"])
     b = login_as(app, tenant_b.users["sales"])
-    r = subprocess.run([sys.executable, str(REPO_ROOT / "scripts" / "revoke_sessions.py"), "--org",
-                        str(tenant_a.org_id), "--yes"], capture_output=True, text=True, check=False,
-                       env={**os.environ}, cwd=API_DIR)
+    r = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "scripts" / "revoke_sessions.py"), "--org", str(tenant_a.org_id), "--yes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ},
+        cwd=API_DIR,
+    )
     assert r.returncode == 0, r.stderr[-300:]
     assert a.get("/auth/me").status_code == 401 and b.get("/auth/me").status_code == 200
 
 
 @integration
-@pytest.mark.xfail(strict=True, reason="SEC4-0 (Medium): catalog import stores '1 e3' as list price 13 (end to end)")
 def test_sec4_0_catalog_import_spaced_exponent_price_is_not_stored_as_13(app) -> None:  # type: ignore[no-untyped-def]
     t = make_tenant("Sec Sp", with_catalog=False)
     admin = login_as(app, t.users["admin"])
-    r = _import_csv(admin, b'Z1,a,EA,AED,"1 e3"\nZ2,a,EA,AED,"1ee3"\n')
+    r = _import_csv(admin, b'Z1,a,EA,AED,"1 e3"\nZ2,a,EA,AED,"1ee3"\nZ3,a,EA,AED,5\n')
     assert r.status_code == 201, r.text
     assert _products(admin, r.json()["id"]).get("Z1") in (None, "1000")

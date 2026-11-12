@@ -61,10 +61,24 @@
 - **CI e2e flake (I-3).** Three pull_request-triggered `ci` runs (on 58976f3, 597f4b0 and e090089) failed in the
   browser job while the push runs of the same commits were green: logins landed back on `/login`, submit clicks left the
   version in `draft`, some API calls returned 404/409 after successful creates. No product rule failed. Since d0aac67
-  (API request log enabled in CI) both events have been green on every commit. **Not root-caused.** The trace artifacts
-  could not be downloaded from the development container (host blocked). One untested lead: pull_request runs test the
-  merge ref, not the branch commit. Diagnostics stay enabled; every gated HEAD needs both events green, and CI retries
-  (1) mean flaky counts must be read from the job log, not from the conclusion.
+  (API request log enabled in CI) both events have been green on every commit. The trace artifacts
+  could not be downloaded from the development container (host blocked), so the failed runs themselves were never
+  inspected. **Probable cause found in fix round 8 (D5):** the database dependency committed *after* the response had
+  been sent, so a client that immediately issued its next request could read the state from before the commit — a
+  session row not yet visible (back to `/login`), a version still `draft` after a successful submit, a 404 right after
+  a 201. All three recorded symptoms match, and the race was reproduced locally (3 of 400 immediate reads after a
+  create returned 404; a deterministic test now pins the order). This is an inference: it cannot be proven for the
+  three historical runs. Diagnostics stay enabled; every gated HEAD needs both events green, and CI retries (1) mean
+  flaky counts must be read from the job log, not from the conclusion.
+- **Numbers read from files (round 8).** The shared decimal parser accepts exactly one number per cell, optionally
+  wrapped in a currency code/symbol or unit, and returns nothing for anything else ("12 per 6", "1 e3", "Rs.500",
+  exponent notation mixed with text). Such cells become row errors (catalog import) or an empty, flagged quantity (RFQ
+  items) for a human to fix; they are never guessed. Two ambiguities remain by design and are documented in the code:
+  "1,234" is read as 1234 (thousands) and "12,5" as 12.5. Thousands written with dots only ("1.234.567") are rejected.
+- **Value ranges.** RFQ quantities read from files are stored only up to 10,000,000 with three decimals (the same cap
+  as manual entry); larger values are left empty with the flag `quantity_out_of_range`. Catalog list and cost prices
+  must be below 10^12 (the column capacity). The quote editor accepts manual unit prices up to 10,000,000 only, so a
+  catalog-priced line above that amount can be quoted at the catalog price but not manually re-priced.
 
 
 ## Stage 2–4
