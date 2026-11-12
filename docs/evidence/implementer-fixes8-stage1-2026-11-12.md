@@ -61,3 +61,26 @@ being read as some number; `Rs. 500`, `AED 12.50`, `1 234,56`, `(12.50)`, `−5`
 - QA's 14 tests that failed at bf05198 (D4-1, D4-2) pass unedited.
 - An earlier run of the same code on a scratch worktree (before the verifier files were final) gave 582 passed,
   2 skipped, 1 xfailed as well; the D5 test alone was also run against the old dependency scope: 1 failed, 1 passed.
+
+## Round 8b (same day) — regression introduced by round 8, caught by CI's CodeQL check
+The round-8 push (3586da2) got a failing GitHub code-scanning check: "1 new alert including 1 high severity security
+vulnerability". The alert text could not be read from the development container (no code-scanning API access), so the
+cause was established by experiment: the pattern used for the text *before* the number (`\s*` + lazy class that also
+matches whitespace + `\s*`) backtracked polynomially — a cell of 20,000 spaces, a letter, 20,000 spaces and `+ 5` took
+**5.6 s** to reject. That is a denial-of-service input for catalog import and RFQ upload, introduced by round 8.
+
+Fix (`apps/api/app/services/money.py`): the prefix/suffix handling no longer uses regular expressions (linear scans
+only); cells longer than 128 characters after normalisation (512 before) are not numbers; parentheses together with a
+sign (`(-5)`) are refused as ambiguous. The remaining patterns (`_SCI`, `_SPACE_GROUPED`, `_CORE`) have no nested or
+overlapping quantifiers. Regression test: `tests/unit/test_pricing.py::test_parser_is_fast_on_hostile_long_cells_and_refuses_overlong_text`
+(seven hostile cells of 200,000–400,000 characters, each < 0.5 s).
+
+| Command (cwd `apps/api`, DB `quotepilot_s1`) | Exit | Result |
+|---|---|---|
+| `.venv/bin/pytest -q -p no:cacheprovider tests/unit tests/security/test_audit_followups5.py tests/qa/test_qa_reverify_review4.py tests/integration/test_round8_fixes.py` | 0 | 260 passed, 1 skipped |
+| `ruff check app`, `ruff format --check app`, `mypy app` | 0 | clean |
+
+Whether the CodeQL check is green again is recorded in `docs/RELEASE_GATES.md` from the next CI run; the full local
+suites for 8b are part of re-verification 5 (the verifiers were told the HEAD moved). The CodeQL *check* (code-scanning
+result) is separate from the `security` workflow conclusion, which was green on 3586da2 — earlier gate tables recorded
+only workflow conclusions, so that check's history on earlier commits is **unknown** and must be recorded from now on.

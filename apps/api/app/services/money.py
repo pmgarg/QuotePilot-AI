@@ -109,9 +109,11 @@ _TRANSLATE = str.maketrans({"\u2212": "-", "\ufe63": "-", "\uff0d": "-", "\u066b
 _GROUP_SEPARATORS = " \u00a0\u202f'"
 _SPACE_GROUPED = re.compile(r"^\d{1,3}(?:[ \u00a0\u202f']\d{3})+(?:[.,]\d+)?$")
 _CORE = re.compile(r"^[\d.,]+$")
-_HEAD = re.compile(r"^(?P<sign1>[+-]?)\s*(?P<text>[^\d+\-(),']*?)\s*(?P<sign2>[+-]?)$")
-_TAIL = re.compile(r"^[^\d+\-(),']*$")
-_LONE_E = re.compile(r"(?<![^\W\d_])[eE](?![^\W\d_])")
+_NOT_DECORATION = frozenset("+-(),'")
+# No real price or quantity needs more characters than this; longer cells are text, not numbers. The bound also keeps
+# every step below linear in a small constant (the first version of this parser used a backtracking pattern for the
+# text before the number and was quadratic on long runs of whitespace — found by CodeQL on the round-8 push).
+MAX_NUMBER_TEXT = 128
 
 # Largest magnitude any number read from a file, a cell or free text may have (10^30). Callers apply their own,
 # much tighter, business limits (MAX_QUANTITY, MAX_STORED_PRICE); this bound only keeps absurd values out of arithmetic.
@@ -152,8 +154,11 @@ def parse_decimal(raw: object) -> Decimal | None:
     if isinstance(raw, float):
         # spreadsheets deliver floats for numeric cells; repr() gives the shortest round-trip string
         return _bounded(Decimal(repr(raw))) if math.isfinite(raw) else None
-    s = unicodedata.normalize("NFKC", str(raw)).translate(_TRANSLATE).strip()
-    if not s:
+    s = str(raw)
+    if len(s) > 4 * MAX_NUMBER_TEXT:
+        return None  # checked before normalisation so that hostile megabyte cells cost nothing
+    s = unicodedata.normalize("NFKC", s).translate(_TRANSLATE).strip()
+    if not s or len(s) > MAX_NUMBER_TEXT:
         return None
     if _SCI.match(s):
         # scientific notation ("1e3", "8.5E2") is parsed exactly; it must never lose its exponent (SEC3-11)
@@ -178,11 +183,24 @@ def parse_decimal(raw: object) -> Decimal | None:
         head, core = head[:-1], "." + core
     if tail.startswith(".") and (len(tail) == 1 or tail[1].isspace()):
         tail = tail[1:]  # "12." / "12. pcs"
-    hm = _HEAD.match(head)
-    if hm is None or (hm.group("sign1") and hm.group("sign2")) or not _TAIL.match(tail):
+    # "12e", "e3": a stray exponent marker glued to the digits is not a unit ("3 E" and "5EUR" are)
+    if tail[:1] in ("e", "E") and not tail[1:2].isalpha():
         return None
-    if tail.lstrip().startswith(".") or _LONE_E.match(tail) or _LONE_E.search(head[-1:]) and _LONE_E.search(head):
-        return None  # "12e", "e3": a stray exponent marker glued to the digits, not a unit ("3 E" is a unit)
+    if head[-1:] in ("e", "E") and not head[-2:-1].isalpha():
+        return None
+    # the text before the number may carry one sign, at its start or directly before the digits ("-AED 5", "AED -5")
+    head = head.strip()
+    sign = ""
+    if head[:1] in ("+", "-"):
+        sign, head = head[0], head[1:].lstrip()
+    if head[-1:] in ("+", "-"):
+        if sign:
+            return None
+        sign, head = head[-1], head[:-1].rstrip()
+    if any(ch in _NOT_DECORATION for ch in head) or any(ch in _NOT_DECORATION for ch in tail):
+        return None  # a second sign, parentheses, separators or an apostrophe outside the number
+    if tail.lstrip().startswith("."):
+        return None
     if any(ch in _GROUP_SEPARATORS for ch in core):
         if not _SPACE_GROUPED.match(core):
             return None  # "12 6", "1 e3" (letters), "10 5": two numbers, never glued together
@@ -209,7 +227,9 @@ def parse_decimal(raw: object) -> Decimal | None:
         d = Decimal(core)
     except InvalidOperation:
         return None
-    if negative or "-" in (hm.group("sign1"), hm.group("sign2")):
+    if negative and sign:
+        return None  # "(-5)": parentheses and a sign together are ambiguous
+    if negative or sign == "-":
         d = -d
     return _bounded(d)
 
