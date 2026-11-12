@@ -46,5 +46,14 @@ symbols rejected; well-formed grouped numbers incl. lakh grouping keep their val
 unchanged for ordinary cells; matching budget (lines beyond it are `fuzzy_skipped`, an exact SKU still matches).
 `apps/api/tests/integration/test_round9_fixes.py`: negative stock left unknown with a warning.
 
-## Runs
-See the table appended below.
+## Runs (2026-11-12, commit 0fa38b8, DB `quotepilot_s1`, ports 8051/3051; one other suite was finishing)
+| Command (cwd) | Exit | Result |
+|---|---|---|
+| `.venv/bin/ruff check app tests -q`, `ruff format --check app tests`, `mypy app` (`apps/api`) | 0 / 0 / 0 | clean; 96 files formatted; 58 source files |
+| `.venv/bin/pytest -q -p no:cacheprovider -rfExs` (full API suite) | 0 | **1162 passed, 2 skipped, 1 xfailed** in 546 s |
+| `npx tsc --noEmit`, `npx eslint .` (`apps/web`) | 0 / 0 | clean |
+| `npx playwright test --reporter=list --trace off` (`tests/e2e`) | 0 | **40 passed, 1 skipped**, 0 failed, 0 flaky |
+
+- The xfail is the auditor's SEC6-2 test (open, see above). Skips: the two compose-render tests (no repo-root `.env`);
+  Playwright `screenshots.spec.ts`.
+- The 1162 include every verifier test of rounds 4–6 (QA 71 + 270 + 101; security 87 + 114 + 30).
