@@ -110,6 +110,10 @@ _MINUS_LIKE = frozenset("\u2212\u2796")
 _GROUP_SEPARATORS = " \u00a0\u202f'"
 _SPACE_GROUPED = re.compile(r"^\d{1,3}(?:[ \u00a0\u202f']\d{3})+(?:[.,]\d+)?$")
 _CORE = re.compile(r"^[\d.,]+$")
+# both separators in one number: one of them groups thousands (complete groups of three), the other is the decimal mark
+_GROUPED_DOT_DECIMAL = re.compile(r"^\d{1,3}(?:,\d{3})+\.\d+$")  # 1,234.56
+_INDIAN_GROUPED = re.compile(r"^\d{1,2}(?:,\d{2})+,\d{3}\.\d+$")  # 1,00,000.50 (lakh / crore grouping)
+_GROUPED_COMMA_DECIMAL = re.compile(r"^\d{1,3}(?:\.\d{3})+,\d+$")  # 1.234,56
 _NOT_DECORATION = frozenset("+-(),'")
 # No real price or quantity needs more characters than this; longer cells are text, not numbers. The bound also keeps
 # every step below linear in a small constant (the first version of this parser used a backtracking pattern for the
@@ -160,8 +164,12 @@ def parse_decimal(raw: object) -> Decimal | None:
         return None  # checked before normalisation so that hostile megabyte cells cost nothing
     # "5²", "10³", "5①", "½": NFKC would turn these into ordinary digits glued to the number (52, 103, 51, 1/2).
     # A character that carries a numeric value without being a decimal digit makes the cell not-a-plain-number.
-    if any(not ch.isdecimal() and unicodedata.numeric(ch, None) is not None for ch in s):
-        return None
+    # The same holds for symbols that only *expand* to something containing a digit ("㋀" → "1月", "㎡" → "m2").
+    for ch in s:
+        if ch.isdecimal() or ch.isascii():
+            continue
+        if unicodedata.numeric(ch, None) is not None or any(c.isdecimal() for c in unicodedata.normalize("NFKC", ch)):
+            return None
     s = unicodedata.normalize("NFKC", s).translate(_TRANSLATE)
     # every dash and hyphen (category Pd: U+2010..U+2015, U+2E3A, U+FE58, U+FE63, U+FF0D …) and the minus signs are
     # read as "-": a dropped sign turns a credit into a charge, a kept one at worst makes the cell a rejected negative
@@ -217,10 +225,14 @@ def parse_decimal(raw: object) -> Decimal | None:
     if not _CORE.match(core):
         return None  # letters or other characters inside the number
     if "," in core and "." in core:
-        if core.rfind(",") > core.rfind("."):
+        if core[: min(core.find(","), core.find("."))].startswith("0"):
+            return None  # "0,500.00" / "00.500,25": a thousands group cannot follow a leading zero (SEC6-5)
+        if _GROUPED_COMMA_DECIMAL.match(core):
             core = core.replace(".", "").replace(",", ".")  # 1.234,56
+        elif _GROUPED_DOT_DECIMAL.match(core) or _INDIAN_GROUPED.match(core):
+            core = core.replace(",", "")  # 1,234.56 / 1,00,000.50
         else:
-            core = core.replace(",", "")  # 1,234.56
+            return None  # ".5,0", "12,34.56", "1.2,3.4": not a number a person would write
     elif "," in core:
         parts = core.split(",")
         if parts[0].startswith("0"):
