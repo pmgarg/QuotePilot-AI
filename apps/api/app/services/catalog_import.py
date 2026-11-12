@@ -193,8 +193,8 @@ def build_products(
         stock = None
         if cell("stock_qty") not in (None, ""):
             stock = parse_decimal(cell("stock_qty"))
-            if stock is not None and _too_large(stock, _STOCK_Q):
-                stock = None
+            if stock is not None and (stock < 0 or _too_large(stock, _STOCK_Q)):
+                stock = None  # a negative or absurd stock figure is not a fact about stock (SEC6-3)
             if stock is None:
                 report.warn(ridx, "stock quantity unreadable; left unknown")
         unit_raw = cell("unit")

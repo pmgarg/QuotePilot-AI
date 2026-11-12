@@ -354,6 +354,8 @@ def apply_matching(db: Session, item: RFQItem, index: CatalogIndex | None) -> No
         return
     outcome = index.match(sku_hint=item.sku_hint, description=item.description, raw_text=item.raw_text)
     item.match_status = outcome.status
+    if outcome.fuzzy_skipped and "match_skipped_budget" not in item.flags:
+        item.flags = [*item.flags, "match_skipped_budget"]
     for rank, cand in enumerate(outcome.candidates, start=1):
         db.add(
             MatchCandidate(

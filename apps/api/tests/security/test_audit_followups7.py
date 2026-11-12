@@ -64,10 +64,6 @@ def test_sec5_2_decimal_digits_of_other_scripts_and_width_forms_still_parse() ->
     assert parse_decimal("٥") == 5 and parse_decimal("５０") == 50 and parse_decimal("१२") == 12
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SEC6-4 (Low): characters with no numeric value that NFKC-expand to digits are glued ('5U+32C0' -> 51)",
-)
 def test_sec6_4_nfkc_expansion_to_digits_without_numeric_value_is_not_glued() -> None:
     for ch in ("㋀", "㋉", "㍘", "㍢", "㏠", "㏾", "㍸", "㎡", "㎥"):
         assert parse_decimal(f"5{ch}") is None, (hex(ord(ch)), parse_decimal(f"5{ch}"))
@@ -225,10 +221,6 @@ def test_sku_tokens_equivalence_on_ordinary_text() -> None:
 
 
 # --------------------------------------------------------------------------- findings: quadratic / heavy paths
-@pytest.mark.xfail(
-    strict=True,
-    reason="SEC6-1 (Medium): normalize_sku is quadratic on a run of non-word characters (20 ms per 2,000-char cell)",
-)
 def test_sec6_1_normalize_sku_is_linear_on_hostile_cells() -> None:
     worst = 0.0
     for s in ("a" + "-" * 1998 + "b", "a" + " ." * 999 + "b", "a" + "_" * 1998 + "b"):
@@ -239,9 +231,6 @@ def test_sec6_1_normalize_sku_is_linear_on_hostile_cells() -> None:
 
 
 @integration
-@pytest.mark.xfail(
-    strict=True, reason="SEC6-1 (Medium): 200 catalog rows with hostile SKU cells cost seconds of API-process CPU"
-)
 def test_sec6_1_catalog_import_with_hostile_sku_cells_is_not_a_cpu_dos(app) -> None:  # type: ignore[no-untyped-def]
     t = make_tenant("S7 Sku", with_catalog=False)
     admin = login_as(app, t.users["admin"])
@@ -272,7 +261,6 @@ def test_sec6_2_matching_a_long_description_against_a_large_catalog_is_bounded()
 
 
 @integration
-@pytest.mark.xfail(strict=True, reason="SEC6-3 (Low): a negative stock quantity ('-5', '– 5') is stored as -5")
 def test_sec6_3_negative_stock_is_not_stored(app) -> None:  # type: ignore[no-untyped-def]
     t = make_tenant("S7 Stock", with_catalog=False)
     admin = login_as(app, t.users["admin"])
@@ -436,10 +424,6 @@ def test_only_test_and_docs_files_changed_outside_the_declared_product_files() -
     }
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SEC6-5 (Medium): the leading-zero rule misses the two-separator branch: '0,500.00' -> 500.00 (1000x)",
-)
 def test_sec6_5_leading_zero_group_with_both_separators_is_not_read_as_a_large_number() -> None:
     for raw in ("0,500.00", "0.500,00", "00,500.25", "0,001.5", "0.500,5"):
         d = parse_decimal(raw)

@@ -189,6 +189,38 @@ decimals (SEC5-6/D5-1), doubled dots (SEC5-7/D5-2), all dashes as minus (SEC5-3)
 (SEC5-2), demo seed no longer prints or generates a password (CodeQL alert). Declared verifier-test edits are listed
 there. Independent **re-verification 6** and a release review are required before PASS.
 
+### CI on 7151e64 (round 9 + harness fix; GitHub Actions, queried 2026-11-12)
+| workflow | event | run id | job results | counts / notes from the job logs |
+|---|---|---|---|---|
+| ci | push | 43159503457 | web success, **api failure**, e2e skipped | pytest `5 failed, 1003 passed, 2 skipped in 538.73s`; coverage TOTAL 93 % |
+| ci | pull_request | 43159510659 | web success, **api failure**, e2e skipped | pytest `5 failed, 1003 passed, 2 skipped in 502.66s` |
+| security | push | 43159503427 | all four jobs success | SARIF: python 0 results, javascript 0 results |
+| security | pull_request | 43159510666 | all four jobs success | SARIF: python 0 results, javascript 0 results |
+| CodeQL code-scanning check | — | check 130987393590 | **success** | the seed alert is gone |
+
+The five failures are all in QA's `tests/qa/test_qa_reverify_review5.py` (`KeyError: 'DATABASE_ADMIN_URL_TEST'`): the
+tests read a variable that only the local runs export. They are test-harness failures, not product failures, but the
+head was **not green in CI** and has no CI browser evidence. QA corrected its helper in the re-verification 6 delivery.
+
+## Independent re-verification 6 — Stage 1 round 9 @7151e64 (2026-11-12) — defects found, gate stays open
+- QA (`qa-stage1-reverify6-2026-11-12.md`; 101 new API tests): D5-1/D5-2 closed; line-parser differential over
+  9,000+ texts with no difference in quantity, unit, SKU hint or flags; `sku_tokens` equals the old search on 100,000
+  strings; seed verified as a subprocess (exit codes, no password in any output, idempotent, login works); e2e harness
+  claim verified with a throw-away page edit; full browser suite 40 passed, 0 failed, 0 flaky, 1 skipped. **Defects:
+  D6-1 (Low)** leading zero with both separators; **D6-2 (Low)** repo-root `.env` not read by `make demo`;
+  **D6-3 (Info)** stale README line. Full API suite: exit 1, 7 failed (all three defects), 1126 passed, 2 skipped,
+  5 xfailed.
+- Security (`security-stage1-reverify6-2026-11-12.md`, scan `scan-20261112-052108.md` naming 7151e64): SEC5-5,
+  SEC5-7, SEC5-3/SEC4-3 closed; SEC5-2 closed for numeric characters; SEC5-6 partly closed. Declared test edits judged
+  legitimate. **Open: SEC6-5 (Medium)** = D6-1; **SEC6-1 (Medium, admin only)** quadratic `normalize_sku`;
+  **SEC6-2 (Medium, pre-existing, design)** unbounded fuzzy-matching cost in the API process; SEC6-3, SEC6-4 (Low);
+  SEC6-6 (Info). No Critical or High.
+
+### Fix round 10 (Stage 1)
+`docs/evidence/implementer-fixes10-stage1-2026-11-12.md`: SEC6-5/D6-1, SEC6-4, SEC6-1, SEC6-3, D6-2, D6-3 fixed;
+**SEC6-2 mitigated only** (query cap and per-request comparison budget) and listed under human actions below.
+Independent re-verification 7 and a release review are required before PASS.
+
 ## Human actions required
 - Enable branch protection on `main` requiring checks `api`, `web`, `e2e`, `security` and one review (repository settings → Branches).
 - Sign any risk acceptance in this file with name, date and rationale. Documented Lows awaiting acknowledgement:
@@ -199,6 +231,9 @@ there. Independent **re-verification 6** and a release review are required befor
   ad-hoc quote whose catalog moved on must be rejected (which returns the same version to draft), re-linked with "Use
   active catalog" and re-submitted; a SKU dropped from the new catalog can only be removed or replaced by a custom line
   that an owner/admin confirms.
+- **Decide on SEC6-2** (Medium, open): fuzzy matching runs in the API process and scans the whole catalog per line.
+  It is bounded by a per-request budget (see KNOWN_LIMITATIONS "Matching cost"); either accept that for Stage 1 with a
+  signature here, or require matching to move into the worker before release.
 - Decide whether Stage 1 may ship with S1-F21 (AI extraction adapter present, disabled, not wired) partial.
 - Decide whether a manual screen-reader audit (X-08) is required for Stage 1.
 - Decide whether running the Docker Compose topology (never executed in the development container) is required before

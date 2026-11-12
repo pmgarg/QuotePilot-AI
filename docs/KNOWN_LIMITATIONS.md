@@ -83,6 +83,13 @@
 - **RFQ text lines (round 9).** Lines longer than 1,000 characters (after collapsing blanks) are not searched for a
   quantity; they are kept as an item without quantity only if they name a SKU. Tokens longer than 64 characters are
   never treated as SKUs.
+- **Matching cost (SEC6-2, open).** Fuzzy matching scans every catalog description for each unmatched RFQ line, in
+  the API process. It is bounded, not solved: 200 characters per line and 2,000,000 comparisons per RFQ parse; beyond
+  that budget lines are matched by exact SKU only and flagged `match_skipped_budget`. With very large catalogs
+  (tens of thousands of products) a single parse can still occupy the API process for several seconds, and long RFQs
+  lose fuzzy suggestions for their later lines. Moving matching into the worker is the planned remedy.
+- **Zero-padded groups.** "01,234" is read as 1.234 and "012,345" as 12.345 (a group that starts with a zero is never
+  a thousands group); a person might have meant 1,234. Such cells are unusual; the reading is pinned by tests.
 - **Demo seed.** `make demo` and the Compose `migrate` service need `DEMO_PASSWORD` (≥ 12 characters); the seed
   never prints or generates a password. Demo accounts that already exist keep the password they were created with.
 - **Value ranges.** RFQ quantities read from files are stored only up to 10,000,000 with three decimals (the same cap

@@ -17,7 +17,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.core.security import hash_password
 from app.db.session import get_sessionmaker, set_auth_scope, set_tenant
 from app.models.customer import Customer
@@ -73,11 +73,18 @@ DEMO_ORGS: list[dict[str, Any]] = [
 ]
 
 
+_REPO_ROOT_ENV = Path(__file__).resolve().parents[4] / ".env"
+
+
 def _password() -> str | None:
     """The demo password is chosen by the person running the seed (DEMO_PASSWORD in the environment or `.env`).
     The seed never generates one and never prints one: a credential, even a synthetic one, does not belong in a
     console or container log."""
-    return os.environ.get("DEMO_PASSWORD") or get_settings().demo_password or None
+    chosen = os.environ.get("DEMO_PASSWORD") or get_settings().demo_password
+    if not chosen and _REPO_ROOT_ENV.is_file():
+        # `make demo` runs from apps/api while the documented quick start creates `.env` at the repository root
+        chosen = Settings(_env_file=str(_REPO_ROOT_ENV)).demo_password
+    return chosen or None
 
 
 def seed(db: Session, password: str, verbose: bool = True) -> dict[str, dict[str, str]]:
