@@ -16,7 +16,8 @@ _SENSITIVE_KEYS = re.compile(
     r"(password|passwd|secret|token|cookie|authorization|api[_-]?key|set-cookie)", re.IGNORECASE
 )
 _SECRET_LIKE = re.compile(r"(sk-ant-[A-Za-z0-9_\-]{10,}|AKIA[0-9A-Z]{16}|eyJ[A-Za-z0-9_\-]{20,}\.)")
-_EMAIL = re.compile(r"[A-Za-z0-9._%+\-']+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+# bounded repetitions (RFC 5321 sizes): an unbounded local part made `sub` quadratic on long runs of such characters
+_EMAIL = re.compile(r"[A-Za-z0-9._%+\-']{1,64}@[A-Za-z0-9\-]{1,63}(?:\.[A-Za-z0-9\-]{1,63}){1,8}")
 
 
 def redact(value: Any) -> Any:

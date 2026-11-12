@@ -81,3 +81,22 @@ CI note: on the Stage 1 branch the same tree's `api` job failed on GitHub Action
 Stage 1 security verifier (`test_per_character_scans_are_bounded_by_the_pre_normalisation_cap`: 12–16 ms measured on
 the runner against a 10 ms threshold; it passes locally). The cause is real work per hostile cell in the number parser
 and is being reduced on the Stage 1 branch; until that is merged this branch's `api` job can fail for the same reason.
+
+## After merging Stage 1 fix round 11 (commit f777817) — CI findings and fixes
+CI on f777817 (PR #2): `api` and `web` success on both events, `security` jobs success; **e2e failure** on both events
+(`50 passed, 3 failed, 1 skipped`: `qa-stage2-followups-ui.spec.ts:217`, `stage2-followup.spec.ts:23` and `:66`,
+each also failing its retry) and **CodeQL code-scanning check failure** (python SARIF: 2 results).
+- Browser failures: in all three tests the click on a customer's "Contacts" button timed out because a neighbouring
+  card intercepted the pointer — the directory table overflowed its card at the CI runner's font metrics and slid
+  under the "New customer" panel. Not reproducible locally (53 passed on the accumulated database and on a fresh one).
+  Fix: the table scrolls inside its card (`overflow-x-auto`, `min-w-0` on the grid item) in
+  `apps/web/src/app/(app)/customers/page.tsx`. Whether CI is green with it is recorded from the next run.
+- CodeQL `py/polynomial-redos` (2): `app/core/logging.py:28` (log redaction of e-mail addresses) and
+  `app/services/comms/providers.py:88` (`valid_email`). Both patterns had an unbounded local part and a domain class
+  that overlapped its own separator. They now use bounded repetitions (64-character local part, labels of at most 63
+  characters) and `valid_email` checks the length before matching. Measured on 200,000-character hostile strings:
+  ≤ 0.06 s for redaction, address search and validation together. Stricter than before: `a@b..com` is no longer a valid
+  address. Stage 2 tests that touch addresses: 358 passed, 1 xfailed (S2-SEC-06).
+Local browser suite on this tree, web app rebuilt, fresh database: **53 passed, 1 skipped**, exit 0. (A second run on
+the same database had 1 failure, `stage2-followup.spec.ts:66`, the spec QA recorded as order-dependent on accumulated
+data — it failed in 2 s on its data assumption, not on the click.)
