@@ -54,3 +54,19 @@ Note: the first-run test file fixes1 had one failure only in that first run (lis
 - Workflow compensation does not run when an approved step fails at approval time (run ends `failed`); documented.
 - A workflow-origin invocation that fails on the propose path (non-approval tools) is still rolled back with the request transaction, as before; only approved actions are made durable.
 - Timing-dependent race tests could not be proven flake-free; they passed on every run after the fix.
+
+## Orchestrator addendum — full suites on the merged tree (2026-11-12)
+Tree: `d80a024` = Stage 4 fix round 1 merged with Stage 3 (fix round 1 and the worker-scope change), Stage 2 (fix rounds
+1–2) and Stage 1 (fix rounds 7–9, e2e harness fix). Migration chain 0001 … 0006 → 0006b → 0007 → 0007b → 0008 applied
+to an empty database (`quotepilot_s4`, recreated). Ports 8064/3064. Two other suites were running.
+
+| Command (cwd) | Exit | Result |
+|---|---|---|
+| `ruff check app tests` / `ruff format --check app tests` / `mypy app` (`apps/api`) | 0 / 0 / 0 | clean; 157 files formatted; 95 source files |
+| `.venv/bin/pytest -q -p no:cacheprovider -rfEx` (full API suite) | 0 | **1526 passed, 2 skipped, 1 xfailed** in 1615 s (xfail: S2-SEC-06, accepted in Stage 2) |
+| `npx tsc --noEmit`, `npx eslint .` (`apps/web`) | 0 / 0 | clean |
+| `npx playwright test --reporter=list --trace off` (`tests/e2e`) | 0 | **73 passed, 1 skipped**, 0 failed, 0 flaky |
+
+This is the first full API and browser run of Stage 4 with every earlier stage's fixes; it is the implementing side's
+run, not a verification. CI on this branch is expected to show the Stage 1 QA-test environment issue (five tests in
+`tests/qa/test_qa_reverify_review5.py`) until the corrected file is merged from Stage 1.
