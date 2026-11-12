@@ -102,6 +102,12 @@
   (`RFQ_PARSE_RATE_LIMIT_ATTEMPTS`, `CATALOG_IMPORT_RATE_LIMIT_ATTEMPTS`, `EXPENSIVE_RATE_LIMIT_WINDOW_SECONDS`). Beyond
   that the API answers 429 with `Retry-After`. Refused requests are not audited (as with the login limiter). Other
   expensive paths (quote generation, exports) are not limited. A shared limiter (Redis) is needed for several replicas.
+- **Large RFQs against large catalogs lose suggestions (RR5-2).** Matching for one request stops after 8 s: for
+  example about 100 lines against a 20,000-product catalog (2,000,000 comparisons) will not finish, so the later
+  lines carry `match_skipped_budget` and need an exact SKU or a manual choice. Each large job also pays roughly 0.1 s
+  to start the matcher process and ship the catalog descriptions to it.
+- **Matcher resource limits.** The matcher process applies CPU/memory/file limits when the platform allows it and
+  continues silently without them when it does not (the document parser reports that case; the matcher does not).
 - **Adding a single RFQ line (SEC8-2, open).** `POST /rfqs/{id}/items` builds a catalog index and matches in the API
   process without a rate limit: about 1.4–2.1 s per call on a 30,000-product catalog. The bulk paths (create,
   re-parse) are limited and use the bounded matcher.

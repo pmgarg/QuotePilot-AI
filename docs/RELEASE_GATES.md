@@ -227,7 +227,7 @@ worker process with an 8 s deadline (at most two per API process), so the API st
 matched are flagged `match_skipped_budget` (SEC7-1 / SEC6-2 mitigated, not closed: the auditor's per-call latency
 assertions for `index.match` cannot be met by design and stay xfail); per-user rate limits on RFQ create/re-parse and
 catalog import (SEC7-7); parser SEC7-2, SEC7-3, SEC7-5, SEC7-6; seed reads only `DEMO_PASSWORD` (SEC7-4, QA J7-3); QA J7-2
-and J7-4. Nothing is marked VERIFIED. Independent re-verification 8 and a release review are still required before PASS.
+and J7-4. Nothing is marked VERIFIED. (What followed was a narrowed confirmation of round 11 and release review 5 — see below — not a full re-verification 8.)
 
 ### CI on the round-10 and round-11 commits (GitHub Actions, queried 2026-11-12)
 | commit | `ci` | `security` workflow | CodeQL check |
@@ -297,6 +297,29 @@ browser 42 passed / 1 skipped — consistent with CI.
 | SEC6-6, SEC5-4 | Info | accepted / documented |
 | documented Lows from earlier rounds | Low | listed under "Human actions required" |
 
+## Review 5 — Stage 1 @96e28ab (2026-11-12) — verdict PASS WITH CONDITIONS
+Full report, verbatim: `docs/evidence/release-review-5-stage1-2026-11-12.md` (project `release-reviewer` agent, fresh
+context, Read/Glob/Grep only; it ran no tests and could not query GitHub — CI figures are the orchestrator's record).
+No Critical or High finding is open on the evidence it read. **Stage 1 is "implemented, reviewed with conditions" —
+not VERIFIED and not released until the conditions are met.**
+
+| Condition | Who | State |
+|---|---|---|
+| **C1** Sign here (name, date, rationale) the acceptance of: (a) SEC7-1/SEC6-2 residual — matching up to 50,000 comparisons in the API process, 8 s deadline, 2 matchers per process, DB transaction held while matching, later lines of very large jobs left flagged; (b) SEC8-2 — add-item path unlimited and in-process; (c) rate limits per process and in memory, quote generation and exports unlimited; (d) parsing after the sandbox without a wall-clock timeout — **or** require fixes | Human owner | **OPEN** |
+| **C2** Bring the traceability matrix up to date with rounds 8–11 | Orchestrator | done in this commit (no row is VERIFIED) |
+| **C3** Record that `git diff 23c1eb3..96e28ab` touches no product code | Orchestrator | done: the diff contains only `apps/api/tests/qa/test_qa_confirm_round11.py` and `apps/api/tests/security/test_confirm_round11.py` (new test files) plus `docs/` |
+| **C4** Make the human decisions listed below (branch protection, S1-F21, X-08, Compose never executed, documented Lows) | Human owner | **OPEN** |
+
+Reviewer's findings: RR5-1 (Medium, stale traceability → C2), RR5-2 (Medium, matching residual → C1), RR5-3 (Medium,
+SEC8-2 — **fix strongly recommended** before release; a fix needs a targeted check of the add-item path and a CI
+rerun), RR5-4 (Medium, design residuals → C1), RR5-5 (Low: two per-call latency tests encode limits the design cannot
+meet and one was made non-strict — replace with tests of the real properties), RR5-6 (Low: what the narrowed round-11
+confirmation did not cover — parallel large parses, refused resource limits, QA O1, SEC8-1), RR5-7 (Low: locale
+heuristics for `1,234` / `12,5` on catalog prices), RR5-8 (Low: gitleaks path allowlist too broad), RR5-9 (Low: seed
+still builds settings from the working-directory `.env`), RR5-10/11 (Info), RR5-12 (Info: no "100 % secure" claim).
+Review-4 findings: RR4-1 closed for 96e28ab; RR4-2 reopened as RR5-1 and addressed by C2; RR4-3 closed.
+Required retest per the reviewer: none for the conditions as written; a targeted check if SEC8-2 is fixed.
+
 ## Human actions required
 - Enable branch protection on `main` requiring checks `api`, `web`, `e2e`, `security` and one review (repository settings → Branches).
 - Sign any risk acceptance in this file with name, date and rationale. Documented Lows awaiting acknowledgement:
@@ -311,7 +334,7 @@ browser 42 passed / 1 skipped — consistent with CI.
   large jobs runs in a worker process with a deadline, at most two per API process, and per-user rate limits apply
   (see KNOWN_LIMITATIONS "Matching cost" and "Rate limits"). Remaining: limits are per process, a parse can hold a
   database transaction for the 8 s deadline, and long RFQs against very large catalogs lose suggestions for later
-  lines. Either accept that for Stage 1 with a signature here after re-verification 8, or require more.
+  lines. Either accept that for Stage 1 with a signature here (condition C1 of review 5), or require more.
 - Decide whether Stage 1 may ship with S1-F21 (AI extraction adapter present, disabled, not wired) partial.
 - Decide whether a manual screen-reader audit (X-08) is required for Stage 1.
 - Decide whether running the Docker Compose topology (never executed in the development container) is required before
