@@ -21,6 +21,7 @@ Tenant-miss → 404. Role denial → 403. State/concurrency → 409. Validation 
 | GET/POST | /customers | any / sales+ | list/create |
 | GET/PATCH | /customers/{id} | any / sales+ | detail/update |
 | GET | /catalogs | any | catalogs with versions summary |
+| GET | /catalogs/active-version | any | `{version_id}` of the catalog version new ad-hoc quote lines price from (null without an active catalog); used by the editor's "Use active catalog" re-link |
 | POST | /catalogs/import | owner, admin | multipart `file` + `mapping` (JSON string) + `catalog_name?` → version + report |
 | POST | /catalogs/versions/{id}/activate | owner, admin | activate version |
 | GET | /catalogs/versions/{id}/products?q=&page= | any | products (cost hidden for sales/readonly) |

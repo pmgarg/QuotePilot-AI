@@ -155,3 +155,23 @@ def test_products_hide_cost_for_sales(app, tenant_a: Tenant) -> None:  # type: i
     approver = login_as(app, tenant_a.users["approver"])
     items = approver.get(f"/catalogs/versions/{tenant_a.catalog_version_id}/products?q=SKU-1001").json()["items"]
     assert items[0]["cost_price"] == "0.52"
+
+
+def test_import_scientific_notation_prices_are_exact_never_invented(app) -> None:  # type: ignore[no-untyped-def]
+    """SEC3-11 (shared parser): '8.5E2' must import as 850, not 8.52; ambiguous forms are reported, not guessed."""
+    t = make_tenant("Sci Imports", with_catalog=False)
+    admin = login_as(app, t.users["admin"])
+    r = upload(
+        admin,
+        "/catalogs/import",
+        "c.csv",
+        b"SKU,Description,Unit,Currency,List Price\nS1,Exp one,EA,AED,8.5E2\nS2,Exp two,EA,AED,1e3\nS3,Bad,EA,AED,1e3 AED\n",
+        {"mapping": MAPPING, "catalog_name": "Main"},
+    )
+    assert r.status_code == 201, r.text
+    products = {
+        p["sku"]: p["list_price"] for p in admin.get(f"/catalogs/versions/{r.json()['id']}/products").json()["items"]
+    }
+    assert products == {"S1": "850", "S2": "1000"}  # S3 is rejected with a row error instead of becoming 13
+    rep = r.json()["import_report"]
+    assert rep["imported"] == 2 and rep["skipped"] == 1 and "not a number" in rep["errors"][0]["message"]

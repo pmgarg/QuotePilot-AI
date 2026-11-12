@@ -101,6 +101,8 @@ def quantize(value: Decimal, currency: str, rounding_mode: str = "HALF_UP") -> D
 
 
 _NUM_CLEAN = re.compile(r"[^\d,.\-()]")
+_SCI = re.compile(r"^[+-]?(\d+(\.\d*)?|\.\d+)[eE][+-]?\d+$")
+_SCI_LIKE = re.compile(r"\d[eE][+-]?\d")
 
 
 def parse_decimal(raw: object) -> Decimal | None:
@@ -120,6 +122,16 @@ def parse_decimal(raw: object) -> Decimal | None:
     s = str(raw).strip()
     if not s:
         return None
+    if _SCI.match(s):
+        # scientific notation ("1e3", "8.5E2") is parsed exactly; it must never lose its exponent (SEC3-11)
+        try:
+            d = Decimal(s)
+        except InvalidOperation:
+            return None
+        # bounded magnitude: absurd exponents are rejected instead of flowing into arithmetic downstream
+        return d if d.is_finite() and -30 <= d.adjusted() <= 30 else None
+    if _SCI_LIKE.search(s):
+        return None  # exponent notation mixed with other text is ambiguous: reject rather than invent a number
     negative = s.startswith("(") and s.endswith(")")
     s = _NUM_CLEAN.sub("", s).strip("()")
     if not s or s in ("-", ".", ","):
