@@ -58,7 +58,9 @@ class RulePlanner:
     name = "rules"
 
     def plan(self, text: str, tools: list[Tool]) -> Plan:
-        t = text.strip()
+        # blanks are collapsed first: the phrase patterns below then need no `\s+` / `\s*`, which were polynomial
+        # on long runs of whitespace in a user message (CodeQL py/polynomial-redos)
+        t = " ".join(text.split())
         low = t.lower()
         names = {x.name for x in tools}
         quote = QUOTE_RE.search(t)
@@ -81,18 +83,18 @@ class RulePlanner:
         elif "export" in low and "customer" in low:
             want("export_customers", {}, "user asked for a customer export")
         elif re.search(r"\b(delete|erase|forget)\b", low) and "customer" in low:
-            m = re.search(r"customer\s+(?:named\s+)?[\"']?([^\"']{2,80}?)[\"']?(?:\s+because\s+(.+))?$", t, re.I)
+            m = re.search(r"customer (?:named )?[\"']?([^\"']{2,80}?)[\"']?(?: because (.+))?$", t, re.I)
             name = m.group(1).strip() if m else ""
             reason = m.group(2).strip() if m and m.group(2) else "requested through the assistant"
             if name:
                 want("request_customer_deletion", {"customer_name": name, "reason": reason}, "deletion request")
         elif re.search(r"\b(kpi|kpis|metrics|dashboard|how are we doing)\b", low):
-            days = re.search(r"(\d{1,4})\s*days?", low)
+            days = re.search(r"(\d{1,4}) ?days?", low)
             want("kpis_summary", {"days": int(days.group(1)) if days else 90}, "user asked for metrics")
         elif quote:
             want("get_quote", qargs, "user referred to a quote")
         elif re.search(r"\bcustomer\b", low):
-            m = re.search(r"customer\s+(?:named\s+)?[\"']?([^\"'?]{2,80}?)[\"']?\??$", t, re.I)
+            m = re.search(r"customer (?:named )?[\"']?([^\"'?]{2,80}?)[\"']?\??$", t, re.I)
             if m:
                 want("get_customer_profile", {"customer_name": m.group(1).strip()}, "user asked about a customer")
         elif re.search(r"\b(quotes?|pending|open)\b", low):

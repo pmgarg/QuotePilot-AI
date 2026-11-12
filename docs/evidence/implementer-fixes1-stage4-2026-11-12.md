@@ -81,3 +81,14 @@ run, not a verification. CI on this branch is expected to show the Stage 1 QA-te
 
 The implementing side's run, not a verification. No further Stage 1 fix round will be merged into this branch until
 the Stage 1 gate has been reviewed; CI on this branch can be red for the Stage 1 reasons described in the Stage 1 PR.
+
+## Orchestrator addendum — after merging Stage 1 fix round 11 (2026-11-12)
+- Merge conflict in `apps/api/app/api/routers/rfqs.py`: the per-user RFQ rate limit (Stage 1 round 11) now runs
+  before the plan's monthly RFQ allowance is consumed, so a refused call does not use up the allowance.
+- CodeQL `py/polynomial-redos` on PR #4 (3 results): two inherited from Stage 2 (e-mail patterns, fixed there and
+  merged) and `app/services/platform/assistant.py:84` — the rule planner's phrase patterns used `\s+` / `\s*` on the
+  user's message. The message is now whitespace-collapsed first and the patterns use single blanks; a message with
+  200,000 blanks is planned in about 1 ms. Tests after the change (`test_stage4_platform.py`, `test_stage4_fixes1.py`,
+  `test_qa_stage4_command_center_assistant.py`, `test_stage4_audit.py`, `test_stage2_audit.py`): 185 passed, 1 xfailed
+  (S2-SEC-06). A sanity subset on the merged tree before this change: 254 passed.
+- CI results for this commit are recorded in the Stage 4 gate log when available.
