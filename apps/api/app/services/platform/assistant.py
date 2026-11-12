@@ -146,16 +146,22 @@ class AnthropicPlanner:
         usage = getattr(response, "usage", None)
         plan.input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
         plan.output_tokens = int(getattr(usage, "output_tokens", 0) or 0)
+        # S4-SEC-08: the answer is untrusted — any shape other than the documented one is discarded, never a 500
         try:
             data = json.loads(raw)
-            plan.reply = str(data.get("reply", ""))[:2000]
-            for a in data.get("actions", [])[:8]:
-                if isinstance(a, dict) and isinstance(a.get("tool"), str):
-                    plan.actions.append(
-                        PlannedAction(a["tool"][:64], a.get("args") or {}, str(a.get("rationale", ""))[:300])
-                    )
-        except (ValueError, AttributeError):
+        except ValueError:
+            data = None
+        if not isinstance(data, dict):
             plan.reply = "The model answer was not valid JSON and was discarded."
+            return plan
+        plan.reply = str(data.get("reply") or "")[:2000]
+        actions = data.get("actions")
+        for a in (actions if isinstance(actions, list) else [])[:8]:
+            if isinstance(a, dict) and isinstance(a.get("tool"), str):
+                # args of the wrong type are passed on unchanged so that the policy gate rejects them (never coerced)
+                plan.actions.append(
+                    PlannedAction(a["tool"][:64], a.get("args") or {}, str(a.get("rationale") or "")[:300])
+                )
         return plan
 
 
@@ -185,6 +191,16 @@ def start_session(db: Session, org: Organization, actor: Actor, title: str | Non
     s = AssistantSession(organization_id=org.id, user_id=actor.user.id, title=(title or "")[:200] or None)
     db.add(s)
     db.flush()
+    # S4-SEC-10: every mutating endpoint leaves an audit row; no message content is recorded
+    audit.record(
+        db,
+        organization_id=org.id,
+        actor_user_id=actor.user.id,
+        action="assistant.session_started",
+        entity_type="assistant_session",
+        entity_id=s.id,
+        ip=actor.ip,
+    )
     return s
 
 
@@ -224,6 +240,16 @@ def handle_message(
         )
     )
     session.turns += 1
+    audit.record(  # S4-SEC-10: the turn itself is audited (length only, never the text)
+        db,
+        organization_id=org.id,
+        actor_user_id=actor.user.id,
+        action="assistant.message",
+        entity_type="assistant_session",
+        entity_id=session.id,
+        ip=actor.ip,
+        summary={"turn": session.turns, "chars": len(text), "trace_id": trace_id},
+    )
     plan_scopes = entitlements.entitlements_for(db, org.id).limits.get("tool_scopes", [])
     tools = allowed_tools(actor.role, plan_scopes)
     plan = planner_for(org).plan(text, tools)

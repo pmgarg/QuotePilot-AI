@@ -298,6 +298,20 @@ def start_run(
     return advance(db, org=org, actor=actor, run=run)
 
 
+REJECTED_MARKER = "rejected: "
+
+
+def explanation_without_user_text(explanation: str | None) -> str:
+    """S4-SEC-09: the run explanation shown to the tenant quotes the approver's rejection reason; copies that leave
+    the tenant's own screens (the support export) keep only the system-written part."""
+    text = explanation or ""
+    for marker in (REJECTED_MARKER, "kill switch engaged: "):  # the second quotes the reason typed by the owner
+        head, sep, _ = text.partition(marker)
+        if sep:
+            return head + marker.removesuffix(": ")
+    return text
+
+
 def _finish(run: WorkflowRun, status: str, explanation: str | None = None) -> None:
     run.status = status
     run.failure_explanation = explanation
@@ -484,7 +498,7 @@ def decide_step(
         invocations.decide(db, org=org, actor=actor, inv=inv, approve=False, reason=reason)
         step.status = "failed"
         step.error = "rejected by approver"
-        _finish(run, "failed", f"step '{step.step_id}' rejected: {reason or 'no reason given'}")
+        _finish(run, "failed", f"step '{step.step_id}' {REJECTED_MARKER}{reason or 'no reason given'}")
         db.flush()
         return run
     try:

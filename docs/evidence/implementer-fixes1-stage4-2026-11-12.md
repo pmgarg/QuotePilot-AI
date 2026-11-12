@@ -97,3 +97,29 @@ the Stage 1 gate has been reviewed; CI on this branch can be red for the Stage 1
 `api` success: pytest `1879 passed, 5 skipped, 3 xfailed, 1 xpassed`; `e2e` success: Playwright `75 passed`, `1 skipped`,
 no flaky or failed line; `web`, `security` jobs and the CodeQL check success (all three `py/polynomial-redos` alerts
 are gone). Independent re-verification and the release review are still owed.
+
+## Fix round 2 (after the independent security re-verification; orchestrator, 2026-11-12)
+Source: `docs/evidence/security-stage4-reverify-2026-11-12.md` — three Low findings, each with a strict-xfail test
+written by the verifier before the fix.
+
+| Finding | Change | File |
+|---|---|---|
+| S4-SEC-08 hosted planner answer of an unexpected JSON shape → HTTP 500 | the answer is used only if it is a JSON object and `actions` is a list; anything else is discarded with the existing "not valid JSON" reply. Arguments of the wrong type are still passed on unchanged so that the policy gate rejects them (a first version coerced them to `{}`; the verifier's probe 4 caught that and it was reverted before commit) | `app/services/platform/assistant.py` |
+| S4-SEC-09 approver's rejection reason copied into the support export | the run explanation shown to the tenant keeps the reason (QA and integration tests require it); the support export now uses `workflows.explanation_without_user_text`, which also drops the owner-typed kill-switch reason | `app/services/platform/workflows.py`, `app/api/routers/platform.py` |
+| S4-SEC-10 no audit row for a new assistant session or a chat turn without tool actions | `assistant.session_started` and `assistant.message` audit rows (turn number, character count and trace id; never the text) | `app/services/platform/assistant.py` |
+
+Declared edit to a verifier file: the three `@pytest.mark.xfail(strict=True, …)` markers in
+`tests/security/test_stage4_reverify.py` were replaced by a one-line comment each; no assertion was changed.
+
+Runs (database `quotepilot_s4`, `APP_ENV=test`, working tree on top of ffe24c5):
+
+| Command | Exit | Result |
+|---|---|---|
+| `uv run ruff check app tests && uv run ruff format --check app tests && uv run mypy app` | 0 | `All checks passed!`, `174 files already formatted`, `Success: no issues found in 97 source files` |
+| `uv run pytest -q -p no:cacheprovider tests/security/test_stage4_reverify.py tests/security/test_stage4_audit.py tests/integration/test_stage4_fixes1.py tests/qa/test_qa_stage4*.py tests/integration/test_stage4*.py` (first version of the S4-SEC-09 fix, which removed the reason from the run explanation) | 1 | `2 failed, 254 passed` — `test_live_run_pauses_for_approval_then_continues` and QA's `test_rejected_step_stops_run_and_later_steps_never_run` both require the reason in the run explanation; the fix was changed as described above instead of editing those tests |
+| `uv run pytest -q -p no:cacheprovider tests/security/test_stage4_reverify.py tests/integration/test_stage4_platform.py tests/qa/test_qa_stage4_workflows.py tests/qa/test_qa_stage4_budgets_limits_killswitch.py` (final version) | 0 | `87 passed` |
+| after the Stage 3 merge (6511c69): `uv run pytest -q -p no:cacheprovider tests/integration/test_stage3_fixes2.py tests/integration/test_stage2_fixes3.py tests/security/test_stage3_confirm.py tests/security/test_stage2_audit.py` | 0 | `58 passed, 1 xfailed` |
+
+Not run by the implementing side in this round: the whole API suite and the browser suite on the final tree (the QA
+re-verification and CI do). The final version of the fix was not re-run against the complete 256-test Stage 4 set, only
+against the four files above.

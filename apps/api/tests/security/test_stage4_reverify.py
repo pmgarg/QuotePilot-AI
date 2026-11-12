@@ -234,11 +234,7 @@ def test_p04_hosted_planner_adversarial_but_well_formed_output_cannot_act(
     assert count(tenant_b.org_id, CommunicationDraft) == 0 and count(tenant_a.org_id, CommunicationDraft) == 0
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="S4-SEC-08: AnthropicPlanner.plan only catches ValueError/AttributeError; a model answer whose 'actions' is "
-    "null or an object raises TypeError -> HTTP 500 (model output is not fully schema-validated)",
-)
+# xfail marker removed by the orchestrator after the fix for S4-SEC-08 (assertions unchanged)
 def test_p05_hosted_planner_malformed_shapes_are_discarded_not_500(app, tenant_a: Tenant, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     login_as(app, tenant_a.users["sales"]).get("/platform/plan")
     for raw in (
@@ -431,11 +427,7 @@ def test_p09_rfq_allowance_holds_under_concurrency_and_billing_is_test_mode(app,
 
 
 # 10 ----------------------------------------------------------------- support export content
-@pytest.mark.xfail(
-    strict=True,
-    reason="S4-SEC-09: a workflow step rejection reason typed by the approver is copied verbatim into "
-    "failure_explanation and from there into the support export that declares contains_customer_data=false",
-)
+# xfail marker removed by the orchestrator after the fix for S4-SEC-09 (assertions unchanged)
 def test_p10_support_export_and_usage_carry_no_free_text_from_users_or_other_tenants(
     app, tenant_a: Tenant, tenant_b: Tenant
 ) -> None:  # type: ignore[no-untyped-def]
@@ -463,11 +455,7 @@ def test_p10_support_export_and_usage_carry_no_free_text_from_users_or_other_ten
 
 
 # 11 ----------------------------------------------------------------- audit row for every mutating endpoint
-@pytest.mark.xfail(
-    strict=True,
-    reason="S4-SEC-10: POST /assistant/sessions and POST /assistant/sessions/{id}/messages (plain chat turn without "
-    "tool actions) persist rows but write no audit_events row (project rule: every mutating endpoint audits)",
-)
+# xfail marker removed by the orchestrator after the fix for S4-SEC-10 (assertions unchanged)
 def test_p11_every_mutating_stage4_endpoint_writes_an_audit_row(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
     sales, q = approved_quote(app, tenant_a)
     growth(app, tenant_a)

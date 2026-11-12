@@ -245,7 +245,11 @@ def support_export(principal: PrincipalDep, db: DB) -> dict[str, Any]:
         },
         "audit_actions_7d": {a: c for a, c in recent},
         "recent_failed_runs": [
-            {"run_id": str(r.id), "status": r.status, "explanation": (r.failure_explanation or "")[:300]}
+            {
+                "run_id": str(r.id),
+                "status": r.status,
+                "explanation": workflows.explanation_without_user_text(r.failure_explanation)[:300],
+            }
             for r in failed_runs
         ],
         "contains_customer_data": False,

@@ -572,9 +572,33 @@ Orchestrator decisions recorded here:
 Known gaps stated by the implementer: compensation does not run when an approved step fails at approval time; a
 failure on the propose path of non-approval tools is rolled back with the request and leaves no failure record.
 
+## Independent security re-verification of fix round 1 (2026-11-12, at 6511c69)
+Fresh `security-auditor` agent, fixed checklist plus 12 adversarial probes
+(`docs/evidence/security-stage4-reverify-2026-11-12.md`, tests `tests/security/test_stage4_reverify.py`):
+- S4-SEC-01..07 MITIGATED for the tested set (audit file `91 passed`, race tests three times green; the verifier notes
+  that green runs of timing-dependent tests do not prove the races are gone). Declared test edits verified from git:
+  only the seven xfail markers were removed, no assertion changed.
+- Both orchestrator decisions hold: under the kill switch only workflow dry runs proceed and they create nothing;
+  `quote.won` cannot be activated.
+- 9 of 12 probes held (tool matrix per role, client-supplied policy fields, other-tenant ids on 10 routes, hostile
+  planner output, breaker/step cap/kill-switch bypass, entitlement counter under concurrency, billing test-mode only,
+  CSRF, RLS on all 11 Stage 4 tables — the migration was read, the earlier RLS test passes).
+- **New findings, all Low:** S4-SEC-08 (malformed hosted-planner answer → 500), S4-SEC-09 (approver's rejection reason
+  copied into the support export), S4-SEC-10 (no audit row for a new session / a chat turn without actions).
+- Implementer's known gaps rated Low, acceptable as documented.
+- Scan (`make security-scan`, exit 0): pip-audit 0, bandit (medium and above) 0, ruff S rules pass, `npm audit
+  --omit=dev` 0, full `npm audit` 8 moderate dev-only; gitleaks and semgrep not available locally (they run in CI).
+- Not checked: browser-level checks (CSP, XSS), a real hosted model, real e-mail/SMS/S3 adapters, a kill-switch race
+  against an in-flight approval, migration up/down.
+
+## Fix round 2 (implementing side, 2026-11-12)
+S4-SEC-08, 09 and 10 fixed; the verifier's three strict-xfail tests now pass with the markers removed (declared in
+`docs/evidence/implementer-fixes1-stage4-2026-11-12.md`, "Fix round 2", with commands, exit codes and counts). These
+three fixes have **not** been re-checked by a verifier agent; the evidence is the verifier's own pre-written tests.
+
 ## Still required before any Stage 4 verdict
-1. A green full API and browser run on the merged tree (Stages 1–3 fix rounds included).
-2. Independent QA and security re-verification of fix round 1 (including the two decisions above and the declared edits).
+1. A green full API and browser run on the merged tree (Stages 1–3 fix rounds included) — pending (QA re-verification, CI).
+2. Independent QA re-verification of fix round 1 — pending. (Security re-verification: done, see above.)
 3. CI on the gated HEAD for both events with job-level results, counts and the CodeQL code-scanning check.
 4. Release review by the read-only `release-reviewer` with a fresh context; findings recorded here verbatim.
 Stage 4 depends on Stages 1–3 being VERIFIED; all three gates are still open.
