@@ -102,6 +102,13 @@
   (`RFQ_PARSE_RATE_LIMIT_ATTEMPTS`, `CATALOG_IMPORT_RATE_LIMIT_ATTEMPTS`, `EXPENSIVE_RATE_LIMIT_WINDOW_SECONDS`). Beyond
   that the API answers 429 with `Retry-After`. Refused requests are not audited (as with the login limiter). Other
   expensive paths (quote generation, exports) are not limited. A shared limiter (Redis) is needed for several replicas.
+- **Adding a single RFQ line (SEC8-2, open).** `POST /rfqs/{id}/items` builds a catalog index and matches in the API
+  process without a rate limit: about 1.4–2.1 s per call on a 30,000-product catalog. The bulk paths (create,
+  re-parse) are limited and use the bounded matcher.
+- **Matcher output reader (SEC8-1).** A pathologically nested line from the matcher process would raise instead of
+  being ignored; the matcher is our own code and only prints flat lines.
+- **Candidate order on equal scores (QA O1).** Suggestions with identical similarity scores may be listed in a
+  different order between runs; observed once, not reproduced.
 - **Zero-padded groups.** "01,234" is read as 1.234 and "012,345" as 12.345 (a group that starts with a zero is never
   a thousands group); a person might have meant 1,234. Such cells are unusual; the reading is pinned by tests.
 - **Demo seed.** `make demo` and the Compose `migrate` service need `DEMO_PASSWORD` (≥ 12 characters); the seed

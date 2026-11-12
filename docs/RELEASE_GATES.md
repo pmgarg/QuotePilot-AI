@@ -229,6 +229,47 @@ assertions for `index.match` cannot be met by design and stay xfail); per-user r
 catalog import (SEC7-7); parser SEC7-2, SEC7-3, SEC7-5, SEC7-6; seed reads only `DEMO_PASSWORD` (SEC7-4, QA J7-3); QA J7-2
 and J7-4. Nothing is marked VERIFIED. Independent re-verification 8 and a release review are still required before PASS.
 
+### CI on the round-10 and round-11 commits (GitHub Actions, queried 2026-11-12)
+| commit | `ci` | `security` workflow | CodeQL check |
+|---|---|---|---|
+| 8258112 (round 10) | web success; **api failure** on both events: `1 failed, 1160 passed, 3 skipped, 1 xfailed` — the security verifier's timing test `test_per_character_scans_are_bounded_by_the_pre_normalisation_cap` (12–16 ms on the runner vs a 10 ms threshold; real per-cell cost, reduced in round 11); e2e skipped | success; SARIF python 0, javascript 0 | success |
+| 8cfcff2 (round 11) | web success; **api failure** on both events: `2 failed, 1347 passed, 3 skipped, 1 xfailed, 1 xpassed` — two QA tests that run `git show` on history CI does not check out; e2e skipped | success except **gitleaks on the pull_request run** (a dummy `SECRET_KEY=tiny-secret-visible` string in a security test) | success |
+
+Both round-11 failures are verifier-test portability problems, fixed in 23c1eb3 (history-based QA tests skip without
+history; the two synthetic markers are allowlisted). CI for the head that contains these confirmations is recorded in
+the next entry of this file.
+
+## Independent confirmation of fix round 11 — Stage 1 @23c1eb3 (2026-11-12)
+Process change (requested by the project owner: the fix → re-verify loop was consuming disproportionate effort):
+this round was confirmed by two **fresh** verifier agents against a **fixed checklist limited to the round-11 diff**,
+without re-running the full suites and without exploratory campaigns. New findings below High are logged as backlog
+instead of triggering another fix round. This is a narrower verification than rounds 4–7 and is stated as such.
+- QA (`qa-stage1-confirm-round11-2026-11-12.md`): 7 of 7 checklist items CONFIRMED (ordinary matching unchanged;
+  worker path gives the same results as the in-process path; rate limits; parser cells; seed precedence; the exact-SKU
+  control and the new message in the browser; declared test edits). No defect. Observation O1 (Low, not reproduced in
+  18 reruns): once, one candidate list differed between worker and in-process path at position 2 — possibly tie order.
+- Security (`security-stage1-confirm-round11-2026-11-12.md`): parser findings SEC7-2/3/5/6 and seed SEC7-4 CLOSED;
+  tenant isolation of the worker path CLOSED; declared edits legitimate. **SEC7-1 / SEC6-2 MITIGATED, not closed**:
+  the 389.9 s worst case (30,000 products × 300 characters, 450 adversarial lines) now takes 11.4–11.6 s, with health
+  checks answered throughout (max 0.42 s); 47–52 lines matched, about 400 flagged for a person. Residual: jobs up to
+  50,000 comparisons still run in the API process (≈ 0.14 s per line at 30,000 products), the database transaction is
+  held while waiting, two matcher processes per API process. **New, backlog:** SEC8-2 (Medium) `POST /rfqs/{id}/items`
+  is neither rate-limited nor routed through the bounded matcher (1.4–2.1 s per call on a 30,000-product catalog);
+  SEC8-1 (Low) the reader of the worker's output does not catch a `RecursionError`. The auditor's statement: no
+  Critical or High finding it considers release-blocking is open, **subject to accepting the matching residual**.
+
+### Open for Stage 1 after round 11 (single list for the reviewer)
+| ID | Severity | State |
+|---|---|---|
+| SEC7-1 / SEC6-2 matching cost | High → Medium residual | mitigated (deadline, worker process, budget); needs a human decision |
+| SEC8-2 add-item path unlimited / in-process | Medium | open, backlog |
+| SEC7-7 rate limits | Medium (design) | RFQ parse and catalog import limited per user and process; quote generation and exports not limited |
+| post-sandbox parsing has no wall-clock timeout | Medium (design) | open; matching part now has a deadline |
+| SEC8-1 worker-output reader | Low | open, backlog |
+| QA O1 candidate tie order | Low | unreproduced observation |
+| SEC6-6, SEC5-4 | Info | accepted / documented |
+| documented Lows from earlier rounds | Low | listed under "Human actions required" |
+
 ## Human actions required
 - Enable branch protection on `main` requiring checks `api`, `web`, `e2e`, `security` and one review (repository settings → Branches).
 - Sign any risk acceptance in this file with name, date and rationale. Documented Lows awaiting acknowledgement:
