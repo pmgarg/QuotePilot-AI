@@ -114,3 +114,21 @@ assertions, each marked with a comment in the test:
   the `.env` files — exit 0, nothing secret printed (was: exit 2).
 After the edits: `pytest tests/security/test_audit_followups8.py tests/qa/test_qa_reverify_review7.py` → 126 passed,
 1 xpassed (the non-strict SEC7-1 marker). The full-suite and browser results on the final tree are in the gate log.
+
+## Orchestrator addendum — runs on the final tree and CI portability (2026-11-12)
+Local, commit 8cfcff2, DB `quotepilot_s1`, ports 8051/3051:
+| Command (cwd) | Exit | Result |
+|---|---|---|
+| `ruff check app tests` / `ruff format --check app tests` / `mypy app` (`apps/api`) | 0 / 0 / 0 | clean; 102 files formatted; 60 source files |
+| `.venv/bin/pytest -q -p no:cacheprovider -rfEx` (full API suite) | 0 | **1350 passed, 2 skipped, 2 xfailed** in 742 s (xfails: the two per-call latency tests for SEC6-2 / SEC7-1, see above) |
+| `npx tsc --noEmit`, `npx eslint .` (`apps/web`) | 0 / 0 | clean |
+| `npx playwright test --reporter=list --trace off` (`tests/e2e`) | 0 | **42 passed, 1 skipped**, 0 failed, 0 flaky (includes the new exact-SKU spec) |
+
+CI on 8cfcff2 (both events): `web` success, CodeQL check success, `security` jobs success except **gitleaks on the
+pull_request run** (flagged the dummy `SECRET_KEY=tiny-secret-visible` line the security verifier wrote into
+`test_audit_followups8.py` — a synthetic value in a test that checks an *invalid* key is not echoed), and **`api`
+failure**: `2 failed, 1347 passed, 3 skipped, 1 xfailed, 1 xpassed` — both failures are QA tests that run
+`git show 46c3bcb:…` and CI checks out without history. Neither is a product failure, but the head was not green.
+Changes (declared): the QA helper `_old_matching_module` skips when git history is unavailable (same convention as the
+security verifier's history-based test); the two synthetic marker strings of that security test are added to the
+gitleaks allowlist (`.gitleaks.toml`). The CI result of the next commit is recorded in `docs/RELEASE_GATES.md`.
