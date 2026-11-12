@@ -5,6 +5,8 @@ The machine-readable schema is served at `/api/v1/openapi.json` (FastAPI) and ex
 
 Auth: cookie `qp_session` (HttpOnly). Unsafe methods require header `X-CSRF-Token` matching cookie `qp_csrf`.
 Tenant-miss → 404. Role denial → 403. State/concurrency → 409. Validation → 422. Too large → 413. Unsupported → 415.
+Durability: the transaction of a request (data change and its audit row) is committed before the response is sent; a
+2xx answer therefore means the change is visible to the next request, and a failed commit is answered with an error.
 
 | Method | Path | Roles | Purpose |
 |---|---|---|---|
@@ -22,10 +24,10 @@ Tenant-miss → 404. Role denial → 403. State/concurrency → 409. Validation 
 | GET/PATCH | /customers/{id} | any / sales+ | detail/update |
 | GET | /catalogs | any | catalogs with versions summary |
 | GET | /catalogs/active-version | any | `{version_id}` of the catalog version new ad-hoc quote lines price from (null without an active catalog); used by the editor's "Use active catalog" re-link |
-| POST | /catalogs/import | owner, admin | multipart `file` + `mapping` (JSON string) + `catalog_name?` → version + report |
+| POST | /catalogs/import | owner, admin | multipart `file` + `mapping` (JSON string) + `catalog_name?` → version + report. A price cell must hold exactly one number (optional currency code/symbol); anything else, a negative price or a price ≥ 10^12 is a row error (`list price is not a number` / `is negative` / `is too large`), never a guessed value |
 | POST | /catalogs/versions/{id}/activate | owner, admin | activate version |
 | GET | /catalogs/versions/{id}/products?q=&page= | any | products (cost hidden for sales/readonly) |
-| POST | /rfqs | sales+ | multipart `file` (+`customer_id`, `reference`) or JSON `{text, customer_id, reference}` → RFQ (parsed or failed) |
+| POST | /rfqs | sales+ | multipart `file` (+`customer_id`, `reference`) or JSON `{text, customer_id, reference}` → RFQ (parsed or failed). Item quantities are stored only when 0 < q ≤ 10,000,000 (three decimals); otherwise `quantity` is null with flag `quantity_unreadable`, `quantity_not_positive` or `quantity_out_of_range`, which blocks quote generation until a person enters one |
 | GET | /rfqs?status=&q= | any | list |
 | GET | /rfqs/{id} | any | detail with items + candidates |
 | POST | /rfqs/{id}/reparse | sales+ | re-run parser |

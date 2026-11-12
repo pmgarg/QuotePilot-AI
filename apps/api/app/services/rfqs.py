@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import uuid
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
 from sqlalchemy import select
@@ -18,6 +18,7 @@ from app.models.rfq import RFQ, MatchCandidate, RFQItem
 from app.services import audit
 from app.services.catalog_import import active_version_for_org
 from app.services.matching import CatalogIndex
+from app.services.money import MAX_QUANTITY
 from app.services.parsing.extract import (
     ParsedItem,
     items_from_pdf,
@@ -28,6 +29,23 @@ from app.services.parsing.limits import check_size, check_xlsx_zip, sniff_kind
 from app.services.parsing.sandbox import ParseFailure, run_parser
 from app.services.storage import get_storage, make_key
 from app.services.units import normalize_sku, normalize_text, normalize_unit
+
+
+def _stored_quantity(parsed_item: ParsedItem) -> Decimal | None:
+    """A quantity read from a customer's file or text is stored only when it fits the range the API accepts for
+    manual entry (0 < q <= MAX_QUANTITY, three decimals). Anything else is left empty and flagged, so the line is
+    blocked for a human instead of crashing the upload or flowing into a quote (SEC4-6)."""
+    quantity = parsed_item.quantity
+    if quantity is None:
+        return None
+    if not quantity.is_finite() or quantity > MAX_QUANTITY:
+        parsed_item.flags.append("quantity_out_of_range")
+        return None
+    quantity = quantity.quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+    if quantity <= 0:
+        parsed_item.flags.append("quantity_not_positive")
+        return None
+    return quantity
 
 
 def _store_upload(
@@ -296,7 +314,7 @@ def parse_rfq(db: Session, rfq: RFQ, *, actor_user_id: uuid.UUID, ip: str | None
             source_ref=parsed_item.source_ref,
             sku_hint=parsed_item.sku_hint,
             description=parsed_item.description,
-            quantity=parsed_item.quantity,
+            quantity=_stored_quantity(parsed_item),
             unit_raw=parsed_item.unit_raw,
             unit_normalized=unit_norm,
             flags=list(parsed_item.flags),
