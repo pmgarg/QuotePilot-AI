@@ -35,7 +35,7 @@ api-migrate: ## alembic upgrade head (owner role)
 api-run: ## Run the API on :8000
 	cd $(API_DIR) && $(UV) run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
-demo: api-migrate ## Migrate + seed synthetic demo data (prints local-only credentials)
+demo: api-migrate ## Migrate + seed synthetic demo data (needs DEMO_PASSWORD; lists the demo accounts, never the password)
 	cd $(API_DIR) && $(UV) run python -m app.fixtures.seed
 
 web-install: ## Install web dependencies

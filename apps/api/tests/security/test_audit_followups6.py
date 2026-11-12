@@ -215,15 +215,11 @@ def test_sec5_1_rfq_upload_with_padded_quantity_cells_is_not_a_cpu_dos(app, tena
     assert elapsed < 2.0, elapsed
 
 
-@pytest.mark.xfail(
-    strict=True, reason="SEC5-2 (Low): NFKC glues superscript/circled digits into the number ('5²' -> 52)"
-)
 def test_sec5_2_compatibility_digits_are_not_glued_to_the_number() -> None:
     for raw in ("5²", "10³", "5①", "2⁵", "1²3", "x²", "¹²"):
         assert parse_decimal(raw) is None, (raw, parse_decimal(raw))
 
 
-@pytest.mark.xfail(strict=True, reason="SEC5-3 (Low): U+2010..2015, U+FE58, U+2796 dashes drop the sign ('–5' -> +5)")
 def test_sec5_3_other_dash_code_points_do_not_silently_flip_the_sign() -> None:
     for ch in ("‐", "‑", "‒", "–", "—", "―", "﹘", "➖", "⸺"):
         d = parse_decimal(f"{ch}5")
@@ -782,9 +778,6 @@ def test_8b_catalog_import_with_padded_price_cells_is_fast(app) -> None:  # type
 
 
 # ---------------------------------------------------- pre-existing quadratic regexes in the text-line parser (new)
-@pytest.mark.xfail(
-    strict=True, reason="SEC5-5 (High, pre-existing): QTY_LEAD/QTY_TRAIL are quadratic on whitespace runs"
-)
 def test_sec5_5_text_line_parser_is_linear_on_whitespace_runs() -> None:
     from app.services.parsing.extract import items_from_text_lines
 
@@ -797,9 +790,6 @@ def test_sec5_5_text_line_parser_is_linear_on_whitespace_runs() -> None:
 
 
 @integration
-@pytest.mark.xfail(
-    strict=True, reason="SEC5-5 (High, pre-existing): pasted RFQ text with a 8k-char whitespace run blocks the API"
-)
 def test_sec5_5_pasted_rfq_text_with_whitespace_run_is_not_a_cpu_dos(app, tenant_a) -> None:  # type: ignore[no-untyped-def]
     sales = login_as(app, tenant_a.users["sales"])
     txt = "\n".join("abc" + " " * 8000 + "x" for _ in range(3))
@@ -809,16 +799,12 @@ def test_sec5_5_pasted_rfq_text_with_whitespace_run_is_not_a_cpu_dos(app, tenant
     assert time.perf_counter() - t < 1.0
 
 
-@pytest.mark.xfail(
-    strict=True, reason="SEC5-6 (Medium): '0,500' is read as 500 (a leading zero cannot start a thousands group)"
-)
 def test_sec5_6_leading_zero_comma_three_digits_is_not_thousands() -> None:
     for raw in ("0,500", "0,001", "0,125", "00,500"):
         d = parse_decimal(raw)
         assert d is None or d < 1, (raw, d)
 
 
-@pytest.mark.xfail(strict=True, reason="SEC5-7 (Low): doubled leading dot ('..5', '...5') is accepted as 0.5")
 def test_sec5_7_doubled_leading_dot_is_rejected() -> None:
     for raw in ("..5", "...5", "..50"):
         assert parse_decimal(raw) is None, raw

@@ -6,8 +6,9 @@ cp .env.example .env            # placeholders are fine for local demo
 docker compose --env-file .env -f infra/docker-compose.yml up --build   # --env-file: Compose otherwise reads infra/.env
 # web: http://localhost:3000 (the API is not published; it is reached through the web proxy at /api/v1/*)
 ```
-The `migrate` service runs `alembic upgrade head` and `python -m app.fixtures.seed` (synthetic data; credentials printed
-to the container log only, never committed). Default demo password is read from `DEMO_PASSWORD` in `.env`.
+The `migrate` service runs `alembic upgrade head` and `python -m app.fixtures.seed` (synthetic data). Set `DEMO_PASSWORD`
+(at least 12 characters) in `.env` first: the seed refuses to run without it and never writes a password to the
+console or container log (only the demo account e-mail addresses are listed).
 
 ## Local without Docker (as used in this repository's CI and evidence)
 ```bash

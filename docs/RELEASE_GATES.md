@@ -152,6 +152,43 @@ API caps for imported prices and RFQ quantities (SEC4-2, SEC4-6, D4-1), commit b
 I-3, recorded as an inference). Declared verifier-test edits are listed there. Product code changed again, so
 independent QA and security **re-verification 5** and a **review 5** are required before PASS.
 
+### CI on the round-8 commits (GitHub Actions, queried 2026-11-12)
+| commit | `ci` (api / web / e2e) | `security` workflow | CodeQL code-scanning **check** |
+|---|---|---|---|
+| 3586da2 (round 8) | runs 43152110441 and 43152116127 (push + pull_request): api success, web success; e2e still running when queried, superseded by the next push | 43152110485, 43152116146: success | **failure** — "1 new alert including 1 high severity" |
+| 6b3c452 (round 8b) | runs 43154055740 and 43154063337: all three jobs success on both | 43154055508, 43154063401: success | **failure** — same summary |
+| af8c902 (CI change only) | not queried (docs/workflow commit, superseded) | 43156058810 (push), 43156063859 (pull_request): success; job logs print the SARIF results: python **1** (`py/clear-text-logging-sensitive-data`, `apps/api/app/fixtures/seed.py:171`), javascript **0** | failure (same alert) |
+
+Test counts were not extracted for these three commits because each was superseded within the hour; counts are
+recorded for the gated HEAD only. **The code-scanning check is a separate status from the `security` workflow
+conclusion. Earlier gate tables recorded only workflow conclusions, so whether this check was red on earlier commits
+is unknown;** the flagged line (the seed printing the demo password) exists since the first Stage 1 commit, so it very
+probably was. From now on the check and the printed SARIF counts are part of every CI record.
+
+## Independent re-verification 5 — Stage 1 round 8 / 8b (2026-11-12) — defects found, gate stays open
+- QA (`qa-stage1-reverify5-2026-11-12.md`; 270 API tests, 2 browser tests; final runs at 6b3c452 / af8c902): D5
+  (commit before response) verified from a second connection for login, customer create, submit, approve, PDF, file
+  download and logout; failing commit → 500 with nothing persisted; live read-your-writes loop **0 misses of 1,480**;
+  parser judged on ~180 realistic/ambiguous cells plus a 60,000-cell fuzz (never raises, never changes the digit
+  sequence); caps verified at the boundaries; browser suite 40 passed, 0 failed, 0 flaky, 1 skipped. **Defects:
+  D5-1 (Low)** `0,500` read as 500; **D5-2 (Low/Info)** `..5` accepted. Full API suite: exit 1, 8 failed (7 = D5-1/D5-2,
+  1 = a contradiction inside the security agent's then-unfinished file), 955 passed, 2 skipped, 4 xfailed.
+- Security (`security-stage1-reverify5-2026-11-12.md`, scan `scan-20261112-042305.md` naming 6b3c452): SEC4-0..6
+  closed (SEC4-3 only for the U+2212 family); declared edits to its round-4 tests judged legitimate; the D5 change
+  reviewed with no defect (late queries fail closed under RLS, one session per request, failed commit → generic 500, no
+  cookie). The round-8 parser pattern was confirmed as a CPU denial of service and a regression (18.6 s for one
+  40,000-character cell at 3586da2), fixed by 8b. **Open: SEC5-5 (High, pre-existing)** quadratic RFQ text-line
+  patterns in the API process; **SEC5-6 (Medium)** = D5-1; SEC5-2, SEC5-3, SEC5-7 (Low); SEC5-4 (Info).
+- Orchestrator note: the auditor confirmed the parser slowdown by timing, not the CodeQL alert itself (it could not
+  read the alert). The alert turned out to be the seed line, not the parser — see the table above.
+No review was requested for round 8.
+
+### Fix round 9 (Stage 1)
+`docs/evidence/implementer-fixes9-stage1-2026-11-12.md`: linear-time RFQ line parsing (SEC5-5), leading-zero comma
+decimals (SEC5-6/D5-1), doubled dots (SEC5-7/D5-2), all dashes as minus (SEC5-3), non-decimal digit characters rejected
+(SEC5-2), demo seed no longer prints or generates a password (CodeQL alert). Declared verifier-test edits are listed
+there. Independent **re-verification 6** and a release review are required before PASS.
+
 ## Human actions required
 - Enable branch protection on `main` requiring checks `api`, `web`, `e2e`, `security` and one review (repository settings → Branches).
 - Sign any risk acceptance in this file with name, date and rationale. Documented Lows awaiting acknowledgement:
