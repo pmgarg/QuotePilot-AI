@@ -464,7 +464,8 @@ def test_retention_workflow_soft_delete_then_worker_purge(app, tenant_a: Tenant)
     assert a.status_code == 200 and a.json()["status"] == "approved" and a.json()["purge_after"]
     assert a.json()["summary"]["soft_deleted"]["contacts_opted_out"] == 1
     assert cid not in {c["id"] for c in sales.get("/customers").json()}  # hidden immediately
-    assert sales.get(f"/customers/{cid}").json()["deleted_at"]
+    assert sales.get(f"/customers/{cid}").status_code == 404  # SEC3-02: no further processing by ordinary roles
+    assert admin.get(f"/customers/{cid}").json()["deleted_at"]  # retention managers still see it
     # grace period not elapsed → worker does nothing
     with get_sessionmaker()() as db:
         assert retention.enqueue_due_purges(db) == 0

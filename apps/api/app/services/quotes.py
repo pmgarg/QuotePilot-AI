@@ -136,6 +136,34 @@ def stale_catalog_lines(db: Session, org: Organization, version: QuoteVersion) -
     }
 
 
+def repriced_catalog_lines(db: Session, org: Organization, quote: Quote, version: QuoteVersion) -> dict[int, Decimal]:
+    """SEC3-10: open (draft/pending) lines labelled `catalog` whose product price was changed in place since the
+    line was priced (a connector conflict applied to the active catalog). Returns line_no → current list price."""
+    if version.status not in ("draft", "pending_approval"):
+        return {}
+    lines = [
+        ln
+        for ln in version.lines
+        if ln.product_id is not None and ln.price_source == "catalog" and ln.unit_price is not None
+    ]
+    if not lines:
+        return {}
+    current = {
+        pid: (Decimal(price), cur)
+        for pid, price, cur in db.execute(
+            select(Product.id, Product.list_price, Product.currency).where(
+                Product.id.in_([ln.product_id for ln in lines]), Product.organization_id == org.id
+            )
+        )
+    }
+    changed: dict[int, Decimal] = {}
+    for ln in lines:
+        found = current.get(ln.product_id) if ln.product_id is not None else None
+        if found is not None and found[1] == quote.currency and found[0] != Decimal(ln.unit_price or 0):
+            changed[ln.line_no] = found[0]
+    return changed
+
+
 def compute_blockers(
     quote: Quote,
     version: QuoteVersion,
@@ -151,7 +179,17 @@ def compute_blockers(
     if not version.lines:
         blockers.append(Blocker("no_lines", "Quote has no lines"))
     stale = stale_catalog_lines(db, org, version) if db is not None else set()
+    repriced = repriced_catalog_lines(db, org, quote, version) if db is not None else {}
     for line in version.lines:
+        if line.line_no in repriced and line.line_no not in stale:
+            blockers.append(
+                Blocker(
+                    "catalog_price_changed",
+                    f"Line {line.line_no}: the catalog price changed to {repriced[line.line_no].normalize():f} "
+                    "since this line was priced; save the draft to take the new price",
+                    line.line_no,
+                )
+            )
         if line.line_no in stale:
             blockers.append(
                 Blocker(
@@ -237,7 +275,12 @@ def create_quote(
         raise ValidationFailed(f"Unsupported currency '{cur}'", field="currency")
     if (
         customer_id is not None
-        and db.scalar(select(Customer.id).where(Customer.id == customer_id, Customer.organization_id == org.id)) is None
+        and db.scalar(
+            select(Customer.id).where(
+                Customer.id == customer_id, Customer.organization_id == org.id, Customer.deleted_at.is_(None)
+            )
+        )
+        is None
     ):
         raise NotFoundError("Customer not found")
     quote = Quote(

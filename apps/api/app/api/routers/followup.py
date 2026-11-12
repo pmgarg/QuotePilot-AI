@@ -12,7 +12,6 @@ from sqlalchemy import select
 from app.api.deps import DB, PrincipalDep, SettingsDep, clean_param
 from app.core.errors import ForbiddenError, NotFoundError, ValidationFailed
 from app.db.base import utcnow
-from app.models.customer import Customer
 from app.models.followup import (
     CommunicationDraft,
     CommunicationEvent,
@@ -50,6 +49,7 @@ from app.services import lifecycle as lifecycle_service
 from app.services import quotes as quote_service
 from app.services.authz import Permission, has_permission
 from app.services.comms.providers import InboundMessage, valid_email
+from app.services.customers import get_active_customer
 from app.services.followup import service as fu
 from app.services.followup import templates as tpl
 from app.services.jobs import queue
@@ -60,11 +60,12 @@ router = APIRouter(tags=["follow-up"])
 # ---------------------------------------------------------------- contacts
 @router.get("/customers/{customer_id}/contacts", response_model=list[ContactOut])
 def list_contacts(customer_id: uuid.UUID, principal: PrincipalDep, db: DB) -> list[ContactOut]:
-    if (
-        db.scalar(select(Customer.id).where(Customer.id == customer_id, Customer.organization_id == principal.org_id))
-        is None
-    ):
-        raise NotFoundError("Customer not found")
+    get_active_customer(
+        db,
+        principal.org_id,
+        customer_id,
+        include_deleted=has_permission(principal.role, Permission.MANAGE_RETENTION),
+    )
     rows = db.scalars(
         select(Contact)
         .where(Contact.organization_id == principal.org_id, Contact.customer_id == customer_id)
@@ -76,11 +77,7 @@ def list_contacts(customer_id: uuid.UUID, principal: PrincipalDep, db: DB) -> li
 @router.post("/customers/{customer_id}/contacts", response_model=ContactOut, status_code=201)
 def create_contact(customer_id: uuid.UUID, payload: ContactIn, principal: PrincipalDep, db: DB) -> ContactOut:
     principal.require(Permission.EDIT_QUOTES)
-    if (
-        db.scalar(select(Customer.id).where(Customer.id == customer_id, Customer.organization_id == principal.org_id))
-        is None
-    ):
-        raise NotFoundError("Customer not found")
+    get_active_customer(db, principal.org_id, customer_id)
     if payload.email and not valid_email(payload.email):
         raise ValidationFailed("Invalid e-mail address", field="email")
     c = Contact(organization_id=principal.org_id, customer_id=customer_id, **payload.model_dump())
@@ -110,6 +107,7 @@ def _contact(db: DB, principal: PrincipalDep, contact_id: uuid.UUID) -> Contact:
 def update_contact(contact_id: uuid.UUID, payload: ContactIn, principal: PrincipalDep, db: DB) -> ContactOut:
     principal.require(Permission.EDIT_QUOTES)
     c = _contact(db, principal, contact_id)
+    get_active_customer(db, principal.org_id, c.customer_id)  # no edits to the contacts of a customer being erased
     if payload.email and not valid_email(payload.email):
         raise ValidationFailed("Invalid e-mail address", field="email")
     for k, v in payload.model_dump(exclude_unset=True).items():

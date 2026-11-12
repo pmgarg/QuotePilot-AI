@@ -543,6 +543,10 @@ def test_every_stage3_mutation_writes_an_audit_row_and_failed_mutations_write_no
     assert approver.post(f"/orders/{ids['order']}/cancel", json={"reason": "dup"}).status_code == 200
     assert admin.post(f"/retention/requests/{ids['deletion']}/legal-hold", json={"hold": True}).status_code == 200
     assert admin.post(f"/retention/requests/{ids['deletion']}/legal-hold", json={"hold": False}).status_code == 200
+    # fix round 1 (SEC3-02): once the deletion is approved no new RFQ/quote can be filed for the customer, so the
+    # quote used by the "failed mutations" part below is prepared before the approval
+    sales = login_as(app, tenant_a.users["sales"])
+    _, _, q = approved_quote(app, tenant_a)
     assert owner.post(f"/retention/requests/{ids['deletion']}/approve", json={}).status_code == 200
     expected = {
         "order.propose",
@@ -570,8 +574,6 @@ def test_every_stage3_mutation_writes_an_audit_row_and_failed_mutations_write_no
                 assert "@" not in str(r.summary), r.action  # no e-mail addresses in audit summaries
         db.rollback()
     # failed mutations: state checks run before the audit row, nothing is written
-    sales = login_as(app, tenant_a.users["sales"])
-    _, _, q = approved_quote(app, tenant_a)
     o = sales.post(f"/quotes/{q['id']}/orders", json={}).json()
     with get_sessionmaker()() as db:
         set_tenant(db, tenant_a.org_id, None)
@@ -619,11 +621,6 @@ def test_soft_delete_hides_the_customer_from_lists_exports_and_imports(app, tena
     assert sales.post("/retention/requests", json={"customer_id": cid, "reason": "again"}).status_code == 409
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SEC3-02: soft delete is only a list filter — profile, contacts, direct GET/PATCH, RFQ/quote creation and "
-    "connector syncs keep processing the erased customer during the grace period",
-)
 def test_sec3_02_soft_deleted_customer_is_not_processed_any_further(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
     sales = login_as(app, tenant_a.users["sales"])
     owner = login_as(app, tenant_a.users["owner"])
@@ -678,11 +675,6 @@ def test_sec3_02_soft_deleted_customer_is_not_processed_any_further(app, tenant_
     assert gaps == [], gaps
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SEC3-03: purge leaves PII copies behind in sync_conflicts, sync_runs.report (failed import rows) and "
-    "quote_versions.document_snapshot",
-)
 def test_sec3_03_purge_removes_pii_copies_outside_the_customer_row(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
     sales = login_as(app, tenant_a.users["sales"])
     owner = login_as(app, tenant_a.users["owner"])
@@ -773,11 +765,6 @@ def test_purge_is_idempotent_and_blocked_by_legal_hold(app, tenant_a: Tenant) ->
     assert admin.post(f"/retention/requests/{dr['id']}/legal-hold", json={"hold": True}).status_code == 409
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SEC3-01: a purge job that dead-letters (e.g. legal hold placed while it was queued) is never re-enqueued "
-    "once the hold is lifted — the approved erasure silently never executes",
-)
 def test_sec3_01_purge_resumes_after_a_dead_lettered_job(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
     sales = login_as(app, tenant_a.users["sales"])
     owner = login_as(app, tenant_a.users["owner"])

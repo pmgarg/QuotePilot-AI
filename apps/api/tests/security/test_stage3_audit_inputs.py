@@ -56,7 +56,8 @@ def _sync(admin: AuthedClient, conn: dict, entity: str, key: str, records: list)
 
 
 def _xf(reason: str):  # type: ignore[no-untyped-def]
-    return pytest.mark.xfail(strict=True, reason=reason)
+    """Fix round 1 closed every case that used this marker; kept as a no-op so the parameter lists stay readable."""
+    return ()
 
 
 # ================================================== H. CSV import hardening
@@ -321,10 +322,6 @@ def test_sec3_04_connector_rejects_hostile_records_per_record(
     assert run["status"] == "failed"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SEC3-04: a 500-char unit survives the push as a conflict and apply_remote then fails with a 500",
-)
 def test_sec3_04_apply_remote_with_oversized_unit_fails_closed(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
     admin = login_as(app, tenant_a.users["admin"])
     conn = _connector(admin, ["read:products"])
@@ -391,11 +388,6 @@ def test_connector_conflict_resolution_is_authorised_audited_and_scoped(app, ten
         db.rollback()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SEC3-06: idempotency keys share one namespace per tenant across connectors, entities and CSV imports — "
-    "a replay with a different entity/connector/import returns the unrelated earlier run as if processed",
-)
 def test_sec3_06_idempotency_key_namespace_is_bound_to_entity_and_connector(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
     admin = login_as(app, tenant_a.users["admin"])
     conn = _connector(admin, ["read:products", "read:stock"])
@@ -411,11 +403,6 @@ def test_sec3_06_idempotency_key_namespace_is_bound_to_entity_and_connector(app,
     assert third["connection_id"] == csv_conn["id"], third
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SEC3-07: disabling a connector is irreversible and (org, kind) is unique — the tenant can never connect "
-    "that kind again; a mistaken disable is a permanent self-DoS of the integration",
-)
 def test_sec3_07_disabled_connector_can_be_replaced_or_re_enabled(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
     admin = login_as(app, tenant_a.users["admin"])
     conn = _connector(admin, ["read:stock"])
@@ -440,10 +427,6 @@ def test_fx_rate_validation(app, tenant_a: Tenant) -> None:  # type: ignore[no-u
     assert ok.status_code == 201 and ok.json()["rate"] == "3.6725"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SEC3-08: an FX rate below NUMERIC(18,8) precision rounds to 0 and trips the CHECK constraint → 500",
-)
 def test_sec3_08_fx_rate_below_column_precision_is_refused_not_500(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
     admin = login_as(app, tenant_a.users["admin"])
     r = admin.post(
@@ -485,11 +468,6 @@ def test_stock_timestamps_and_sku_matching(app, tenant_a: Tenant) -> None:  # ty
 
 
 # ========================================================= orders
-@pytest.mark.xfail(
-    strict=True,
-    reason="SEC3-09: an earlier approved version stays 'approved' after a later version is approved, so "
-    "POST /quotes/{id}/orders {version_no: 1} proposes an order from the superseded document and its prices",
-)
 def test_sec3_09_superseded_approved_version_is_not_convertible(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
     sales, approver, q = approved_quote(app, tenant_a)
     v1_total = Decimal(q["current_version"]["grand_total"])
@@ -517,11 +495,6 @@ def test_sec3_09_superseded_approved_version_is_not_convertible(app, tenant_a: T
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SEC3-10: apply_remote changes the active catalog price in place; a draft quote line priced from the "
-    "catalog before the change is still submitted and approved at the old price labelled 'catalog'",
-)
 def test_sec3_10_in_place_catalog_price_change_is_surfaced_on_open_quotes(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
     admin = login_as(app, tenant_a.users["admin"])
     sales = login_as(app, tenant_a.users["sales"])
@@ -615,10 +588,6 @@ def test_sec3_04_crash_path_does_not_leak_internals(app, tenant_a: Tenant) -> No
     assert _run_keys(tenant_a.org_id) == set() or r.status_code == 201
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SEC3-04: connector order line tax_rate_pct 0 is replaced by the org default (`or` on a falsy Decimal)",
-)
 def test_sec3_04_connector_zero_tax_is_kept(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
     admin = login_as(app, tenant_a.users["admin"])
     conn = _connector(admin, ["read:orders"])

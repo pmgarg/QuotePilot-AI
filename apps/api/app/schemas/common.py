@@ -676,7 +676,7 @@ class DecisionIn(BaseModel):
 class FxRateIn(BaseModel):
     base_currency: str = Field(min_length=3, max_length=3)
     quote_currency: str = Field(min_length=3, max_length=3)
-    rate: Decimal = Field(gt=0, le=Decimal("1000000"))
+    rate: Decimal = Field(ge=Decimal("0.00000001"), le=Decimal("1000000"), decimal_places=8)
     as_of: date
     source: str = Field(default="manual", max_length=64)
 

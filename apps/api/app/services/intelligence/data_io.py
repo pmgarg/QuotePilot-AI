@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import uuid
 from collections import OrderedDict
@@ -17,10 +18,11 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.errors import PayloadTooLarge, ValidationFailed
+from app.core.errors import ConflictError, PayloadTooLarge, ValidationFailed
 from app.db.base import utcnow
 from app.models.catalog import Product
 from app.models.customer import Customer
@@ -31,7 +33,8 @@ from app.services.catalog_import import active_version_for_org
 from app.services.comms.providers import valid_email
 from app.services.exports.csv_export import write_csv
 from app.services.intelligence import orders as order_service
-from app.services.money import is_supported_currency, parse_decimal
+from app.services.intelligence.inputs import FieldError, order_line, text_field
+from app.services.money import is_supported_currency
 
 CUSTOMER_COLUMNS = ("name", "reference", "email", "default_currency", "notes")
 ORDER_COLUMNS = (
@@ -125,33 +128,81 @@ def export_products(db: Session, org_id: uuid.UUID, *, include_costs: bool) -> b
 
 
 # ----------------------------------------------------------------- imports
-def _read_rows(raw: bytes, required: tuple[str, ...]) -> tuple[list[str], list[dict[str, str]]]:
+def _safe_values(row: dict[str, str]) -> dict[str, str]:
+    """Row values as stored in the run report: bounded and free of NUL (JSONB cannot hold \\u0000)."""
+    return {k[:64]: v.replace("\x00", "")[:500] for k, v in row.items()}
+
+
+def _read_rows(
+    raw: bytes, required: tuple[str, ...]
+) -> tuple[list[str], list[tuple[int, dict[str, str]]], list[dict[str, Any]]]:
+    """Returns (header, [(line_no, row)], malformed_rows). A row the csv module cannot parse is reported and skipped;
+    it never aborts the import (SEC3-04)."""
     if len(raw) > MAX_CSV_BYTES:
         raise PayloadTooLarge("CSV larger than 5 MB")
     try:
         text = raw.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
         raise ValidationFailed("CSV must be UTF-8 encoded") from exc
-    reader = csv.DictReader(io.StringIO(text))
-    header = [h.strip().lower() for h in (reader.fieldnames or [])]
-    reader.fieldnames = header
+    reader = csv.reader(io.StringIO(text, newline=""))
+    try:
+        header = [h.strip().lower() for h in next(reader)]
+    except (StopIteration, csv.Error):
+        header = []
     missing = [c for c in required if c not in header]
     if missing:
         raise ValidationFailed(f"Missing required column(s): {', '.join(missing)}", field="header")
-    rows: list[dict[str, str]] = []
+    rows: list[tuple[int, dict[str, str]]] = []
+    malformed: list[dict[str, Any]] = []
     cap = get_settings().max_import_rows
-    for i, row in enumerate(reader):
-        if i >= cap:
+    count = 0
+    while True:
+        try:
+            cells = next(reader)
+        except StopIteration:
+            break
+        except csv.Error:
+            malformed.append({"row": reader.line_num, "errors": ["malformed CSV row"], "values": {}})
+            count += 1
+            continue
+        if not cells or all(not c.strip() for c in cells):
+            continue
+        count += 1
+        if count > cap:
             raise PayloadTooLarge(f"CSV has more than {cap} rows")
-        rows.append({k: (v or "").strip() for k, v in row.items() if k})
-    return header, rows
+        rows.append(
+            (reader.line_num, {h: (cells[i] if i < len(cells) else "").strip() for i, h in enumerate(header) if h})
+        )
+    return header, rows, malformed
 
 
-def _start_run(db: Session, org_id: uuid.UUID, entity: str, key: str, received: int) -> SyncRun:
+def scope_key(kind: str, connection_id: uuid.UUID | None, entity: str) -> str:
+    """Idempotency keys are namespaced per (kind, connector, entity) inside a tenant (SEC3-06)."""
+    return f"{kind}:{connection_id or '-'}:{entity}"
+
+
+def find_run(db: Session, org_id: uuid.UUID, scope: str, key: str) -> SyncRun | None:
+    return db.scalar(
+        select(SyncRun).where(
+            SyncRun.organization_id == org_id, SyncRun.scope_key == scope, SyncRun.idempotency_key == key
+        )
+    )
+
+
+def replay_or_conflict(existing: SyncRun, request_hash: str) -> SyncRun:
+    """Same key + same payload → the earlier outcome; same key + different payload → 409, never a silent no-op."""
+    if existing.request_hash and existing.request_hash != request_hash:
+        raise ConflictError("This idempotency key was already used with different data")
+    return existing
+
+
+def _start_run(db: Session, org_id: uuid.UUID, entity: str, key: str, received: int, request_hash: str) -> SyncRun:
     run = SyncRun(
         organization_id=org_id,
         connection_id=None,
         kind="csv_import",
+        scope_key=scope_key("csv_import", None, entity),
+        request_hash=request_hash,
         idempotency_key=key,
         entity=entity,
         status="running",
@@ -163,10 +214,11 @@ def _start_run(db: Session, org_id: uuid.UUID, entity: str, key: str, received: 
 
 
 def _finish(run: SyncRun, applied: int, failed: list[dict[str, Any]], header: list[str]) -> SyncRun:
+    failed.sort(key=lambda f: f["row"])
     run.applied = applied
     run.rejected = len(failed)
     run.status = "completed" if not failed else ("partial" if applied else "failed")
-    run.report = {"header": header, "failed_rows": failed[:500], "failed_total": len(failed)}
+    run.report = {"header": [h[:64] for h in header][:50], "failed_rows": failed[:500], "failed_total": len(failed)}
     run.finished_at = utcnow()
     return run
 
@@ -174,42 +226,57 @@ def _finish(run: SyncRun, applied: int, failed: list[dict[str, Any]], header: li
 def import_customers(
     db: Session, *, org: Organization, actor_user_id: uuid.UUID, ip: str | None, raw: bytes, idempotency_key: str
 ) -> SyncRun:
-    header, rows = _read_rows(raw, ("name",))
-    run = _start_run(db, org.id, "customers", idempotency_key, len(rows))
+    header, rows, failed = _read_rows(raw, ("name",))
+    run = _start_run(db, org.id, "customers", idempotency_key, len(rows) + len(failed), hashlib.sha256(raw).hexdigest())
     existing_refs = {
         r for (r,) in db.execute(select(Customer.reference).where(Customer.organization_id == org.id)) if r
     }
     applied = 0
-    failed: list[dict[str, Any]] = []
-    for idx, row in enumerate(rows, start=2):
+    for idx, row in rows:
         errors: list[str] = []
-        if not row.get("name"):
-            errors.append("name is required")
+        fields: dict[str, str | None] = {}
+        for name, max_len, truncate in (
+            ("name", 200, True),
+            ("reference", 100, False),
+            ("email", 320, False),
+            ("notes", 2000, True),
+        ):
+            try:
+                fields[name] = text_field(
+                    row.get(name), name=name, max_len=max_len, required=name == "name", truncate=truncate
+                )
+            except FieldError as exc:
+                errors.append(str(exc))
         cur = (row.get("default_currency") or "").upper() or None
         if cur and not is_supported_currency(cur):
-            errors.append(f"unsupported currency {cur}")
-        if row.get("email") and not valid_email(row["email"]):
+            errors.append(f"unsupported currency {cur[:8]}")
+        if fields.get("email") and not valid_email(fields["email"]):
             errors.append("invalid email")
-        ref = row.get("reference") or None
+        ref = fields.get("reference")
         if ref and ref in existing_refs:
             errors.append(f"reference {ref} already exists")
         if errors:
-            failed.append({"row": idx, "errors": errors, "values": row})
+            failed.append({"row": idx, "errors": errors, "values": _safe_values(row)})
             continue
-        db.add(
-            Customer(
-                organization_id=org.id,
-                name=row["name"][:200],
-                reference=ref[:100] if ref else None,
-                email=row.get("email") or None,
-                default_currency=cur,
-                notes=(row.get("notes") or None),
-            )
-        )
+        try:
+            with db.begin_nested():
+                db.add(
+                    Customer(
+                        organization_id=org.id,
+                        name=fields["name"] or "",
+                        reference=ref,
+                        email=fields.get("email"),
+                        default_currency=cur,
+                        notes=fields.get("notes"),
+                    )
+                )
+                db.flush()
+        except DBAPIError:
+            failed.append({"row": idx, "errors": ["row could not be stored"], "values": _safe_values(row)})
+            continue
         if ref:
             existing_refs.add(ref)
         applied += 1
-    db.flush()
     _finish(run, applied, failed, header)
     audit.record(
         db,
@@ -228,8 +295,8 @@ def import_orders(
     db: Session, *, org: Organization, actor_user_id: uuid.UUID, ip: str | None, raw: bytes, idempotency_key: str
 ) -> SyncRun:
     """Each distinct ``order_ref`` becomes one *proposed* order (confirmation still required)."""
-    header, rows = _read_rows(raw, ("order_ref", "sku", "quantity", "unit_price"))
-    run = _start_run(db, org.id, "orders", idempotency_key, len(rows))
+    header, rows, failed = _read_rows(raw, ("order_ref", "sku", "quantity", "unit_price"))
+    run = _start_run(db, org.id, "orders", idempotency_key, len(rows) + len(failed), hashlib.sha256(raw).hexdigest())
     customers = {
         c.reference: c
         for c in db.scalars(select(Customer).where(Customer.organization_id == org.id, Customer.deleted_at.is_(None)))
@@ -237,69 +304,62 @@ def import_orders(
     }
     existing_refs = {r for (r,) in db.execute(select(Order.external_ref).where(Order.organization_id == org.id)) if r}
     grouped: OrderedDict[str, list[tuple[int, dict[str, str]]]] = OrderedDict()
-    failed: list[dict[str, Any]] = []
-    for idx, row in enumerate(rows, start=2):
-        if not row.get("order_ref"):
-            failed.append({"row": idx, "errors": ["order_ref is required"], "values": row})
+    for idx, row in rows:
+        try:
+            ref = text_field(row.get("order_ref"), name="order_ref", max_len=100, required=True)
+        except FieldError as exc:
+            failed.append({"row": idx, "errors": [str(exc)], "values": _safe_values(row)})
             continue
-        grouped.setdefault(row["order_ref"], []).append((idx, row))
+        grouped.setdefault(ref or "", []).append((idx, row))
     applied = 0
+    default_tax = Decimal(org.default_tax_rate)
     for ref, items in grouped.items():
         errors: list[tuple[int, str]] = []
         lines: list[dict[str, Any]] = []
-        currency = (items[0][1].get("currency") or org.default_currency).upper()
+        first_idx, first = items[0]
+        currency = (first.get("currency") or org.default_currency).upper()
         if not is_supported_currency(currency):
-            errors.append((items[0][0], f"unsupported currency {currency}"))
+            errors.append((first_idx, f"unsupported currency {currency[:8]}"))
         if ref in existing_refs:
-            errors.append((items[0][0], f"order_ref {ref} already imported"))
-        cust_ref = items[0][1].get("customer_reference") or ""
+            errors.append((first_idx, f"order_ref {ref} already imported"))
+        cust_ref = first.get("customer_reference") or ""
         customer = customers.get(cust_ref) if cust_ref else None
         if cust_ref and customer is None:
-            errors.append((items[0][0], f"unknown customer_reference {cust_ref}"))
+            errors.append((first_idx, "unknown customer_reference"))
         for idx, row in items:
-            qty = parse_decimal(row.get("quantity"))
-            price = parse_decimal(row.get("unit_price"))
-            tax = parse_decimal(row.get("tax_rate_pct")) if row.get("tax_rate_pct") else Decimal(org.default_tax_rate)
-            if qty is None or qty <= 0:
-                errors.append((idx, "quantity must be a positive number"))
-            if price is None or price < 0:
-                errors.append((idx, "unit_price must be a non-negative number"))
-            if tax is None or tax < 0 or tax > 100:
-                errors.append((idx, "tax_rate_pct must be between 0 and 100"))
+            try:
+                lines.append(order_line(row, default_tax=default_tax))
+            except FieldError as exc:
+                errors.append((idx, str(exc)))
             if (row.get("currency") or currency).upper() != currency:
                 errors.append((idx, "all lines of an order must share one currency"))
-            if not row.get("sku") and not row.get("description"):
-                errors.append((idx, "sku or description required"))
-            if qty is not None and price is not None and tax is not None:
-                lines.append(
-                    {
-                        "sku": row.get("sku") or None,
-                        "description": row.get("description") or row.get("sku"),
-                        "quantity": qty,
-                        "unit": row.get("unit") or "EA",
-                        "unit_price": price,
-                        "tax_rate_pct": tax,
-                    }
-                )
+        if not errors:
+            try:
+                with db.begin_nested():
+                    order_service.create_manual(
+                        db,
+                        org=org,
+                        actor_user_id=actor_user_id,
+                        ip=ip,
+                        customer_id=customer.id if customer else None,
+                        currency=currency,
+                        lines=lines,
+                        source="import",
+                        external_ref=ref,
+                        notes=f"CSV import {idempotency_key}"[:2000],
+                    )
+            except DBAPIError:
+                errors.append((first_idx, "order could not be stored"))
         if errors:
             for idx, row in items:
                 failed.append(
-                    {"row": idx, "errors": [m for (i, m) in errors if i == idx] or ["order rejected"], "values": row}
+                    {
+                        "row": idx,
+                        "errors": [m for (i, m) in errors if i == idx] or ["order rejected"],
+                        "values": _safe_values(row),
+                    }
                 )
             continue
-        with db.begin_nested():
-            order_service.create_manual(
-                db,
-                org=org,
-                actor_user_id=actor_user_id,
-                ip=ip,
-                customer_id=customer.id if customer else None,
-                currency=currency,
-                lines=lines,
-                source="import",
-                external_ref=ref,
-                notes=f"CSV import {idempotency_key}",
-            )
         existing_refs.add(ref)
         applied += len(items)
     _finish(run, applied, failed, header)
