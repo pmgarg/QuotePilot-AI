@@ -546,7 +546,7 @@ def customer_profile(customer_id: uuid.UUID, principal: PrincipalDep, db: DB) ->
         "won_quotes": won,
         "orders": len(orders),
         "confirmed_orders": sum(1 for o in orders if o.status in ("confirmed", "fulfilled")),
-        "last_order_at": next((o.confirmed_at for o in orders if o.confirmed_at), None),
+        "last_order_at": max((o.confirmed_at for o in orders if o.confirmed_at), default=None),
     }
     if has_permission(principal.role, Permission.VIEW_COSTS):
         margins: list[Decimal] = [

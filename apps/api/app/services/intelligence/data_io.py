@@ -325,7 +325,7 @@ def import_orders(
         cust_ref = first.get("customer_reference") or ""
         customer = customers.get(cust_ref) if cust_ref else None
         if cust_ref and customer is None:
-            errors.append((first_idx, "unknown customer_reference"))
+            errors.append((first_idx, f"unknown customer_reference {cust_ref[:100]}"))
         for idx, row in items:
             try:
                 lines.append(order_line(row, default_tax=default_tax))

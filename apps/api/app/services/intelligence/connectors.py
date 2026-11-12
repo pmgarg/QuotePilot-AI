@@ -353,7 +353,7 @@ def _sync_customers(
             if email and not valid_email(email):
                 raise FieldError("invalid email")
             if cur and not is_supported_currency(cur):
-                raise FieldError("unsupported currency")
+                raise FieldError(f"unsupported currency {cur}")
         except FieldError as exc:
             _reject(rejected, i, str(exc))
             continue
@@ -402,7 +402,7 @@ def _sync_orders(
             cur_raw = text_field(rec.get("currency"), name="currency", max_len=3)
             currency = (cur_raw or org.default_currency).upper()
             if not is_supported_currency(currency):
-                raise FieldError("unsupported currency")
+                raise FieldError(f"unsupported currency {currency}")
             lines = rec.get("lines")
             if not isinstance(lines, list) or not lines or len(lines) > 500:
                 raise FieldError("lines must be a non-empty list (max 500)")

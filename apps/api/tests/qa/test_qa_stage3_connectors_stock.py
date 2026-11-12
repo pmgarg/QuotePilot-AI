@@ -55,7 +55,12 @@ def test_sync_is_idempotent_per_key_even_when_the_payload_changes(app, tenant_a:
     ts = (now - timedelta(hours=1)).isoformat()
     first = sync(admin, conn["id"], "stock", "same", [{"sku": "SKU-1001", "quantity": "10", "observed_at": ts}]).json()
     replay = sync(admin, conn["id"], "stock", "same", [{"sku": "SKU-1001", "quantity": "999", "observed_at": ts}])
-    assert replay.status_code == 201 and replay.json()["id"] == first["id"]
+    # Orchestrator edit (declared in implementer-fixes1-stage3): the security audit (SEC3-06) required that a key
+    # re-used with a *different* payload is refused instead of silently answered with the first run. The property QA
+    # verified — nothing from the second payload is applied — is unchanged; an identical replay still returns the run.
+    assert replay.status_code == 409
+    same = sync(admin, conn["id"], "stock", "same", [{"sku": "SKU-1001", "quantity": "10", "observed_at": ts}])
+    assert same.status_code == 201 and same.json()["id"] == first["id"]
     assert {s["sku"]: s["quantity"] for s in admin.get("/stock").json()}["SKU-1001"] == "10"
     assert len([a for a in audit_rows(tenant_a.org_id, "connector.sync")]) == 1
     assert sync(admin, conn["id"], "stock", "", []).status_code == 422
@@ -79,7 +84,7 @@ def test_customer_master_data_differences_wait_in_the_queue(app, tenant_a: Tenan
     run = sync(admin, conn["id"], "customers", "c1", records).json()
     assert (run["applied"], run["conflicts"], run["rejected"], run["status"]) == (1, 1, 2, "partial")
     assert sorted(r["reason"] for r in run["report"]["rejected"]) == [
-        "reference and name required",
+        "reference is required",  # orchestrator edit (declared): per-field messages after SEC3-04 validation
         "unsupported currency ZZZ",
     ]
     # nothing was overwritten

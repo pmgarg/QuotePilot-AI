@@ -80,7 +80,13 @@
 - A remote product that does not exist locally is staged as a conflict (`fields: ["new"]`) and cannot be applied from
   the queue; new SKUs enter through a catalog version import so pricing history stays versioned.
 - Applying a remote value to a product edits the *active* catalog version in place (audited); historical quote lines
-  keep their copied prices. There is no "create a new catalog version from the ERP" automation.
+  keep their copied prices. There is no "create a new catalog version from the ERP" automation. Open (draft/pending)
+  quotes with a catalog-priced line for that product get the blocker `catalog_price_changed` and cannot be submitted
+  or approved until re-priced or overridden; already approved versions are not changed.
+- Only one *active* connector per kind and tenant; a disabled connector can be re-enabled through the API
+  (`POST /connectors/{id}/enable`), the data page has no button for it yet.
+- Import/sync idempotency: the stored request hash covers the raw CSV bytes or the canonical JSON of the records, so a
+  byte-different but semantically equal re-upload under the same key is refused with 409 (use a new key).
 - Stock snapshots are append-only and unbounded (no compaction job yet); the staleness window is one setting per deployment.
 - KPIs are computed on request without caching; the date range is capped at three years. Response time uses the first
   submitted quote per RFQ; processing time the first approval per quote.
@@ -91,7 +97,14 @@
 - Repeat-order proposals use a median-interval heuristic (≥2 confirmed orders of a SKU; next date within 14 days);
   cross-sell proposals are not implemented. Prices come from the active catalog or, explicitly labelled, the last order.
 - Deletion requests cover customers (with their contacts, drafts and RFQ text). Quotes and orders are kept with a
-  pseudonymised customer for commercial record-keeping; uploaded RFQ files are not deleted by the purge job yet.
+  pseudonymised customer for commercial record-keeping. The purge also redacts the subject in the connector conflict
+  queue and in import-run failed rows, pseudonymises the customer block of stored quote document snapshots and deletes
+  the stored PDFs (they are re-rendered from the pseudonymised snapshot, so the PDF hash of an erased customer's
+  document changes — erasure takes precedence over byte identity for that one field). **Not covered yet**: uploaded
+  RFQ source files in object storage, free-text fields that mention the customer elsewhere (quote notes, audit
+  summaries, order notes), and backups.
+- A purge job that keeps failing is re-queued up to 10 times and then marked `purge_stalled` for an operator; there
+  is no alerting on that state.
 - Order numbers are per tenant (`SO-YYYY-NNNNN`); there is no year roll-over reset of the sequence.
 
 ## Stage 4

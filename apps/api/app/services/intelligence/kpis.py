@@ -24,6 +24,10 @@ from app.services.lifecycle import TERMINAL, effective_lifecycle_status
 from app.services.money import quantize
 from app.services.quotes import current_version
 
+# A quote stays "open" after approval until the customer decides: sending it or recording an
+# acknowledgement must not make its value disappear from the pipeline (QA D2).
+OPEN_AFTER_APPROVAL = ("approved", "sent", "acknowledged", "awaiting_customer")
+
 DEFINITIONS: dict[str, str] = {
     "quote_volume": "Number of quotes created in the date range (all statuses, including drafts).",
     "conversion_rate": (
@@ -94,7 +98,9 @@ def compute(db: Session, org: Organization, rng: Range, *, today: date | None = 
     # Pending value: open approved quotes as of today (not range-bound by definition)
     pending = Decimal("0")
     pending_count = 0
-    open_quotes = db.scalars(select(Quote).where(Quote.organization_id == org.id, Quote.status == "approved")).all()
+    open_quotes = db.scalars(
+        select(Quote).where(Quote.organization_id == org.id, Quote.status.in_(OPEN_AFTER_APPROVAL))
+    ).all()
     for q in open_quotes:
         status = effective_lifecycle_status(q)
         if status in TERMINAL or status == "expired":

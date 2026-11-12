@@ -123,5 +123,19 @@ HTTP 409
   `POST /retention/requests/{id}/approve|reject|legal-hold` (manage_retention = owner/admin; requester ≠ approver;
   approval soft-deletes immediately — hidden from lists, follow-ups cancelled, contacts opted out — and the worker
   purges after `RETENTION_GRACE_DAYS`).
+  **Stage 3 hardening (fix round 1)**: `POST /connectors/{id}/enable` (manage_connectors; 409 when another active
+  connector of the same kind exists — one *active* connector per kind). Idempotency keys for imports and syncs are
+  namespaced per `(kind, connector, entity)` inside the tenant and stored with a hash of the request: same key + same
+  payload returns the earlier run and applies nothing; same key + different payload → **409** (never a silent no-op).
+  Import and sync records are validated per row/record (lengths, control characters, quantity/price bounds, currency,
+  timestamps): an invalid record is rejected with a reason and never aborts the others or returns 500.
+  Orders are created only from the *current* approved version of a quote and copy its totals verbatim.
+  A soft-deleted customer (approved deletion) returns **404** on every route that would start new processing (RFQ,
+  quote, contact creation, order proposal) for all roles, and on read routes for roles without `manage_retention`;
+  owner/admin can still read the customer, its contacts and profile with `deleted_at` set.
+  `GET /quotes/{id}` may report the blocker `catalog_price_changed` (a draft/pending catalog-priced line whose product
+  price was changed in place by an applied connector conflict); it blocks submit/approve until the line is re-priced
+  or explicitly overridden. `pending_value` counts approved quotes in lifecycle `approved`, `sent`, `acknowledged`
+  and `awaiting_customer` (not won/lost/withdrawn/expired).
 - Stage 4: `/assistant/sessions{,/{id}/messages}`, `/tools` (allowed list), `/workflows{,/{id}/versions,/{id}/dry-run,/{id}/runs}`,
   `/admin/kill-switch`, `/billing/plan`, `/admin/usage`.

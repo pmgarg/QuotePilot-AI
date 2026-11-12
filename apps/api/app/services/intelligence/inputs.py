@@ -72,11 +72,13 @@ def order_line(raw: dict[str, Any], *, default_tax: Decimal) -> dict[str, Any]:
     if qty * price > MAX_LINE_TOTAL:
         raise FieldError("line total is too large")
     tax_raw = raw.get("tax_rate_pct")
-    tax = (
-        default_tax
-        if tax_raw is None or tax_raw == ""
-        else decimal_field(tax_raw, name="tax_rate_pct", minimum=Decimal(0), maximum=Decimal(100))
-    )
+    if tax_raw is None or tax_raw == "":
+        tax = default_tax
+    else:
+        try:
+            tax = decimal_field(tax_raw, name="tax_rate_pct", minimum=Decimal(0), maximum=Decimal(100))
+        except FieldError:
+            raise FieldError("tax_rate_pct must be between 0 and 100") from None
     unit = text_field(raw.get("unit"), name="unit", max_len=16) or "EA"
     return {
         "sku": sku,

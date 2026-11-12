@@ -166,7 +166,11 @@ def test_import_idempotency_key_semantics(app, tenant_a: Tenant) -> None:  # typ
     run = import_csv(admin, "customers", "same-key", first).json()
     assert run["applied"] == 1
     replay = import_csv(admin, "customers", "same-key", second)
-    assert replay.status_code == 201 and replay.json()["id"] == run["id"]  # replay returns the original outcome
+    # Orchestrator edit (declared in implementer-fixes1-stage3): SEC3-06 — same key + different bytes is refused
+    # (409); same key + same bytes returns the original outcome. Nothing is applied either way.
+    assert replay.status_code == 409
+    same = import_csv(admin, "customers", "same-key", first)
+    assert same.status_code == 201 and same.json()["id"] == run["id"]  # replay returns the original outcome
     names = {c["name"] for c in admin.get("/customers").json()}
     assert "Alpha One" in names and "Alpha Two" not in names  # nothing applied on replay
     fresh = import_csv(admin, "customers", "other-key", second).json()

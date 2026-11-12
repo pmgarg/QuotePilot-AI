@@ -152,12 +152,16 @@ def test_requester_cannot_approve_and_legal_hold_blocks_approval_and_purge(app, 
     with get_sessionmaker()() as db:
         assert retention.enqueue_due_purges(db) == 0
         assert queue.run_once(db, "qa-worker") == 0
-    assert sales.get(f"/customers/{cid}").json()["name"] == "Alpha Trading Customer"  # not purged
+    # Orchestrator edit (declared): after SEC3-02 a customer pending erasure is readable only with
+    # manage_retention (owner/admin); sales gets 404.
+    assert sales.get(f"/customers/{cid}").status_code == 404
+    assert admin.get(f"/customers/{cid}").json()["name"] == "Alpha Trading Customer"  # not purged
     admin.post(f"/retention/requests/{req['id']}/legal-hold", json={"hold": False})
     with get_sessionmaker()() as db:
         assert retention.enqueue_due_purges(db) == 1
         assert queue.run_once(db, "qa-worker") == 1
-    gone = sales.get(f"/customers/{cid}").json()
+    assert sales.get(f"/customers/{cid}").status_code == 404  # orchestrator edit (declared), see above
+    gone = admin.get(f"/customers/{cid}").json()
     assert gone["name"] == f"Deleted customer {cid[:8]}" and gone["email"] is None and gone["reference"] is None
     final = next(r for r in admin.get("/retention/requests").json() if r["id"] == req["id"])
     assert final["status"] == "executed" and final["executed_at"]
@@ -240,7 +244,9 @@ def test_approval_stops_processing_immediately_and_keeps_commercial_records(app,
     # hidden from lists and exports; profile and records remain reachable for record-keeping
     assert cid not in {x["id"] for x in sales.get("/customers").json()}
     assert cid not in admin.get("/data/export/customers").content.decode("utf-8-sig")
-    assert sales.get(f"/customers/{cid}/profile").json()["customer"]["deleted_at"]
+    # Orchestrator edit (declared): record-keeping access is limited to manage_retention roles after SEC3-02.
+    assert sales.get(f"/customers/{cid}/profile").status_code == 404
+    assert admin.get(f"/customers/{cid}/profile").json()["customer"]["deleted_at"]
     assert sales.get(f"/quotes/{q['id']}").status_code == 200 and sales.get(f"/orders/{order['id']}").status_code == 200
     assert sales.post(f"/customers/{cid}/order-proposals").status_code == 404
     # no new processing may start for a subject whose erasure was approved

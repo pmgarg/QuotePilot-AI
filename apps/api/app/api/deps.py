@@ -18,7 +18,10 @@ from app.models.org import Membership, Organization, User, UserSession
 from app.services import auth as auth_service
 from app.services.authz import Permission, require_permission
 
-DB = Annotated[Session, Depends(get_db)]
+# scope="function": the transaction is committed (or rolled back) when the path operation returns, *before* the
+# response is sent. With the default request scope the commit ran after the client already had its 2xx, so an
+# immediate follow-up read could miss the row and a failed commit could not be reported (QA D5).
+DB = Annotated[Session, Depends(get_db, scope="function")]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
