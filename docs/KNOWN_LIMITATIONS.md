@@ -180,13 +180,16 @@
   cross-sell proposals are not implemented. Prices come from the active catalog or, explicitly labelled, the last order.
 - Deletion requests cover customers (with their contacts, drafts and RFQ text). Quotes and orders are kept with a
   pseudonymised customer for commercial record-keeping. The purge also redacts the subject in the connector conflict
-  queue and in import-run failed rows, pseudonymises the customer block of stored quote document snapshots and deletes
-  the stored PDFs (they are re-rendered from the pseudonymised snapshot, so the PDF hash of an erased customer's
+  queue and in import-run failed rows, pseudonymises the customer block of stored quote document snapshots, blanks subject, body
+  snippet and provider headers of `communication_events` linked to the customer's quotes or contacts (rows kept for
+  timeline integrity) and deletes the stored PDFs (they are re-rendered from the pseudonymised snapshot, so the PDF hash of an erased customer's
   document changes — erasure takes precedence over byte identity for that one field). **Not covered yet**: uploaded
-  RFQ source files in object storage, free-text fields that mention the customer elsewhere (quote notes, audit
+  RFQ source files in object storage, `rfq_items.raw_text` (the purge only nulls `rfqs.pasted_text`),
+  free-text fields that mention the customer elsewhere (quote notes, audit
   summaries, order notes), and backups.
 - A purge job that keeps failing is re-queued up to 10 times and then marked `purge_stalled` for an operator; there
-  is no alerting on that state.
+  is no alerting on that state. A purge job left `running` by a crashed worker is not reclaimed on this branch
+  until the Stage 2 job-queue visibility timeout is merged (SEC3-14, test still xfail).
 - Order numbers are per tenant (`SO-YYYY-NNNNN`); there is no year roll-over reset of the sequence.
 
 ## Stage 4

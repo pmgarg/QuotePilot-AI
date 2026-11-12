@@ -34,8 +34,9 @@ Inputs are redacted (no cost/margin/credentials), bounded, and only RFQ text is 
 Export: tenant admin can export quotes/customers (CSV) — Stage 3 adds full export. Deletion: Stage 3 deletion workflow
 (request → approval by a different owner/admin → immediate soft delete → worker purge after `RETENTION_GRACE_DAYS`;
 legal hold blocks both; audit retained). The purge pseudonymises the customer row, deletes contacts and drafts, nulls
-RFQ pasted text, redacts the subject in connector conflicts and import failed rows, pseudonymises the customer block
-of stored quote snapshots and deletes stored PDFs. Not covered: uploaded RFQ source files, free text elsewhere and
+RFQ pasted text, redacts the subject in connector conflicts and import failed rows, blanks the subject/snippet/headers of
+`communication_events` of the customer's quotes and contacts (rows kept), pseudonymises the customer block
+of stored quote snapshots and deletes stored PDFs. Not covered: uploaded RFQ source files, `rfq_items.raw_text`, free text elsewhere and
 backups (see KNOWN_LIMITATIONS). Access requests handled by tenant admin with operator support.
 
 ## Breach response (draft)

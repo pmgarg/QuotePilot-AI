@@ -22,6 +22,7 @@ from app.models.intelligence import Order, OrderLine, OrderProposal
 from app.models.org import Organization
 from app.services import audit
 from app.services.catalog_import import active_version_for_org
+from app.services.customers import get_active_customer
 from app.services.intelligence import orders as order_service
 
 MIN_OCCURRENCES = 2
@@ -153,6 +154,9 @@ def decide(
         raise StateError(f"Proposal is already {proposal.status}")
     if not approve and not (reason and reason.strip()):
         raise ValidationFailed("Rejecting a proposal requires a reason", field="reason")
+    if approve and proposal.customer_id is not None:
+        # SEC3-12: no new order for a customer pending erasure (rejecting stays possible)
+        get_active_customer(db, org.id, proposal.customer_id)
     proposal.decided_by = actor_user_id
     proposal.decided_at = utcnow()
     proposal.decision_reason = reason

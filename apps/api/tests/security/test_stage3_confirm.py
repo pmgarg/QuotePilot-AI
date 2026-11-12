@@ -75,10 +75,6 @@ def _race(*calls: Callable[[], Any]) -> list[Any]:
 
 
 # ------------------------------------------------------------ SEC3-02: records that already exist
-@pytest.mark.xfail(
-    strict=True,
-    reason="SEC3-12: an approved quote of a customer pending erasure can still be converted to a new order",
-)
 def test_sec3_12_existing_quote_of_an_erased_customer_cannot_start_a_new_order(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
     sales, _, q = approved_quote(app, tenant_a)
     _approve_erasure(app, tenant_a)
@@ -86,10 +82,6 @@ def test_sec3_12_existing_quote_of_an_erased_customer_cannot_start_a_new_order(a
     assert r.status_code in (404, 409), (r.status_code, r.text[:120])
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SEC3-12: an open repeat-order proposal of a customer pending erasure can still be approved into an order",
-)
 def test_sec3_12_open_proposal_of_an_erased_customer_cannot_become_an_order(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
     sales = login_as(app, tenant_a.users["sales"])
     approver = login_as(app, tenant_a.users["approver"])
@@ -100,10 +92,6 @@ def test_sec3_12_open_proposal_of_an_erased_customer_cannot_become_an_order(app,
     assert r.status_code in (404, 409), (r.status_code, r.text[:120])
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SEC3-13: the quote list shows the name of a customer pending erasure to every role",
-)
 def test_sec3_13_quote_list_does_not_show_the_name_of_a_customer_pending_erasure(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
     sales, _, q = approved_quote(app, tenant_a)
     assert sales.get("/quotes").json()[0]["customer_name"], "precondition: the name is shown before the approval"
@@ -216,11 +204,6 @@ def test_sec3_03_purge_removes_contacts_drafts_rfq_text_pdf_and_snapshot_identif
     assert again.status_code == 200 and b"Alpha Trading Customer" not in again.content
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SEC3-15: communication_events keep the e-mail subject and the first 200 characters of the sent body "
-    "(which greet the contact by name) after the purge",
-)
 def test_sec3_15_purge_clears_the_sent_message_snippet_that_names_the_contact(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
     sales, _, q = approved_quote(app, tenant_a)
     contact = add_contact(sales, str(tenant_a.customer_id))
@@ -242,11 +225,6 @@ def test_sec3_15_purge_clears_the_sent_message_snippet_that_names_the_contact(ap
 
 
 # ------------------------------------------------------------------ concurrency / cross-tenant probes
-@pytest.mark.xfail(
-    strict=True,
-    reason="SEC3-17: two approvers confirming one order at the same time both succeed (no row lock / conditional "
-    "update): duplicate 'confirmed' event and audit row, confirmed_by overwritten",
-)
 def test_sec3_17_two_concurrent_confirmations_of_one_order_are_recorded_once(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
     approver = login_as(app, tenant_a.users["approver"])
     owner = login_as(app, tenant_a.users["owner"])
@@ -275,11 +253,6 @@ def test_sec3_17_two_concurrent_confirmations_of_one_order_are_recorded_once(app
     assert duplicates == 0, f"{duplicates} duplicate 'confirmed' events in 8 rounds"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SEC3-16: a connector sync key replayed concurrently makes the loser fail with an unhandled 500 "
-    "(unique violation on uq_sync_run_scope_idem) instead of replaying the first outcome",
-)
 def test_sec3_16_connector_sync_replayed_concurrently_is_applied_once_without_a_500(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
     admin = login_as(app, tenant_a.users["admin"])
     admin2 = login_as(app, tenant_a.users["owner"])

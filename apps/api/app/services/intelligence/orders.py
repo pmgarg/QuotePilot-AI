@@ -21,6 +21,7 @@ from app.models.intelligence import Order, OrderEvent, OrderLine
 from app.models.org import Organization
 from app.models.quote import Quote
 from app.services import audit
+from app.services.customers import get_active_customer
 from app.services.lifecycle import effective_lifecycle_status
 from app.services.money import quantize
 from app.services.quotes import get_version
@@ -42,8 +43,13 @@ def allocate_number(db: Session, organization_id: uuid.UUID) -> str:
     return f"SO-{utcnow().year}-{int(seq):05d}"
 
 
-def get_order(db: Session, organization_id: uuid.UUID, order_id: uuid.UUID) -> Order:
-    order = db.scalar(select(Order).where(Order.id == order_id, Order.organization_id == organization_id))
+def get_order(db: Session, organization_id: uuid.UUID, order_id: uuid.UUID, *, for_update: bool = False) -> Order:
+    """`for_update` takes a row lock and reloads the state (SEC3-17): a concurrent transition waits, then sees
+    the committed status and is refused with 409 instead of recording a second event and audit row."""
+    stmt = select(Order).where(Order.id == order_id, Order.organization_id == organization_id)
+    if for_update:
+        stmt = stmt.with_for_update().execution_options(populate_existing=True)
+    order = db.scalar(stmt)
     if order is None:
         raise NotFoundError("Order not found")
     return order
@@ -97,6 +103,9 @@ def propose_from_quote(
         raise StateError("Only the current approved version of a quote can be converted to an order")
     if version.status != "approved":
         raise StateError("Only an approved quote version can be converted to an order")
+    if quote.customer_id is not None:
+        # SEC3-12: a customer pending erasure is no longer processed (404, as for every other customer route)
+        get_active_customer(db, org.id, quote.customer_id)
     existing = db.scalar(
         select(Order).where(
             Order.organization_id == org.id,

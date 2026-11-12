@@ -98,3 +98,37 @@ its retry in one of the two runs; not investigated. `web`, `security` jobs and t
 `py/polynomial-redos` alerts are gone). Before this merge the PR's CI was red (inherited Stage 1 timing test; the
 browser click failures and CodeQL alerts described in the Stage 2 evidence).
 Independent re-verification and the release review are still owed.
+
+## Fix round 2 (security re-verification findings SEC3-12..17)
+Branch `stage3-fix1`; the verifier's tests/evidence were committed unmodified first (ae7a7b4). Nothing is marked VERIFIED.
+
+| Finding | Change (file) | Tests |
+|---|---|---|
+| SEC3-12 | `services/intelligence/orders.py::propose_from_quote` and `repeat_orders.py::decide` (approve branch only) call `get_active_customer` -> 404 for a customer pending erasure; reject of a proposal stays possible | `test_stage3_confirm.py::test_sec3_12_*` (2), `test_stage3_fixes2.py::test_open_proposal_of_an_erased_customer_can_still_be_rejected` |
+| SEC3-13 | `api/routers/quotes.py::list_quotes`: `customer_name` null and name search excludes the customer unless `manage_retention`. Quote detail has no name field; the customer profile was already 404 for other roles | `test_sec3_13_*`, `test_stage3_fixes2.py::test_erased_customer_name_stays_visible_to_retention_roles_and_hidden_in_search` |
+| SEC3-15 | `retention.py::_redact_copies`: `communication_events` linked by quote or contact lose `subject`, `snippet`, `payload` (replaced by `{"redacted":"erased"}`); rows kept; count `communication_events_redacted` in summary and `retention.purged` audit | `test_sec3_15_*`, `test_stage3_fixes2.py::test_purge_redacts_event_text_keeps_rows_and_counts_them` |
+| SEC3-17 | `orders.py::get_order(for_update=True)` (`SELECT ... FOR UPDATE`, `populate_existing`), used by `_transition` in `api/routers/intelligence.py` so confirm, fulfil and cancel all serialise; loser gets 409 | `test_sec3_17_*`, `test_stage3_fixes2.py::test_concurrent_confirm_loser_gets_409_with_one_event_and_one_audit_row` |
+| SEC3-16 | `connectors.py::sync`: run insert in a savepoint; on `IntegrityError` re-read the run and `replay_or_conflict` (same payload: existing run, different: 409). CSV imports (`data_io._start_run`) have the same pattern and were NOT changed | `test_sec3_16_*` |
+| SEC3-14 | not touched (Stage 2 queue visibility timeout arrives by merge); xfail left in place | `test_sec3_14_*` still xfail |
+
+Declared decorator removals in `tests/security/test_stage3_confirm.py` (decorators only, no assertion touched): the `xfail`
+of `test_sec3_12_existing_quote_of_an_erased_customer_cannot_start_a_new_order`,
+`test_sec3_12_open_proposal_of_an_erased_customer_cannot_become_an_order`,
+`test_sec3_13_quote_list_does_not_show_the_name_of_a_customer_pending_erasure`,
+`test_sec3_15_purge_clears_the_sent_message_snippet_that_names_the_contact`,
+`test_sec3_17_two_concurrent_confirmations_of_one_order_are_recorded_once`,
+`test_sec3_16_connector_sync_replayed_concurrently_is_applied_once_without_a_500`.
+
+Not covered by the purge (checked in code): `rfq_items.raw_text` (only `rfqs.pasted_text` is nulled); documented.
+
+**Open: one existing test fails because of SEC3-12.** `tests/security/test_stage3_audit.py::test_every_stage3_mutation_writes_an_audit_row_and_failed_mutations_write_none`
+fails at line 584 (`KeyError: 'id'`): `o = sales.post(f"/quotes/{q['id']}/orders", json={}).json()` now gets 404 because the
+test approves the erasure (line ~550) before ordering from that customer's quote. It was not edited; the fix is to move that
+`POST /quotes/{id}/orders` before the erasure approval (the verifier's evidence section 4 already anticipated this).
+
+| Command (cwd `apps/api`, env as mandated, DB `quotepilot_s3fix`) | Exit | Result |
+|---|---|---|
+| `pytest -q -p no:cacheprovider tests/security/test_stage3_confirm.py tests/integration/test_stage3_fixes2.py` run 1/2/3 | 0 | 15 passed, 1 xfailed (each run; 30.3 s, 29.2 s, 29.7 s) |
+| `pytest -q -p no:cacheprovider` on confirm, audit, audit_inputs, intelligence, `tests/qa/test_qa_stage3_*.py`, fixes2 | 1 | 140 passed, 1 failed (the audit test above), 1 xfailed, 244 s |
+| same audit file + confirm + fixes2 with `-k "not every_stage3_mutation"` (after the mypy fix) | 0 | 33 passed, 1 deselected, 1 xfailed |
+| `ruff check app tests` / `ruff format --check app tests` / `mypy app` | 0 / 0 / 0 | clean / 151 files formatted / no issues in 87 files |

@@ -8,7 +8,7 @@ import uuid
 from datetime import timedelta
 from typing import Any, cast
 
-from sqlalchemy import delete, select, text, update
+from sqlalchemy import delete, or_, select, text, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
@@ -17,7 +17,7 @@ from app.core.errors import ForbiddenError, NotFoundError, StateError, Validatio
 from app.db.base import utcnow
 from app.db.session import set_tenant
 from app.models.customer import Customer
-from app.models.followup import CommunicationDraft, Contact, FollowUpSchedule
+from app.models.followup import CommunicationDraft, CommunicationEvent, Contact, FollowUpSchedule
 from app.models.intelligence import DeletionRequest, SyncConflict, SyncRun
 from app.models.org import Organization
 from app.models.quote import Quote, QuoteVersion
@@ -192,7 +192,27 @@ MAX_PURGE_JOBS = 10
 def _redact_copies(db: Session, org: Organization, customer: Customer, short: str) -> dict[str, int]:
     """SEC3-03: remove the subject's identifiers from copies outside the customer row — the connector conflict
     queue, import-run reports (failed rows) and approved quote documents (snapshot + stored PDF)."""
-    counts = {"conflicts_redacted": 0, "import_rows_redacted": 0, "documents_pseudonymised": 0}
+    counts = {
+        "conflicts_redacted": 0,
+        "import_rows_redacted": 0,
+        "documents_pseudonymised": 0,
+        "communication_events_redacted": 0,
+    }
+    # SEC3-15: the subject line, the body snippet (greets the contact by name) and the provider headers of events
+    # linked to the customer's quotes or contacts. The rows stay so the timeline keeps its kinds and times.
+    quote_ids = select(Quote.id).where(Quote.organization_id == org.id, Quote.customer_id == customer.id)
+    contact_ids = select(Contact.id).where(Contact.organization_id == org.id, Contact.customer_id == customer.id)
+    for event in db.scalars(
+        select(CommunicationEvent).where(
+            CommunicationEvent.organization_id == org.id,
+            or_(CommunicationEvent.quote_id.in_(quote_ids), CommunicationEvent.contact_id.in_(contact_ids)),
+        )
+    ):
+        if event.subject is not None or event.snippet is not None or event.payload != REDACTED:
+            event.subject = None
+            event.snippet = None
+            event.payload = dict(REDACTED)
+            counts["communication_events_redacted"] += 1
     if customer.reference:
         for conflict in db.scalars(
             select(SyncConflict).where(

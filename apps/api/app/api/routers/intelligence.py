@@ -117,7 +117,7 @@ def propose_order_from_quote(
 
 
 def _transition(order_id: uuid.UUID, to: str, payload: OrderTransitionIn, principal: PrincipalDep, db: DB) -> OrderOut:
-    order = order_service.get_order(db, principal.org_id, order_id)
+    order = order_service.get_order(db, principal.org_id, order_id, for_update=True)
     order = order_service.transition(
         db,
         org=principal.organization,

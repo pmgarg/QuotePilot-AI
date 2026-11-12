@@ -16,7 +16,7 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import select
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -149,8 +149,16 @@ def sync(
         status="running",
         received=len(records),
     )
-    db.add(run)
-    db.flush()
+    try:
+        with db.begin_nested():  # savepoint: a lost race must not poison the surrounding transaction
+            db.add(run)
+            db.flush()
+    except IntegrityError:
+        # SEC3-16: a concurrent request with the same key committed first; answer as a sequential replay would
+        winner = data_io.find_run(db, org.id, scope_key, idempotency_key)
+        if winner is None:
+            raise
+        return data_io.replay_or_conflict(winner, request_hash)
     handler = {
         "products": _sync_products,
         "stock": _sync_stock,
