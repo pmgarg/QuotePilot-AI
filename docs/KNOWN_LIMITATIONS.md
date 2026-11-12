@@ -132,6 +132,14 @@
 - Quiet hours / weekend skipping use the organisation policy time zone, not each contact's time zone.
 - The background worker is a single process; the `app.worker` RLS scope is a trusted-code boundary (see ADR-012).
 - Draft bodies are plain text; HTML templates and attachments (e.g. the quote PDF) are not sent yet.
+- **Log redaction of malformed addresses (S2-SEC-12).** Addresses are removed from log lines with a bounded pattern:
+  a local part longer than 64 characters is only partly redacted and a domain label longer than 63 characters not at
+  all. Such addresses are invalid and are rejected as contacts; they can only reach a log through hostile or corrupt
+  text.
+- **Opt-out matching.** Suppression compares addresses case-insensitively after trimming; plus-tags and dots are
+  significant (`jane+x@…` is a different address from `jane@…`).
+- **Inbound replies.** A message is linked to a quote by sender/reply headers; linking by `In-Reply-To` alone has no
+  sender check (only the simulator exists today).
 - Fix round 1 (2026-11-10) behaviour worth knowing:
   - Suppression is keyed on the e-mail address inside the tenant. An unsubscribe reply from an address that has **no
     contact row** is recorded as an unlinked event only; the address itself is not stored as a suppression (events do

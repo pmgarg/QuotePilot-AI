@@ -367,9 +367,42 @@ Stage 2 has its own gate. Nothing in this section is a PASS; the release reviewe
 Recorded there; the table is updated with every merge. A green browser run on the tree that contains D5 exists
 (49 passed, 1 skipped, 0 failed at f09a842).
 
+## CI on the head with fix rounds 1–2 and Stage 1 round 11 merged (PR #2, 2026-11-12)
+First run after the merge: `api` and `web` green, **e2e red** (three follow-up tests timed out clicking a customer's
+Contacts button — the directory table slid under the neighbouring panel on the runner) and the **CodeQL check red**
+(`py/polynomial-redos` in the log redaction and e-mail validation patterns). Both fixed (table scrolls inside its
+card; bounded patterns). Next run: **all 15 checks green on both events** — pytest `1509 passed, 5 skipped, 3 xfailed,
+1 xpassed`; Playwright `53 passed`, `1 skipped`, no flaky or failed line; CodeQL 0 results.
+
+## Independent re-verification of the fix rounds (2026-11-12) — narrow, checklist-driven
+Two fresh verifier agents, fixed checklists, no full-suite re-runs and no exploratory campaign (the cost-driven
+process described in the Stage 1 gate log). Verified at 43ec762.
+- QA (`docs/evidence/qa-stage2-reverify-2026-11-12.md`): 7 of 7 items CONFIRMED, no defect. All 55 original QA defect
+  tests pass with **no QA assertion edited**; both Critical fixes re-proven with new tests (an opted-out address
+  cannot be mailed through a case variant, padded address, duplicate contact, earlier draft or the automation path;
+  8 concurrent sends → one delivery, one audit row); the four High fixes and the D-13 decision confirmed; S2-A01..A08
+  pass (A05/A06 only against simulator/fake providers — no real provider exists); the two Stage 2 browser specs
+  8 passed on a fresh database. The customer-table layout change was confirmed by code reading only.
+- Security (`docs/evidence/security-stage2-reverify-2026-11-12.md`): S2-SEC-01/07/11, 02, 03, 04, 09, 10 and the
+  consent re-check CLOSED; S2-SEC-05 MITIGATED; S2-SEC-06 ACCEPTED as documented; the declared edits to the audit
+  tests judged legitimate (ten xfail markers removed with test bodies unchanged; two assertions changed by the D-13
+  decision keep the security property). **New: S2-SEC-12 (Low, backlog)** — the bounded log-redaction pattern leaves
+  part of an over-long (RFC-invalid) address visible. No Critical or High finding open; nothing the auditor considers
+  release-blocking.
+
+### Open for Stage 2 (single list for the reviewer)
+| ID | Severity | State |
+|---|---|---|
+| S2-SEC-06 per-tenant provider secret stored but unused | Low | accepted, documented, strict xfail |
+| S2-SEC-12 partial redaction of RFC-invalid addresses in logs | Low | open, backlog, strict xfail |
+| O-1 plus-tag / dot variants of an opted-out address are not suppressed | Low (policy) | needs a product decision |
+| O-4 inbound linking by `in_reply_to` alone has no sender check | Low today | backlog; matters once a real inbound adapter ships |
+| duplicate contact rows accepted at creation; `{Foo}`-style unknown braces sent literally; a dead send job leaves its draft un-failed; stale copy on the customers page | Info | observations |
+| no real e-mail provider has ever been exercised (simulator and fakes only) | — | limitation |
+
 ## Still required before any Stage 2 verdict
-1. Independent QA re-verification of fix rounds 1–2 (including a judgement of every declared edit to verifier tests).
-2. Independent security re-verification (S2-SEC-01..11, the new send gate, tenant-scoped run-once, address-level opt-out).
+1. ~~Independent QA re-verification of fix rounds 1–2~~ — done (narrow), see above.
+2. ~~Independent security re-verification~~ — done (narrow), see above.
 3. CI on the gated HEAD for both events, with job-level results and counts, including the CodeQL code-scanning check.
 4. Release review by the read-only `release-reviewer` with a fresh context; findings recorded here verbatim.
 Stage 2 also depends on Stage 1 being VERIFIED (ROADMAP); Stage 1's gate is still open.
