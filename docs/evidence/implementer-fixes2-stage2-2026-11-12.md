@@ -68,3 +68,16 @@ Known CI issue inherited from Stage 1 at this merge: five tests in the Stage 1 Q
 `tests/qa/test_qa_reverify_review5.py` read `DATABASE_ADMIN_URL_TEST` directly and fail on GitHub Actions, where only
 the conftest default is used (they pass locally, where the variable is exported). The QA verifier is correcting its
 file on the Stage 1 branch; until that is merged the `api` job of this branch is expected to be red for that reason.
+
+## Runs after merging Stage 1 fix round 10 (commit 8635153; other suites running)
+| Command (cwd) | Exit | Result |
+|---|---|---|
+| `ruff check` / `ruff format --check` / `mypy app` (`apps/api`) | 0 / 0 / 0 | clean; 117 files formatted; 72 source files |
+| `.venv/bin/pytest -q -p no:cacheprovider -rfEx` (full API suite) | 0 | **1310 passed, 2 skipped, 2 xfailed** in 1183 s (xfails: S2-SEC-06 accepted; Stage 1 SEC6-2 open, mitigated) |
+| `npx tsc --noEmit`, `npx eslint .` (`apps/web`) | 0 / 0 | clean |
+| `npx playwright test --reporter=list --trace off` (`tests/e2e`) | 0 | **51 passed, 1 skipped**, 0 failed, 0 flaky |
+
+CI note: on the Stage 1 branch the same tree's `api` job failed on GitHub Actions on one timing assertion of the
+Stage 1 security verifier (`test_per_character_scans_are_bounded_by_the_pre_normalisation_cap`: 12–16 ms measured on
+the runner against a 10 ms threshold; it passes locally). The cause is real work per hostile cell in the number parser
+and is being reduced on the Stage 1 branch; until that is merged this branch's `api` job can fail for the same reason.
