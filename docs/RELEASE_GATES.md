@@ -665,9 +665,14 @@ Fresh `qa-engineer` agent, fixed checklist (`docs/evidence/qa-stage4-reverify-20
 | Browser-level checks (CSP, XSS, mobile, accessibility) on the Stage 4 pages | — | not checked |
 | Stages 1–3 are PASS WITH CONDITIONS with human conditions open; none is VERIFIED | dependency | open |
 
+### CI evidence for 5c8c992 (gated Stage 4 head)
+`docs/evidence/ci-stage4-5c8c992-2026-11-12.md`: 15 check runs listed; 14 success and one e2e job (second event) still
+in progress when read. pytest `1966 passed, 5 skipped, 5 xfailed, 1 xpassed`; Playwright `76 passed`, `1 skipped`, no
+flaky or failed line; CodeQL check success. No Stage 4 test is an expected failure.
+
 ## Still required before any Stage 4 verdict
 1. A green full API and browser run on the merged tree (Stages 1–3 fix rounds included) — done locally by QA (above); CI pending.
 2. Independent QA and security re-verification of fix round 1 — done (above).
-3. CI on the gated HEAD for both events with job-level results, counts and the CodeQL code-scanning check.
-4. Release review by the read-only `release-reviewer` with a fresh context; findings recorded here verbatim.
-Stage 4 depends on Stages 1–3 being VERIFIED; all three gates are still open.
+3. CI on the gated HEAD — recorded above (one e2e job of the second event was still running when read).
+4. Release review by the read-only `release-reviewer` with a fresh context; findings recorded here verbatim — requested.
+Stage 4 depends on Stages 1–3 being VERIFIED; all three are PASS WITH CONDITIONS with human conditions open.
