@@ -59,10 +59,14 @@ from recorded evidence in `docs/evidence/`.
 | S1-A20 browser E2E | PRD §Stage 1 acceptance | `tests/e2e/specs/*` | full Playwright suite | pass — independent QA + security re-verification 3 on f69ac25 (330 API + 17 QA, tests/security 97 passed + 2 strict xfail, 32 browser tests); CI in RELEASE_GATES.md | see security evidence | review 4: PASS on f69ac25; re-confirm on the gated HEAD (RR4-1) | I-3 | IMPLEMENTED |
 | SEC-headers/CSRF/cookies | SECURITY_POLICY | `main.py` middleware, `api/deps.py::csrf_protect` | security/test_rbac_csrf_headers | pass |  | review 4: PASS | | IMPLEMENTED |
 | NFR CI | ADR-014 | `.github/workflows/ci.yml` (incl. Compose credential check), `security.yml` | GitHub Actions on every push and pull request | `ci` + `security` green on push and pull_request for d0aac67 and f69ac25, and for the round-7 HEAD (run ids and test counts in RELEASE_GATES.md); earlier pull_request `ci` runs failed in the browser job on 58976f3, 597f4b0, e090089 (I-3, not root-caused) | CodeQL, pip-audit, npm audit, bandit, semgrep, gitleaks | review 4: INCOMPLETE until the gated HEAD has a recorded run with counts (RR4-1) | I-3 | PARTIAL |
-## Stage 2 (designed)
-| requirement_id | design_reference | status |
-|---|---|---|
-| S2-F01..F11, S2-A01..A08 | PRD §Stage 2, LLD §Stage 2, DATA_MODEL later tables, ADR-012 | NOT STARTED |
+## Stage 2 (implemented on `claude/stage2-followup-assistant`; gate pending)
+Gate status 2026-11-12: independent QA (`qa-stage2-2026-11-02.md`, D-01..D-15) and security audit
+(`security-stage2-2026-11-02.md`, S2-SEC-01..11) ran on the first implementation; fix rounds 1 and 2
+(`implementer-fixes1-stage2-2026-11-10.md`, `implementer-fixes2-stage2-2026-11-12.md`) followed. Independent
+re-verification of the fixes and the release review have **not** run yet. Nothing below is VERIFIED.
+| requirement_id | design_reference | code_reference | test_id | test_result/evidence | security_check | reviewer_verdict | open_issue | status |
+|---|---|---|---|---|---|---|---|---|
+| S2-F01..F11, S2-A01..A08 | PRD §Stage 2, LLD §Stage 2, DATA_MODEL Stage 2 tables, ADR-012 (PostgreSQL queue) | `services/lifecycle.py`, `services/followup/*`, `services/comms/*`, `services/jobs/queue.py`, `workers/runner.py`, `routers/followup.py`, migration 0006 | integration/test_stage2_followup.py (12), e2e stage2-followup.spec.ts (3) | implementer-stage2 evidence; QA and security audit evidence (defects found, fixed in rounds 1–2) | audited once (S2-SEC-01..11); S2-SEC-06 accepted and documented | pending | re-verification + release review not yet run | IMPLEMENTED (not VERIFIED) |
 
 ## Stage 3 (designed)
 | S3-F01..F08, S3-A01..A09 | PRD §Stage 3, LLD §Stage 3 | NOT STARTED |

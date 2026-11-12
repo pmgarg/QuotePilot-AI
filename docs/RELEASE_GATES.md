@@ -166,3 +166,37 @@ independent QA and security **re-verification 5** and a **review 5** are require
 - Decide whether a manual screen-reader audit (X-08) is required for Stage 1.
 - Decide whether running the Docker Compose topology (never executed in the development container) is required before
   calling Stage 1 released.
+
+---
+
+# Stage 2 gate log (branch `claude/stage2-followup-assistant`, PR #2) — status: OPEN, not reviewed
+
+Stage 2 has its own gate. Nothing in this section is a PASS; the release reviewer has not been invoked for Stage 2.
+
+## Independent verification of the first implementation (2026-11-02)
+- **QA** (`docs/evidence/qa-stage2-2026-11-02.md`; 55 API + 8 browser tests derived from the PRD): **15 defects —
+  2 Critical** (D-01 opt-out bypass, D-03 concurrent duplicate send), **4 High** (D-02, D-04, D-05, D-06), 8 Medium
+  (D-07..D-14), 1 Low (D-15). Acceptance criteria S2-A02 and S2-A03 failed, S2-A05 partial. Stage 1 did not regress.
+- **Security audit** (`docs/evidence/security-stage2-2026-11-02.md`): S2-SEC-01..S2-SEC-04 Medium (cross-tenant worker
+  on the request path, opt-out bound to the contact row instead of the address, dead-lettered schedules starving
+  other tenants, removable opt-out instruction), S2-SEC-05..S2-SEC-11 Low.
+
+## Fix rounds
+- **Round 1** (`implementer-fixes1-stage2-2026-11-10.md`, implementer agent): all QA defects except the disputed D-13
+  and all security findings except S2-SEC-06 (per-tenant provider secret stored but unused — accepted, documented in
+  KNOWN_LIMITATIONS, strict xfail kept). Self-reported runs: API 476 passed, 1 failed (D-13), 1 skipped, 1 xfailed;
+  browser 37 passed, 1 skipped.
+- **Round 2** (`implementer-fixes2-stage2-2026-11-12.md`, orchestrator): D-13 decided in QA's favour (a withdrawn
+  consent degrades a due automated follow-up to a draft); migration renumbered to `0006b`; Stage 1 fix rounds 6–8b
+  merged (including the commit-before-response fix D5). Declared edits to two security-audit tests.
+
+## Latest local runs on the merged tree (see the fixes2 evidence file for commands and exit codes)
+Recorded there; the table is updated with every merge. A green browser run on the tree that contains D5 exists
+(49 passed, 1 skipped, 0 failed at f09a842).
+
+## Still required before any Stage 2 verdict
+1. Independent QA re-verification of fix rounds 1–2 (including a judgement of every declared edit to verifier tests).
+2. Independent security re-verification (S2-SEC-01..11, the new send gate, tenant-scoped run-once, address-level opt-out).
+3. CI on the gated HEAD for both events, with job-level results and counts, including the CodeQL code-scanning check.
+4. Release review by the read-only `release-reviewer` with a fresh context; findings recorded here verbatim.
+Stage 2 also depends on Stage 1 being VERIFIED (ROADMAP); Stage 1's gate is still open.
