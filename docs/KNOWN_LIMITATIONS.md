@@ -56,13 +56,39 @@
   The list filter `status=withdrawn` shows only fully withdrawn quotes. A pending version made obsolete by a
   withdrawal is `superseded` and can still be previewed as a PDF labelled "WITHDRAWN" (O2-3; not an approved document).
 - **Platform-wide session revocation audit (NEW-15).** `scripts/revoke_sessions.py --user-email/--all` writes one
-  `ops.sessions_revoked` audit row per affected organisation (tenant-readable); the platform total is in each row's
-  `summary.total` and on stdout. There is no platform-scope audit table.
-- **CI e2e flake (I-3).** One PR-triggered `ci` run on 58976f3 failed in the browser job with symptoms of the web
-  server returning errors mid-suite (404/409 after successful creates, `ERR_ABORTED` navigations) while the push run of
-  the same commit was green. The trace artifact could not be downloaded from the development container (host blocked);
-  the specs now assert every intermediate API call with its response body so a recurrence is diagnosable. Both the
-  push- and the PR-triggered runs must be green on the gated HEAD.
+  `ops.sessions_revoked` audit row per affected organisation with that organisation's own count (tenant-readable); the
+  platform-wide total is printed to stdout only (R4-1). There is no platform-scope audit table.
+- **CI e2e flake (I-3).** Three pull_request-triggered `ci` runs (on 58976f3, 597f4b0 and e090089) failed in the
+  browser job while the push runs of the same commits were green: logins landed back on `/login`, submit clicks left the
+  version in `draft`, some API calls returned 404/409 after successful creates. No product rule failed. Since d0aac67
+  (API request log enabled in CI) both events have been green on every commit. The trace artifacts
+  could not be downloaded from the development container (host blocked), so the failed runs themselves were never
+  inspected. **Probable cause found in fix round 8 (D5):** the database dependency committed *after* the response had
+  been sent, so a client that immediately issued its next request could read the state from before the commit — a
+  session row not yet visible (back to `/login`), a version still `draft` after a successful submit, a 404 right after
+  a 201. All three recorded symptoms match, and the race was reproduced locally (3 of 400 immediate reads after a
+  create returned 404; a deterministic test now pins the order). This is an inference: it cannot be proven for the
+  three historical runs. Diagnostics stay enabled; every gated HEAD needs both events green, and CI retries (1) mean
+  flaky counts must be read from the job log, not from the conclusion.
+- **Numbers read from files (round 8).** The shared decimal parser accepts exactly one number per cell, optionally
+  wrapped in a currency code/symbol or unit, and returns nothing for anything else ("12 per 6", "1 e3", "Rs.500",
+  exponent notation mixed with text). Such cells become row errors (catalog import) or an empty, flagged quantity (RFQ
+  items) for a human to fix; they are never guessed. Two ambiguities remain by design and are documented in the code:
+  "1,234" is read as 1234 (thousands) and "12,5" as 12.5; "0,500" is 0.500 (a group never starts with a zero).
+  Thousands written with dots only ("1.234.567") are rejected (as before round 8). Cells a person would understand
+  but the parser refuses on purpose: "Rs.500", "12 m²", "12 (approx)", "12,", "(-5)". Cells it reads although a person
+  might hesitate: a short text with exactly one number ("delivery within 2 weeks" → 2, "2k pcs" → 2), a dash used as
+  a separator ("AED - 5" → −5, which the catalog import then rejects as negative), mixed digit scripts in one number
+  ("1٢3" → 123) and "5%" → 5. None of these assembles a number from fragments.
+- **RFQ text lines (round 9).** Lines longer than 1,000 characters (after collapsing blanks) are not searched for a
+  quantity; they are kept as an item without quantity only if they name a SKU. Tokens longer than 64 characters are
+  never treated as SKUs.
+- **Demo seed.** `make demo` and the Compose `migrate` service need `DEMO_PASSWORD` (≥ 12 characters); the seed
+  never prints or generates a password. Demo accounts that already exist keep the password they were created with.
+- **Value ranges.** RFQ quantities read from files are stored only up to 10,000,000 with three decimals (the same cap
+  as manual entry); larger values are left empty with the flag `quantity_out_of_range`. Catalog list and cost prices
+  must be below 10^12 (the column capacity). The quote editor accepts manual unit prices up to 10,000,000 only, so a
+  catalog-priced line above that amount can be quoted at the catalog price but not manually re-priced.
 
 
 ## Stage 2 (implemented on `claude/stage2-followup-assistant`, gate pending)
@@ -72,6 +98,28 @@
 - Quiet hours / weekend skipping use the organisation policy time zone, not each contact's time zone.
 - The background worker is a single process; the `app.worker` RLS scope is a trusted-code boundary (see ADR-012).
 - Draft bodies are plain text; HTML templates and attachments (e.g. the quote PDF) are not sent yet.
+- Fix round 1 (2026-11-10) behaviour worth knowing:
+  - Suppression is keyed on the e-mail address inside the tenant. An unsubscribe reply from an address that has **no
+    contact row** is recorded as an unlinked event only; the address itself is not stored as a suppression (events do
+    not keep raw addresses), so a contact created later for that address is not opted out automatically.
+  - "No follow-ups" (`preferred_channel=none`) blocks manual drafts/sends as well as automation for that address; a
+    user who wants to write to such a person must change the preference first.
+  - When automation consent is withdrawn after schedules were planned, a due follow-up degrades to the default
+    draft-only behaviour: a draft is prepared for a human, nothing is sent, the schedule becomes `drafted` with
+    `mode = draft_only`, and `followup.degraded_to_draft` is audited (QA D-13, fix round 2). Restoring consent later
+    does not auto-send that draft.
+  - The edited draft is stored without the opt-out footer; it is appended when the message is sent. Placeholders are
+    resolved when an edit is saved (a customer name that itself contains a placeholder-like token is therefore
+    expanded once at edit time if the user changes the body).
+  - A quote number in an inbound message links it to the quote only when the sender is a contact of the quote's
+    customer or the message answers one of our own messages for that quote; otherwise it stays an unlinked event.
+  - Per-tenant SMTP credentials are stored encrypted but **not used for sending** (S2-SEC-06, accepted): every tenant
+    sends through the process-wide `SMTP_*` account. Using the stored secret needs per-tenant host/user configuration
+    and is a Stage 2 follow-up; the strict-xfail test for it remains.
+  - The hourly send limit is serialised per organisation by a row lock on the policy; the provider call happens
+    inside that lock, so sends of one organisation are sequential.
+  - Provider acknowledgement followed by a database failure before commit can still produce a duplicate on retry
+    (no provider-side idempotency key); the window is small and unchanged.
 
 ## Stage 3 (implemented on `claude/stage3-customer-order-intelligence`, gate pending)
 - Connectors are **push-model stubs** (`erp_stub`, `csv`): an operator or an external system posts records to the sync
@@ -80,7 +128,13 @@
 - A remote product that does not exist locally is staged as a conflict (`fields: ["new"]`) and cannot be applied from
   the queue; new SKUs enter through a catalog version import so pricing history stays versioned.
 - Applying a remote value to a product edits the *active* catalog version in place (audited); historical quote lines
-  keep their copied prices. There is no "create a new catalog version from the ERP" automation.
+  keep their copied prices. There is no "create a new catalog version from the ERP" automation. Open (draft/pending)
+  quotes with a catalog-priced line for that product get the blocker `catalog_price_changed` and cannot be submitted
+  or approved until re-priced or overridden; already approved versions are not changed.
+- Only one *active* connector per kind and tenant; a disabled connector can be re-enabled through the API
+  (`POST /connectors/{id}/enable`), the data page has no button for it yet.
+- Import/sync idempotency: the stored request hash covers the raw CSV bytes or the canonical JSON of the records, so a
+  byte-different but semantically equal re-upload under the same key is refused with 409 (use a new key).
 - Stock snapshots are append-only and unbounded (no compaction job yet); the staleness window is one setting per deployment.
 - KPIs are computed on request without caching; the date range is capped at three years. Response time uses the first
   submitted quote per RFQ; processing time the first approval per quote.
@@ -91,7 +145,14 @@
 - Repeat-order proposals use a median-interval heuristic (≥2 confirmed orders of a SKU; next date within 14 days);
   cross-sell proposals are not implemented. Prices come from the active catalog or, explicitly labelled, the last order.
 - Deletion requests cover customers (with their contacts, drafts and RFQ text). Quotes and orders are kept with a
-  pseudonymised customer for commercial record-keeping; uploaded RFQ files are not deleted by the purge job yet.
+  pseudonymised customer for commercial record-keeping. The purge also redacts the subject in the connector conflict
+  queue and in import-run failed rows, pseudonymises the customer block of stored quote document snapshots and deletes
+  the stored PDFs (they are re-rendered from the pseudonymised snapshot, so the PDF hash of an erased customer's
+  document changes — erasure takes precedence over byte identity for that one field). **Not covered yet**: uploaded
+  RFQ source files in object storage, free-text fields that mention the customer elsewhere (quote notes, audit
+  summaries, order notes), and backups.
+- A purge job that keeps failing is re-queued up to 10 times and then marked `purge_stalled` for an operator; there
+  is no alerting on that state.
 - Order numbers are per tenant (`SO-YYYY-NNNNN`); there is no year roll-over reset of the sequence.
 
 ## Stage 4 (implemented on `claude/stage4-governed-platform`, gate pending)

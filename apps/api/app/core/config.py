@@ -92,6 +92,11 @@ class Settings(BaseSettings):
         return self.app_env == "production"
 
     @property
+    def dev_endpoints_enabled(self) -> bool:
+        """Simulator inbound injection and the in-request worker exist for development and tests only."""
+        return self.app_env in ("development", "test")
+
+    @property
     def secure_cookies(self) -> bool:
         if self.cookie_secure is not None:
             return self.cookie_secure

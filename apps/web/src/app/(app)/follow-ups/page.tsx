@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { api, describeError } from "@/lib/api";
 import { dateTime } from "@/lib/format";
-import type { Draft, Job, Schedule } from "@/lib/types";
+import type { Draft, FollowUpPolicy, Job, Schedule } from "@/lib/types";
 import { useSession } from "@/components/session";
 import { Alert, Badge, Button, Card, Empty, inputClass, Loading, PageHeader } from "@/components/ui";
 
@@ -13,6 +13,7 @@ export default function FollowUpsPage() {
   const [schedules, setSchedules] = useState<Schedule[] | null>(null);
   const [drafts, setDrafts] = useState<Draft[] | null>(null);
   const [jobs, setJobs] = useState<Job[] | null>(null);
+  const [devTools, setDevTools] = useState(false);
   const [status, setStatus] = useState("pending");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -22,7 +23,10 @@ export default function FollowUpsPage() {
       const [s, d] = await Promise.all([api<Schedule[]>(`/follow-up/schedules?status=${status}`), api<Draft[]>("/drafts?status=draft")]);
       setSchedules(s);
       setDrafts(d);
-      if (can("manage_org")) setJobs(await api<Job[]>("/jobs"));
+      if (can("manage_org")) {
+        setJobs(await api<Job[]>("/jobs"));
+        setDevTools((await api<FollowUpPolicy>("/follow-up/policy")).dev_endpoints_enabled === true);
+      }
     } catch (e) {
       setError(describeError(e));
     }
@@ -51,7 +55,7 @@ export default function FollowUpsPage() {
           <div className="mb-3 flex items-center gap-2">
             <label htmlFor="sched-status" className="text-sm">Status</label>
             <select id="sched-status" className={`${inputClass} w-48`} value={status} onChange={(e) => setStatus(e.target.value)}>
-              {["pending", "drafted", "sent", "cancelled", "suppressed", "superseded", "all"].map((s) => <option key={s} value={s}>{s}</option>)}
+              {["pending", "drafted", "sent", "cancelled", "suppressed", "superseded", "failed", "all"].map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
           {!schedules ? <Loading /> : schedules.length === 0 ? <Empty title="No follow-ups in this state" /> : (
@@ -103,7 +107,7 @@ export default function FollowUpsPage() {
                 </tbody>
               </table>
             )}
-            <div className="mt-3"><Button variant="secondary" disabled={busy} onClick={() => void act(() => api("/jobs/run-once", { method: "POST" }))}>Run worker once (dev)</Button></div>
+            {devTools && <div className="mt-3"><Button variant="secondary" disabled={busy} onClick={() => void act(() => api("/jobs/run-once", { method: "POST" }))}>Run worker once (dev)</Button></div>}
           </Card>
         )}
       </div>

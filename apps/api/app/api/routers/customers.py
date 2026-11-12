@@ -6,11 +6,12 @@ from fastapi import APIRouter, Query
 from sqlalchemy import or_, select
 
 from app.api.deps import DB, PrincipalDep, clean_param
-from app.core.errors import NotFoundError, ValidationFailed
+from app.core.errors import ValidationFailed
 from app.models.customer import Customer
 from app.schemas.common import CustomerIn, CustomerOut
 from app.services import audit
-from app.services.authz import Permission
+from app.services.authz import Permission, has_permission
+from app.services.customers import get_active_customer
 from app.services.money import is_supported_currency
 
 router = APIRouter(prefix="/customers", tags=["customers"])
@@ -60,11 +61,13 @@ def create_customer(payload: CustomerIn, principal: PrincipalDep, db: DB) -> Cus
 
 @router.get("/{customer_id}", response_model=CustomerOut)
 def get_customer(customer_id: uuid.UUID, principal: PrincipalDep, db: DB) -> CustomerOut:
-    customer = db.scalar(
-        select(Customer).where(Customer.id == customer_id, Customer.organization_id == principal.org_id)
+    # a customer being erased stays visible only to the roles that manage the retention workflow
+    customer = get_active_customer(
+        db,
+        principal.org_id,
+        customer_id,
+        include_deleted=has_permission(principal.role, Permission.MANAGE_RETENTION),
     )
-    if customer is None:
-        raise NotFoundError("Customer not found")
     return CustomerOut.model_validate(customer)
 
 
@@ -72,11 +75,7 @@ def get_customer(customer_id: uuid.UUID, principal: PrincipalDep, db: DB) -> Cus
 def update_customer(customer_id: uuid.UUID, payload: CustomerIn, principal: PrincipalDep, db: DB) -> CustomerOut:
     principal.require(Permission.EDIT_QUOTES)
     _validate(payload)
-    customer = db.scalar(
-        select(Customer).where(Customer.id == customer_id, Customer.organization_id == principal.org_id)
-    )
-    if customer is None:
-        raise NotFoundError("Customer not found")
+    customer = get_active_customer(db, principal.org_id, customer_id)
     for k, v in payload.model_dump(exclude_unset=True).items():
         setattr(customer, k, v.upper() if k == "default_currency" and v else v)
     db.flush()

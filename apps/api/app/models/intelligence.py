@@ -19,6 +19,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
@@ -162,7 +163,16 @@ class FxRate(UUIDPrimaryKeyMixin, TenantMixin, Base):
 
 class ConnectorConnection(UUIDPrimaryKeyMixin, TenantMixin, TimestampMixin, Base):
     __tablename__ = "connector_connections"
-    __table_args__ = (UniqueConstraint("organization_id", "kind", name="uq_connector_org_kind"),)
+    __table_args__ = (
+        # one *active* connector per kind; disabled ones are kept for history and can be replaced (SEC3-07)
+        Index(
+            "uq_connector_org_kind_active",
+            "organization_id",
+            "kind",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+        ),
+    )
 
     kind: Mapped[str] = mapped_column(String(32), nullable=False)  # csv|erp_stub
     name: Mapped[str] = mapped_column(String(200), nullable=False)
@@ -178,13 +188,17 @@ class ConnectorConnection(UUIDPrimaryKeyMixin, TenantMixin, TimestampMixin, Base
 
 class SyncRun(UUIDPrimaryKeyMixin, TenantMixin, TimestampMixin, Base):
     __tablename__ = "sync_runs"
-    __table_args__ = (UniqueConstraint("organization_id", "idempotency_key", name="uq_sync_run_idem"),)
+    __table_args__ = (
+        UniqueConstraint("organization_id", "scope_key", "idempotency_key", name="uq_sync_run_scope_idem"),
+    )
 
     connection_id: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("connector_connections.id", ondelete="CASCADE")
     )
     kind: Mapped[str] = mapped_column(String(16), nullable=False, default="connector")  # connector|csv_import
     idempotency_key: Mapped[str] = mapped_column(String(160), nullable=False)
+    scope_key: Mapped[str] = mapped_column(String(120), nullable=False, default="")  # kind:connector:entity
+    request_hash: Mapped[str | None] = mapped_column(String(64))
     entity: Mapped[str] = mapped_column(String(32), nullable=False)  # products|stock|orders|customers
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="running"

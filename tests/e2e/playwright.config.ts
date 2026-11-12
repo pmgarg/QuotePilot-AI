@@ -19,7 +19,10 @@ const apiEnv = {
   STORAGE_DIR: path.join(ROOT, "var/e2e-storage"),
   CORS_ORIGINS: `http://localhost:${WEB_PORT}`,
   DEMO_PASSWORD,
-  LOG_LEVEL: "WARNING",
+  // CI keeps the API's JSON request log (method, path, status, request id) in the job output for post-mortems (I-3);
+  // Python buffers stdout when piped, so the buffer must be disabled or nothing appears before exit.
+  LOG_LEVEL: process.env.CI ? "INFO" : "WARNING",
+  PYTHONUNBUFFERED: "1",
 };
 
 export default defineConfig({
@@ -44,14 +47,22 @@ export default defineConfig({
       reuseExistingServer: false,
       timeout: 120_000,
       env: apiEnv,
+      stdout: process.env.CI ? "pipe" : "ignore", // access log in the CI job output for post-mortems (I-3)
+      stderr: "pipe",
     },
     {
-      command: `npx next start --port ${WEB_PORT}`,
+      // Build first, then serve: a build that replaces the files under a running `next start` leaves it serving
+      // pages whose script chunks no longer exist (every page then shows "This page couldn't load").
+      command: process.env.E2E_SKIP_WEB_BUILD
+        ? `npx next start --port ${WEB_PORT}`
+        : `npm run build && npx next start --port ${WEB_PORT}`,
       cwd: WEB_DIR,
       url: `http://localhost:${WEB_PORT}/login`,
       reuseExistingServer: false,
-      timeout: 180_000,
+      timeout: 420_000,
       env: { ...process.env, API_INTERNAL_URL: `http://127.0.0.1:${API_PORT}`, PORT: String(WEB_PORT) },
+      stdout: process.env.CI ? "pipe" : "ignore",
+      stderr: "pipe",
     },
   ],
 });

@@ -52,11 +52,188 @@ in round 4 (`implementer-fixes4-stage1-2026-11-01.md`) pending release review 3.
   from the container). Local: 329 API tests + 26 browser tests green. Gate stays **INCOMPLETE** until both CI runs
   are green on the new HEAD and release review 3 records its verdict.
 
+## Review 3 — Stage 1 @d0aac67 (2026-11-02, resumed 2026-11-10) — verdict INCOMPLETE / BLOCKED
+Full report: `docs/evidence/release-review-3-stage1-2026-11-02.md` (fresh-context reviewer, read-only tools).
+No Critical, High or Medium defect found in the round-5 code; the reviewer checked `update_draft` (no manual price can
+be relabelled `catalog`, no archived/inactive product can be newly linked), migration 0005b (correct, idempotent,
+transactional), `approve()`, `rfqs.update_item` and the web withdraw/banner logic. Blocked on process gates:
+- **R3-1 (Medium)** round-5 code had no independent QA/security re-verification and no scan file naming the commit.
+- **R3-2 (Medium)** CI for d0aac67 was not recorded in evidence; I-3 not root-caused.
+- **R3-3..R3-6 (Low)** compose start-up with the README command (fails closed), an undeclared test edit, stale
+  traceability, no UI path to resolve `catalog_version_mismatch`. **R3-7..R3-10 (Info)** explicit org filter, 0005b
+  error masking, revoke-script audit detail, missing tests.
+
+### CI evidence recorded for d0aac67 (GitHub Actions, queried 2026-11-02)
+| workflow | event | run id | conclusion |
+|---|---|---|---|
+| ci | push | 41369753932 | success |
+| ci | pull_request | 41369758251 | success (api, web, e2e jobs all success) |
+| security | push | 41369753972 | success |
+| security | pull_request | 41369758393 | success |
+Earlier pull_request `ci` runs failed in the browser job on 58976f3 (41362914665), 597f4b0 (41366647320) and e090089
+(41368062998) while the push runs of the same commits passed. The e090089 run (with page snapshots) showed logins
+landing back on `/login` and submit clicks leaving the version in `draft`, i.e. requests not reaching the API state
+the test expected; no product rule failed. The d0aac67 runs (with the API request log enabled) passed on both events,
+so I-3 remains **not root-caused**; the diagnostics stay enabled and every gated HEAD needs both events green.
+
+### Fix round 6 (Stage 1)
+R3-3 compose command (`--env-file .env`) + `scripts/check_compose.py` in CI and `make compose-check`; R3-4 evidence
+corrected; R3-5 traceability refreshed with review-3 verdicts; R3-6 editor "Use active catalog" control re-links a stale
+line (server re-prices); R3-7 explicit `organization_id` filter in `stale_catalog_lines`; R3-10 tests (stale pending
+quote cannot be approved; withdrawn-documents banner and re-link browser tests); NEW-15 test de-flaked; the auditor's
+self-declared dead repro test removed. Independent QA and security re-verification on the round-6 HEAD and a fresh
+review (4) are required before PASS.
+
+## Independent re-verification 3 — Stage 1 @f69ac25 (2026-11-10)
+- QA (`qa-stage1-reverify3-2026-11-10.md`): migrations base → head → `downgrade 0005` → head exit 0; full API suite
+  330 passed; new QA module 17 passed; Playwright 32 passed, 1 skipped (incl. 4 new QA browser tests). D2-1..D2-5, R3-6
+  and R3-10 confirmed closed in API and browser. **No defects**; Info O3-1..O3-4.
+- Security (`security-stage1-reverify3-2026-11-10.md`, scan `scan-20261110-170807.md` naming f69ac25): NEW-13..NEW-17 and
+  I-1 re-tested against a running system and closed; compose rendered as documented, `check_compose.py` OK, fails
+  closed without `--env-file`; `tests/security` 97 passed, 2 strict xfail (Info). **No Critical/High/Medium/Low**;
+  Info R4-1 (revoke script writes the platform total into each tenant's row), R4-2 (`check_compose.py` passes vacuously
+  if a service is renamed), R4-3 (inline comments in `.env.example` become values for `migrate`), R4-4 (forwarding
+  filter is a blocklist; `X-Forwarded-Prefix` passes, no consumer), R4-5 (provenance of an auditor file not provable
+  byte-for-byte; diff matches the declared edits).
+
+### CI evidence for f69ac25 (GitHub Actions, queried 2026-11-10)
+| workflow | event | run id | conclusion |
+|---|---|---|---|
+| ci | push | 42861093431 | success |
+| ci | pull_request | 42861108149 | success |
+| security | push | 42861093454 | success |
+| security | pull_request | 42861108774 | success |
+
+## Review 4 — Stage 1 @287d09e (2026-11-10, resumed 2026-11-12) — verdict INCOMPLETE / BLOCKED
+Full report: `docs/evidence/release-review-4-stage1-2026-11-10.md` (project `release-reviewer` agent, Read/Glob/Grep only).
+No Critical, High or Medium defect in the round-6 code; R3-1, R3-3, R3-4, R3-6, R3-7, R3-10 closed. Blocked on:
+- **RR4-1 (Medium, gate)** no recorded CI run with counts on the gated HEAD; I-3 not root-caused.
+- **RR4-2 (Low)** traceability, API contract and limitation wording behind the evidence.
+- RR4-3 (Low) editor paired rows by array index; RR4-4..RR4-6 Info.
+Human decisions listed by the reviewer are under "Human actions required" below.
+
+### Fix round 7 (Stage 1)
+`docs/evidence/implementer-fixes7-stage1-2026-11-12.md`: RR4-2 docs; RR4-3 (pair by id, reset `is_custom`); editor
+locked during saves; R4-2 compose check no longer vacuous; SEC3-11 (scientific notation in the shared decimal parser,
+reported by the Stage 3 security audit). Product code changed, so independent QA and security re-verification 4 and a
+review 5 are required before PASS.
+
+### CI evidence for bf05198 (fix round 7; GitHub Actions, queried 2026-11-12) — closes RR4-1 for that commit
+| workflow | event | run id | job results | counts read from the job logs |
+|---|---|---|---|---|
+| ci | push | 43145985640 | api success, web success, e2e success | pytest `380 passed, 1 skipped in 368.94s`, coverage TOTAL 90 %; Playwright `Running 33 tests using 1 worker` → `32 passed (1.7m)`, `1 skipped`, no flaky line, no `retry #` |
+| ci | pull_request | 43145992231 | api success, web success, e2e success | pytest `380 passed, 1 skipped in 376.54s`, coverage TOTAL 90 %; Playwright `32 passed (1.8m)`, `1 skipped`, no flaky line, no `retry #` |
+| security | push | 43145985620 | success | — |
+| security | pull_request | 43145992151 | success | — |
+
+The pytest skip is `tests/security/test_audit_followups4.py:402` (compose render needs a repo-root `.env`, RR4-5); the
+Playwright skip is `screenshots.spec.ts` (self-skipped by design). Local counts for the same commit were 379 passed,
+1 skipped, 1 xfailed (the xfail was R4-1, fixed in the same round and re-run) and 32 passed / 1 skipped — consistent.
+
+## Independent re-verification 4 — Stage 1 @bf05198 (2026-11-12) — defects found, gate stays open
+- QA (`qa-stage1-reverify4-2026-11-12.md`; 71 API tests, 6 browser tests): round-7 editor fixes verified in the
+  browser (row pairing, save lock, re-link), ordinary number formats unchanged, D2-1..D2-5 / R3-6 / R3-10 still closed;
+  full browser suite 38 passed, 0 failed, 0 flaky, 1 skipped. **Defects: D4-1 (Medium)** catalog price ≥ 1e12 in
+  scientific notation → unhandled numeric overflow (HTTP 500); **D4-2 (Low)** `1 e3`, `1e 3`, `1ee3`, `e3`, `12e`
+  still misread. Full API suite at bf05198 with the new tests: exit 1, 14 failed (all D4-1/D4-2), 505 passed,
+  2 skipped, 18 xfailed.
+- Security (`security-stage1-reverify4-2026-11-12.md`, scan `scan-20261112-031237.md` naming bf05198): R4-1 and R4-2
+  confirmed fixed; provenance rules hold. **Findings: SEC4-0 (Medium)** = D4-2 with end-to-end proof (a price of 13
+  stored for `1 e3`); **SEC4-6 (Medium)** RFQ quantity ≥ 1e15 → HTTP 500 and quantities above the API cap copied into
+  quote lines; SEC4-2 (Low/Medium) oversized prices → 500; SEC4-1, SEC4-3, SEC4-4, SEC4-5 (Low). No Critical or High.
+- Found outside Stage 1's own verification, by the Stage 3 QA run: **D5 (Medium)** — responses were sent before the
+  transaction committed (`app/db/session.py` / `api/deps.py`, unchanged since the first Stage 1 commit).
+The round-7 parser fix was therefore **incomplete**, and review 4's "no Medium defect in the code" no longer holds
+for the gated tree. No review was requested for bf05198.
+
+### Fix round 8 (Stage 1)
+`docs/evidence/implementer-fixes8-stage1-2026-11-12.md`: strict one-number parser (SEC4-0/1/3/4/5, D4-2), column and
+API caps for imported prices and RFQ quantities (SEC4-2, SEC4-6, D4-1), commit before response (D5; probable cause of
+I-3, recorded as an inference). Declared verifier-test edits are listed there. Product code changed again, so
+independent QA and security **re-verification 5** and a **review 5** are required before PASS.
+
+### CI on the round-8 commits (GitHub Actions, queried 2026-11-12)
+| commit | `ci` (api / web / e2e) | `security` workflow | CodeQL code-scanning **check** |
+|---|---|---|---|
+| 3586da2 (round 8) | runs 43152110441 and 43152116127 (push + pull_request): api success, web success; e2e still running when queried, superseded by the next push | 43152110485, 43152116146: success | **failure** — "1 new alert including 1 high severity" |
+| 6b3c452 (round 8b) | runs 43154055740 and 43154063337: all three jobs success on both | 43154055508, 43154063401: success | **failure** — same summary |
+| af8c902 (CI change only) | not queried (docs/workflow commit, superseded) | 43156058810 (push), 43156063859 (pull_request): success; job logs print the SARIF results: python **1** (`py/clear-text-logging-sensitive-data`, `apps/api/app/fixtures/seed.py:171`), javascript **0** | failure (same alert) |
+
+Test counts were not extracted for these three commits because each was superseded within the hour; counts are
+recorded for the gated HEAD only. **The code-scanning check is a separate status from the `security` workflow
+conclusion. Earlier gate tables recorded only workflow conclusions, so whether this check was red on earlier commits
+is unknown;** the flagged line (the seed printing the demo password) exists since the first Stage 1 commit, so it very
+probably was. From now on the check and the printed SARIF counts are part of every CI record.
+
+## Independent re-verification 5 — Stage 1 round 8 / 8b (2026-11-12) — defects found, gate stays open
+- QA (`qa-stage1-reverify5-2026-11-12.md`; 270 API tests, 2 browser tests; final runs at 6b3c452 / af8c902): D5
+  (commit before response) verified from a second connection for login, customer create, submit, approve, PDF, file
+  download and logout; failing commit → 500 with nothing persisted; live read-your-writes loop **0 misses of 1,480**;
+  parser judged on ~180 realistic/ambiguous cells plus a 60,000-cell fuzz (never raises, never changes the digit
+  sequence); caps verified at the boundaries; browser suite 40 passed, 0 failed, 0 flaky, 1 skipped. **Defects:
+  D5-1 (Low)** `0,500` read as 500; **D5-2 (Low/Info)** `..5` accepted. Full API suite: exit 1, 8 failed (7 = D5-1/D5-2,
+  1 = a contradiction inside the security agent's then-unfinished file), 955 passed, 2 skipped, 4 xfailed.
+- Security (`security-stage1-reverify5-2026-11-12.md`, scan `scan-20261112-042305.md` naming 6b3c452): SEC4-0..6
+  closed (SEC4-3 only for the U+2212 family); declared edits to its round-4 tests judged legitimate; the D5 change
+  reviewed with no defect (late queries fail closed under RLS, one session per request, failed commit → generic 500, no
+  cookie). The round-8 parser pattern was confirmed as a CPU denial of service and a regression (18.6 s for one
+  40,000-character cell at 3586da2), fixed by 8b. **Open: SEC5-5 (High, pre-existing)** quadratic RFQ text-line
+  patterns in the API process; **SEC5-6 (Medium)** = D5-1; SEC5-2, SEC5-3, SEC5-7 (Low); SEC5-4 (Info).
+- Orchestrator note: the auditor confirmed the parser slowdown by timing, not the CodeQL alert itself (it could not
+  read the alert). The alert turned out to be the seed line, not the parser — see the table above.
+No review was requested for round 8.
+
+### Fix round 9 (Stage 1)
+`docs/evidence/implementer-fixes9-stage1-2026-11-12.md`: linear-time RFQ line parsing (SEC5-5), leading-zero comma
+decimals (SEC5-6/D5-1), doubled dots (SEC5-7/D5-2), all dashes as minus (SEC5-3), non-decimal digit characters rejected
+(SEC5-2), demo seed no longer prints or generates a password (CodeQL alert). Declared verifier-test edits are listed
+there. Independent **re-verification 6** and a release review are required before PASS.
+
 ## Human actions required
 - Enable branch protection on `main` requiring checks `api`, `web`, `e2e`, `security` and one review (repository settings → Branches).
 - Sign any risk acceptance in this file with name, date and rationale. Documented Lows awaiting acknowledgement:
   L-2 (member-create e-mail existence), L-6 (parser has no OS-level isolation), NEW-11/12 (secret heuristic, limiter
   lockout primitive, parser concurrency wait), SEC-12 (GET renders/audits PDF), SEC-14 (CSP `unsafe-inline`), SEC-21
   (per-process limiter), L2-3 (blocker reveals cost ratio). None is Critical or High.
+- Acknowledge the catalog pinning rules (O2-1) and R3-6 behaviour together with the other documented Lows: a pending
+  ad-hoc quote whose catalog moved on must be rejected (which returns the same version to draft), re-linked with "Use
+  active catalog" and re-submitted; a SKU dropped from the new catalog can only be removed or replaced by a custom line
+  that an owner/admin confirms.
+- Decide whether Stage 1 may ship with S1-F21 (AI extraction adapter present, disabled, not wired) partial.
+- Decide whether a manual screen-reader audit (X-08) is required for Stage 1.
 - Decide whether running the Docker Compose topology (never executed in the development container) is required before
   calling Stage 1 released.
+
+---
+
+# Stage 2 gate log (branch `claude/stage2-followup-assistant`, PR #2) — status: OPEN, not reviewed
+
+Stage 2 has its own gate. Nothing in this section is a PASS; the release reviewer has not been invoked for Stage 2.
+
+## Independent verification of the first implementation (2026-11-02)
+- **QA** (`docs/evidence/qa-stage2-2026-11-02.md`; 55 API + 8 browser tests derived from the PRD): **15 defects —
+  2 Critical** (D-01 opt-out bypass, D-03 concurrent duplicate send), **4 High** (D-02, D-04, D-05, D-06), 8 Medium
+  (D-07..D-14), 1 Low (D-15). Acceptance criteria S2-A02 and S2-A03 failed, S2-A05 partial. Stage 1 did not regress.
+- **Security audit** (`docs/evidence/security-stage2-2026-11-02.md`): S2-SEC-01..S2-SEC-04 Medium (cross-tenant worker
+  on the request path, opt-out bound to the contact row instead of the address, dead-lettered schedules starving
+  other tenants, removable opt-out instruction), S2-SEC-05..S2-SEC-11 Low.
+
+## Fix rounds
+- **Round 1** (`implementer-fixes1-stage2-2026-11-10.md`, implementer agent): all QA defects except the disputed D-13
+  and all security findings except S2-SEC-06 (per-tenant provider secret stored but unused — accepted, documented in
+  KNOWN_LIMITATIONS, strict xfail kept). Self-reported runs: API 476 passed, 1 failed (D-13), 1 skipped, 1 xfailed;
+  browser 37 passed, 1 skipped.
+- **Round 2** (`implementer-fixes2-stage2-2026-11-12.md`, orchestrator): D-13 decided in QA's favour (a withdrawn
+  consent degrades a due automated follow-up to a draft); migration renumbered to `0006b`; Stage 1 fix rounds 6–8b
+  merged (including the commit-before-response fix D5). Declared edits to two security-audit tests.
+
+## Latest local runs on the merged tree (see the fixes2 evidence file for commands and exit codes)
+Recorded there; the table is updated with every merge. A green browser run on the tree that contains D5 exists
+(49 passed, 1 skipped, 0 failed at f09a842).
+
+## Still required before any Stage 2 verdict
+1. Independent QA re-verification of fix rounds 1–2 (including a judgement of every declared edit to verifier tests).
+2. Independent security re-verification (S2-SEC-01..11, the new send gate, tenant-scoped run-once, address-level opt-out).
+3. CI on the gated HEAD for both events, with job-level results and counts, including the CodeQL code-scanning check.
+4. Release review by the read-only `release-reviewer` with a fresh context; findings recorded here verbatim.
+Stage 2 also depends on Stage 1 being VERIFIED (ROADMAP); Stage 1's gate is still open.

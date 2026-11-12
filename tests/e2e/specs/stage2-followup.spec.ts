@@ -68,7 +68,8 @@ test.describe("Stage 2 — follow-up assistant", () => {
     const { quote } = await approvedQuote(page, browser);
     const token = await csrf(page);
     const customers = await (await page.request.get("/api/v1/customers")).json();
-    const contact = await (await page.request.post(`/api/v1/customers/${customers[0].id}/contacts`, { data: { full_name: "Opt Out", email: `optout-${Date.now()}@customer.example`, is_primary: true }, headers: { "X-CSRF-Token": token } })).json();
+    const optOutEmail = `optout-${Date.now()}@customer.example`;
+    const contact = await (await page.request.post(`/api/v1/customers/${customers[0].id}/contacts`, { data: { full_name: "Opt Out", email: optOutEmail, is_primary: true }, headers: { "X-CSRF-Token": token } })).json();
     await page.goto(`/quotes/${quote.id}`);
     await page.getByTestId("transition-sent").click();
     await expect(page.getByTestId("lifecycle-status")).toHaveText(/sent/i);
@@ -79,7 +80,8 @@ test.describe("Stage 2 — follow-up assistant", () => {
     // opt the contact out, then the quote page offers no draft creation for it
     await page.goto("/customers");
     await page.getByRole("button", { name: "Contacts" }).first().click();
-    await page.getByTestId("opt-out").first().click();
+    // the row of the contact created above, not whichever contact happens to be listed first
+    await page.getByTestId("contact-row").filter({ hasText: optOutEmail }).getByTestId("opt-out").click();
     await expect(page.getByTestId("contacts-panel")).toContainText("opted out");
     const r = await page.request.post(`/api/v1/quotes/${quote.id}/drafts`, { data: { contact_id: contact.id }, headers: { "X-CSRF-Token": token } });
     expect(r.status()).toBe(403);

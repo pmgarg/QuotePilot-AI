@@ -5,7 +5,7 @@ UV := uv
 export DATABASE_URL ?= postgresql+psycopg://quotepilot_app:quotepilot_app@localhost:5432/quotepilot
 export DATABASE_ADMIN_URL ?= postgresql+psycopg://quotepilot_owner:quotepilot_owner@localhost:5432/quotepilot
 
-.PHONY: help db-up api-install api-lint api-test api-test-unit api-test-security api-migrate api-run demo web-install web-check web-run e2e security-scan openapi fixtures
+.PHONY: help db-up api-install api-lint api-test api-test-unit api-test-security api-migrate api-run demo web-install web-check web-run e2e security-scan openapi fixtures compose-check
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-18s %s\n", $$1, $$2}'
@@ -38,7 +38,7 @@ worker-run: ## Run the Stage 2 follow-up worker (loop)
 api-run: ## Run the API on :8000
 	cd $(API_DIR) && $(UV) run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
-demo: api-migrate ## Migrate + seed synthetic demo data (prints local-only credentials)
+demo: api-migrate ## Migrate + seed synthetic demo data (needs DEMO_PASSWORD; lists the demo accounts, never the password)
 	cd $(API_DIR) && $(UV) run python -m app.fixtures.seed
 
 web-install: ## Install web dependencies
@@ -61,3 +61,8 @@ fixtures: ## Regenerate synthetic test fixtures
 
 security-scan: ## Dependency, static and secret scans; writes docs/evidence/scan-<date>.md
 	./scripts/security_scan.sh
+
+compose-check: ## Render the compose topology as documented and check credential boundaries (needs docker CLI, no daemon)
+	@test -f .env || cp .env.example .env
+	docker compose --env-file .env -f infra/docker-compose.yml config > /tmp/quotepilot-compose.yml
+	cd $(API_DIR) && $(UV) run python ../../scripts/check_compose.py /tmp/quotepilot-compose.yml

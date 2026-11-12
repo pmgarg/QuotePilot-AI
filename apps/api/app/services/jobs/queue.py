@@ -13,11 +13,12 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.errors import AppError, RateLimited
 from app.db.base import utcnow
 from app.db.session import set_tenant, set_worker_scope
 from app.models.followup import FollowUpSchedule, JobRun
 from app.models.org import Organization
-from app.services.comms.providers import ProviderError
+from app.services.comms.providers import ProviderError, scrub_error
 
 logger = logging.getLogger(__name__)
 Handler = Callable[[Session, Organization, dict[str, Any]], None]
@@ -25,7 +26,8 @@ MAX_BACKOFF = timedelta(hours=1)
 
 
 def backoff(attempt: int) -> timedelta:
-    return min(timedelta(seconds=30 * (2 ** max(attempt - 1, 0))), MAX_BACKOFF)
+    # the exponent is capped before the power is computed: enqueue(max_attempts=...) is unbounded (QA O-1)
+    return min(timedelta(seconds=30 * (2 ** min(max(attempt - 1, 0), 20))), MAX_BACKOFF)
 
 
 def enqueue(
@@ -102,51 +104,81 @@ HANDLERS: dict[str, Handler] = {
 }
 
 
-def enqueue_due_schedules(db: Session) -> int:
-    """Scheduler tick (owner-free): one job per due pending schedule, idempotent per schedule+due time."""
+def enqueue_due_schedules(
+    db: Session, *, org_id: uuid.UUID | None = None, limit: int = 200, scan_cap: int = 5000
+) -> int:
+    """Scheduler tick: one job per due pending schedule, idempotent per schedule+due time.
+
+    With `org_id` (API path) only that tenant is scanned under the normal tenant scope — the cross-tenant worker
+    scope is never bound on a request session (S2-SEC-01). Without it (the worker process) every tenant is scanned.
+    Schedules that already have a job are skipped by paging past them (keyset on due_at, id), so a pile of
+    stuck rows in one tenant cannot starve the others (S2-SEC-03)."""
     now = utcnow()
-    set_worker_scope(db)
-    rows = db.execute(
-        text(
-            "SELECT id, organization_id, due_at FROM follow_up_schedules "
-            "WHERE status = 'pending' AND due_at <= :now ORDER BY due_at LIMIT 200"
-        ),
-        {"now": now},
-    ).all()
-    n = 0
-    for sid, org_id, due_at in rows:
-        set_tenant(db, org_id, None)
-        if (
-            enqueue(
+    enqueued = scanned = 0
+    last: tuple[Any, Any] | None = None
+    while enqueued < limit and scanned < scan_cap:
+        if org_id is None:
+            set_worker_scope(db)
+        else:
+            set_tenant(db, org_id, None)
+        after_due, after_id = last if last is not None else (None, None)
+        rows = db.execute(
+            text(
+                "SELECT id, organization_id, due_at FROM follow_up_schedules "
+                "WHERE status = 'pending' AND due_at <= :now "
+                "AND (CAST(:org AS uuid) IS NULL OR organization_id = CAST(:org AS uuid)) "
+                "AND (CAST(:after_due AS timestamptz) IS NULL "
+                "     OR (due_at, id) > (CAST(:after_due AS timestamptz), CAST(:after_id AS uuid))) "
+                "ORDER BY due_at, id LIMIT 200"
+            ),
+            {"now": now, "org": org_id, "after_due": after_due, "after_id": after_id},
+        ).all()
+        if not rows:
+            break
+        for sid, row_org, due_at in rows:
+            set_tenant(db, row_org, None)
+            job = enqueue(
                 db,
-                org_id=org_id,
+                org_id=row_org,
                 kind="schedule_followup",
                 idempotency_key=f"schedule:{sid}:{due_at.isoformat()}",
                 payload={"schedule_id": str(sid)},
             )
-            is not None
-        ):
-            n += 1
+            if job is not None:
+                enqueued += 1
+                if enqueued >= limit:
+                    break
+        scanned += len(rows)
+        last = (rows[-1][2], rows[-1][0])
     db.commit()
-    return n
+    return enqueued
 
 
-def claim_next(db: Session, worker_id: str) -> JobRun | None:
-    set_worker_scope(db)
+def claim_next(db: Session, worker_id: str, org_id: uuid.UUID | None = None) -> JobRun | None:
+    """Claim one due job (SKIP LOCKED). `org_id` restricts the claim to one tenant under the normal tenant scope."""
+
+    def scope() -> None:
+        if org_id is None:
+            set_worker_scope(db)
+        else:
+            set_tenant(db, org_id, None)
+
+    scope()
     row = db.execute(
         text(
             "UPDATE job_runs SET status = 'running', locked_at = now(), locked_by = :w, attempts = attempts + 1 "
             "WHERE id = (SELECT id FROM job_runs WHERE status = 'queued' AND next_run_at <= now() "
+            "AND (CAST(:org AS uuid) IS NULL OR organization_id = CAST(:org AS uuid)) "
             "ORDER BY next_run_at FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING id"
         ),
-        {"w": worker_id},
+        {"w": worker_id, "org": org_id},
     ).first()
     if row is None:
         db.rollback()
         return None
     job_id = row[0]
     db.commit()
-    set_worker_scope(db)
+    scope()
     job = db.get(JobRun, job_id)
     db.commit()
     return job
@@ -171,19 +203,24 @@ def run_job(db: Session, job: JobRun) -> None:
         db.rollback()
         set_tenant(db, org_id, None)
         job = db.get(JobRun, job_id) or job
-        retryable = (
-            isinstance(exc, ProviderError)
-            and exc.retryable
-            or not isinstance(exc, ProviderError)
-            and not isinstance(exc, (ValueError, LookupError))
-        )
-        job.last_error = f"{type(exc).__name__}: {str(exc)[:400]}"
+        # A refusal by our own rules (consent withdrawn, opt-out, wrong state, validation) is deterministic: retrying
+        # it five times only burns attempts, so it is dead-lettered at once. Transient provider failures and the
+        # hourly rate limit are retried with backoff.
+        policy_refusal = isinstance(exc, AppError) and not isinstance(exc, RateLimited)
+        if isinstance(exc, ProviderError):
+            retryable = exc.retryable
+        elif policy_refusal or isinstance(exc, (ValueError, LookupError)):
+            retryable = False
+        else:
+            retryable = True
+        job.last_error = scrub_error(f"{type(exc).__name__}: {exc}")
         if retryable and job.attempts < job.max_attempts:
             job.status = "queued"
             job.next_run_at = utcnow() + backoff(job.attempts)
         else:
-            job.status = "dead" if retryable else "failed"
+            job.status = "dead" if (retryable or policy_refusal) else "failed"
             job.finished_at = utcnow()
+            _fail_schedule(db, job)
         db.commit()
         logger.warning(
             "job failed",
@@ -191,13 +228,31 @@ def run_job(db: Session, job: JobRun) -> None:
         )
 
 
-def run_once(db: Session, worker_id: str | None = None) -> int:
-    """Process every claimable job once (used by tests and `python -m app.workers.runner --once`)."""
+def _fail_schedule(db: Session, job: JobRun) -> None:
+    """A schedule whose job gave up must not stay 'pending' (it would look scheduled and be re-scanned forever):
+    it becomes 'failed' with the reason visible; an admin retry of the job re-arms it."""
+    if job.kind != "schedule_followup":
+        return
+    try:
+        sched = db.get(FollowUpSchedule, uuid.UUID(str(job.payload.get("schedule_id"))))
+    except ValueError:
+        return
+    if sched is not None and sched.status == "pending":
+        sched.status = "failed"
+        sched.last_error = (job.last_error or "job failed")[:500]
+
+
+def run_once(
+    db: Session, worker_id: str | None = None, *, org_id: uuid.UUID | None = None, max_jobs: int | None = None
+) -> int:
+    """Process claimable jobs once (tests and `python -m app.workers.runner --once`). With `org_id` only that
+    tenant's jobs are claimed, under the normal tenant scope; `max_jobs` bounds the work done in one call."""
     wid = worker_id or get_settings().followup_worker_id
     processed = 0
-    while True:
-        job = claim_next(db, wid)
+    while max_jobs is None or processed < max_jobs:
+        job = claim_next(db, wid, org_id)
         if job is None:
-            return processed
+            break
         run_job(db, job)
         processed += 1
+    return processed

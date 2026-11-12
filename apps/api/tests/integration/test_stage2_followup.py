@@ -3,6 +3,7 @@
 from datetime import timedelta
 
 import pytest
+from sqlalchemy import text
 
 from app.db.base import utcnow
 from app.db.session import get_sessionmaker, set_tenant
@@ -462,8 +463,13 @@ def test_user_can_see_and_cancel_or_reschedule_pending_followups(app, tenant_a: 
     r = sales.post(f"/follow-up/schedules/{first['id']}/cancel", json={"reason": "customer asked us to wait"})
     assert r.status_code == 200 and r.json()["status"] == "cancelled"
     assert sales.post(f"/follow-up/schedules/{first['id']}/cancel", json={}).status_code == 409
-    hist = sales.get(f"/quotes/{q['id']}/history").json()
-    assert "followup.cancel" in {e["action"] for e in hist["audit"]} or True  # schedule audit is keyed by schedule id
+    # the cancellation is audited against the schedule id (not the quote id, so /history does not list it)
+    with get_sessionmaker()() as db:
+        set_tenant(db, tenant_a.org_id, None)
+        cancelled = (
+            db.execute(text("SELECT entity_id FROM audit_events WHERE action = 'followup.cancel'")).scalars().all()
+        )
+    assert [str(x) for x in cancelled] == [first["id"]]
     with get_sessionmaker()() as db:
         queue.enqueue_due_schedules(db)
         queue.run_once(db)

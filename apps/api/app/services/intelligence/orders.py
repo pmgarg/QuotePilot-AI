@@ -92,6 +92,9 @@ def propose_from_quote(
     if lifecycle not in CONVERTIBLE_LIFECYCLE:
         raise StateError(f"Only approved quotes can be converted to orders (quote is '{lifecycle}')")
     version = get_version(quote, version_no or quote.current_version_no)
+    if version.version_no != quote.current_version_no:
+        # SEC3-09: an earlier approved version is superseded by the current one and must not be ordered from
+        raise StateError("Only the current approved version of a quote can be converted to an order")
     if version.status != "approved":
         raise StateError("Only an approved quote version can be converted to an order")
     existing = db.scalar(
@@ -130,9 +133,14 @@ def propose_from_quote(
                 unit_price=ln.unit_price * (Decimal(1) - ln.discount_pct / Decimal(100)),
                 cost_price=ln.cost_price,
                 tax_rate_pct=ln.tax_rate_pct,
+                # amounts are copied from the approved document, never re-derived: a re-rounded discounted unit
+                # price can differ from the approved line total by one minor unit
+                line_total=ln.line_total,
             )
         )
-    recompute_totals(order, org)
+    order.subtotal = version.subtotal - version.discount_total
+    order.tax_total = version.tax_total
+    order.grand_total = version.grand_total
     db.add(order)
     db.flush()
     _event(
@@ -195,7 +203,9 @@ def create_manual(
                 unit=str(ln.get("unit") or "EA"),
                 unit_price=Decimal(str(ln["unit_price"])),
                 cost_price=ln.get("cost_price"),
-                tax_rate_pct=Decimal(str(ln.get("tax_rate_pct") or org.default_tax_rate)),
+                tax_rate_pct=Decimal(
+                    str(org.default_tax_rate if ln.get("tax_rate_pct") is None else ln["tax_rate_pct"])
+                ),  # an explicit 0 % stays 0 % (SEC3-04)
             )
         )
     recompute_totals(order, org)

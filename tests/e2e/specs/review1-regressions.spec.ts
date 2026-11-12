@@ -16,6 +16,7 @@ test.describe("Release review 1 regressions", () => {
       await expect(page).toHaveURL(/\/dashboard$/);
       expect(new URL(page.url()).hostname).toBe("localhost");
       await page.getByTestId("logout").click();
+      await expect(page).toHaveURL(/\/login/); // let the logout navigation settle before the next goto (ERR_ABORTED otherwise)
     }
   });
 

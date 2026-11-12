@@ -8,12 +8,15 @@ future work in docs/KNOWN_LIMITATIONS.md.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -25,8 +28,11 @@ from app.models.intelligence import ConnectorConnection, Order, StockSnapshot, S
 from app.models.org import Organization
 from app.services import audit
 from app.services.catalog_import import active_version_for_org
+from app.services.comms.providers import valid_email
+from app.services.intelligence import data_io
 from app.services.intelligence import orders as order_service
-from app.services.money import is_supported_currency, parse_decimal
+from app.services.intelligence.inputs import MAX_PRICE, MAX_QTY, FieldError, decimal_field, order_line, text_field
+from app.services.money import is_supported_currency
 
 KINDS = {"erp_stub", "csv"}
 SCOPES = {"read:products", "read:stock", "read:orders", "read:customers"}
@@ -70,10 +76,12 @@ def create_connection(
         raise ValidationFailed("At least one scope is required", field="scopes")
     if db.scalar(
         select(ConnectorConnection.id).where(
-            ConnectorConnection.organization_id == org.id, ConnectorConnection.kind == kind
+            ConnectorConnection.organization_id == org.id,
+            ConnectorConnection.kind == kind,
+            ConnectorConnection.status == "active",
         )
     ):
-        raise StateError(f"A '{kind}' connector already exists")
+        raise StateError(f"An active '{kind}' connector already exists")
     conn = ConnectorConnection(
         organization_id=org.id, kind=kind, name=name, scopes=sorted(set(scopes)), connected_by=actor_user_id
     )
@@ -124,15 +132,18 @@ def sync(
         raise StateError("Connector is disabled")
     if len(records) > get_settings().max_sync_records:
         raise PayloadTooLarge("Too many records in one sync")
-    existing = db.scalar(
-        select(SyncRun).where(SyncRun.organization_id == org.id, SyncRun.idempotency_key == idempotency_key)
-    )
+    scope_key = data_io.scope_key("connector", conn.id, entity)
+    request_hash = hashlib.sha256(json.dumps(records, sort_keys=True, default=str).encode()).hexdigest()
+    existing = data_io.find_run(db, org.id, scope_key, idempotency_key)
     if existing is not None:
-        return existing  # idempotent replay: the previous outcome is authoritative
+        # idempotent replay of the same payload: the previous outcome is authoritative (different payload → 409)
+        return data_io.replay_or_conflict(existing, request_hash)
     run = SyncRun(
         organization_id=org.id,
         connection_id=conn.id,
         kind="connector",
+        scope_key=scope_key,
+        request_hash=request_hash,
         idempotency_key=idempotency_key,
         entity=entity,
         status="running",
@@ -206,6 +217,16 @@ def _same(field: str, local: Any, remote: Any) -> bool:
     return str(local) == str(remote)
 
 
+def _reject(rejected: list[dict[str, Any]], index: int, reason: str) -> None:
+    rejected.append({"index": index, "reason": reason[:200]})
+
+
+def _record(rec: Any) -> dict[str, Any]:
+    if not isinstance(rec, dict):
+        raise FieldError("record must be an object")
+    return rec
+
+
 def _sync_products(
     db: Session,
     org: Organization,
@@ -219,26 +240,22 @@ def _sync_products(
     active = active_version_for_org(db, org.id)
     rejected: list[dict[str, Any]] = []
     conflicts = applied = 0
-    for i, rec in enumerate(records):
-        sku = str(rec.get("sku") or "").strip()
-        if not sku:
-            rejected.append({"index": i, "reason": "sku required"})
-            continue
-        remote: dict[str, Any] = {}
-        for f in PRODUCT_MASTER_FIELDS:
-            if f in rec and rec[f] is not None:
+    for i, raw in enumerate(records):
+        try:
+            rec = _record(raw)
+            sku = text_field(rec.get("sku"), name="sku", max_len=100, required=True) or ""
+            remote: dict[str, Any] = {}
+            for f in PRODUCT_MASTER_FIELDS:
+                if rec.get(f) is None:
+                    continue
                 if f in ("list_price", "cost_price"):
-                    d = parse_decimal(rec[f])
-                    if d is None or d < 0:
-                        rejected.append({"index": i, "reason": f"{f} invalid"})
-                        remote = {}
-                        break
-                    remote[f] = str(d)
+                    remote[f] = str(decimal_field(rec[f], name=f, minimum=Decimal(0), maximum=MAX_PRICE))
                 else:
-                    remote[f] = str(rec[f])[:500]
-        if not remote:
-            if not any(r.get("index") == i for r in rejected):
-                rejected.append({"index": i, "reason": "no master fields supplied"})
+                    remote[f] = text_field(rec[f], name=f, max_len=16 if f == "unit" else 500, required=True)
+            if not remote:
+                raise FieldError("no master fields supplied")
+        except FieldError as exc:
+            _reject(rejected, i, str(exc))
             continue
         product = None
         if active is not None:
@@ -277,18 +294,20 @@ def _sync_stock(
     rejected: list[dict[str, Any]] = []
     applied = 0
     now = utcnow()
-    for i, rec in enumerate(records):
-        sku = str(rec.get("sku") or "").strip()
-        qty = parse_decimal(rec.get("quantity"))
-        observed = _parse_ts(rec.get("observed_at"))
-        if not sku or qty is None or qty < 0:
-            rejected.append({"index": i, "reason": "sku and non-negative quantity required"})
+    for i, raw in enumerate(records):
+        try:
+            rec = _record(raw)
+            sku = text_field(rec.get("sku"), name="sku", max_len=100, required=True) or ""
+            qty = decimal_field(rec.get("quantity"), name="quantity", minimum=Decimal(0), maximum=MAX_QTY)
+        except FieldError:
+            _reject(rejected, i, "sku and non-negative quantity required")
             continue
+        observed = _parse_ts(rec.get("observed_at"))
         if observed is None:
-            rejected.append({"index": i, "reason": "observed_at must be a timezone-aware ISO-8601 timestamp"})
+            _reject(rejected, i, "observed_at must be a timezone-aware ISO-8601 timestamp")
             continue
         if observed > now:
-            rejected.append({"index": i, "reason": "observed_at in the future"})
+            _reject(rejected, i, "observed_at in the future")
             continue
         product = None
         if active is not None:
@@ -296,14 +315,14 @@ def _sync_stock(
                 select(Product).where(Product.catalog_version_id == active.id, Product.sku_normalized == sku.upper())
             )
         if product is None:
-            rejected.append({"index": i, "reason": f"unknown sku {sku}"})
+            _reject(rejected, i, "unknown sku")
             continue
         db.add(
             StockSnapshot(
                 organization_id=org.id,
                 product_id=product.id,
                 source=conn.kind,
-                quantity=Decimal(qty),
+                quantity=qty,
                 observed_at=observed,
                 recorded_at=now,
             )
@@ -323,21 +342,35 @@ def _sync_customers(
 ) -> tuple[int, int, list[dict[str, Any]]]:
     rejected: list[dict[str, Any]] = []
     applied = conflicts = 0
-    for i, rec in enumerate(records):
-        ref = str(rec.get("reference") or "").strip()
-        name = str(rec.get("name") or "").strip()
-        if not ref or not name:
-            rejected.append({"index": i, "reason": "reference and name required"})
+    for i, raw in enumerate(records):
+        try:
+            rec = _record(raw)
+            ref = text_field(rec.get("reference"), name="reference", max_len=100, required=True) or ""
+            name = text_field(rec.get("name"), name="name", max_len=200, required=True) or ""
+            email = text_field(rec.get("email"), name="email", max_len=320)
+            cur_raw = text_field(rec.get("default_currency"), name="default_currency", max_len=3)
+            cur = cur_raw.upper() if cur_raw else None
+            if email and not valid_email(email):
+                raise FieldError("invalid email")
+            if cur and not is_supported_currency(cur):
+                raise FieldError(f"unsupported currency {cur}")
+        except FieldError as exc:
+            _reject(rejected, i, str(exc))
             continue
-        cur = str(rec.get("default_currency") or "").upper() or None
-        if cur and not is_supported_currency(cur):
-            rejected.append({"index": i, "reason": f"unsupported currency {cur}"})
-            continue
-        remote = {"name": name[:200], "email": rec.get("email"), "default_currency": cur}
+        remote = {"name": name, "email": email, "default_currency": cur}
         existing = db.scalar(select(Customer).where(Customer.organization_id == org.id, Customer.reference == ref))
         if existing is None:
-            db.add(Customer(organization_id=org.id, reference=ref[:100], **remote))
+            try:
+                with db.begin_nested():
+                    db.add(Customer(organization_id=org.id, reference=ref, **remote))
+                    db.flush()
+            except DBAPIError:
+                _reject(rejected, i, "record could not be stored")
+                continue
             applied += 1
+            continue
+        if existing.deleted_at is not None:
+            _reject(rejected, i, "customer is being deleted; no further processing")  # SEC3-02
             continue
         local = {f: getattr(existing, f) for f in CUSTOMER_MASTER_FIELDS}
         diff = [f for f in CUSTOMER_MASTER_FIELDS if remote.get(f) is not None and remote[f] != local.get(f)]
@@ -361,63 +394,53 @@ def _sync_orders(
     """External orders arrive as *proposed* orders (external_ref idempotent) and still need confirmation."""
     rejected: list[dict[str, Any]] = []
     applied = 0
-    for i, rec in enumerate(records):
-        ref = str(rec.get("external_ref") or "").strip()
-        currency = str(rec.get("currency") or org.default_currency).upper()
-        lines = rec.get("lines") or []
-        if not ref or not isinstance(lines, list) or not lines:
-            rejected.append({"index": i, "reason": "external_ref and non-empty lines required"})
-            continue
-        if not is_supported_currency(currency):
-            rejected.append({"index": i, "reason": f"unsupported currency {currency}"})
+    default_tax = Decimal(org.default_tax_rate)
+    for i, raw in enumerate(records):
+        try:
+            rec = _record(raw)
+            ref = text_field(rec.get("external_ref"), name="external_ref", max_len=100, required=True) or ""
+            cur_raw = text_field(rec.get("currency"), name="currency", max_len=3)
+            currency = (cur_raw or org.default_currency).upper()
+            if not is_supported_currency(currency):
+                raise FieldError(f"unsupported currency {currency}")
+            lines = rec.get("lines")
+            if not isinstance(lines, list) or not lines or len(lines) > 500:
+                raise FieldError("lines must be a non-empty list (max 500)")
+            parsed = [order_line(_record(ln), default_tax=default_tax) for ln in lines]
+            cust_ref = text_field(rec.get("customer_reference"), name="customer_reference", max_len=100)
+        except FieldError as exc:
+            _reject(rejected, i, str(exc))
             continue
         if db.scalar(select(Order.id).where(Order.organization_id == org.id, Order.external_ref == ref)):
             applied += 1  # already known → idempotent no-op
             continue
-        parsed: list[dict[str, Any]] = []
-        ok = True
-        for ln in lines:
-            qty = parse_decimal(ln.get("quantity")) if isinstance(ln, dict) else None
-            price = parse_decimal(ln.get("unit_price")) if isinstance(ln, dict) else None
-            if qty is None or qty <= 0 or price is None or price < 0:
-                ok = False
-                break
-            parsed.append(
-                {
-                    "sku": ln.get("sku"),
-                    "description": ln.get("description") or ln.get("sku"),
-                    "quantity": qty,
-                    "unit": ln.get("unit") or "EA",
-                    "unit_price": price,
-                    "tax_rate_pct": parse_decimal(ln.get("tax_rate_pct")) or Decimal(org.default_tax_rate),
-                }
-            )
-        if not ok:
-            rejected.append({"index": i, "reason": "every line needs a positive quantity and non-negative unit_price"})
-            continue
         customer = None
-        if rec.get("customer_reference"):
+        if cust_ref:
             customer = db.scalar(
                 select(Customer).where(
-                    Customer.organization_id == org.id, Customer.reference == str(rec["customer_reference"])
+                    Customer.organization_id == org.id, Customer.reference == cust_ref, Customer.deleted_at.is_(None)
                 )
             )
             if customer is None:
-                rejected.append({"index": i, "reason": "unknown customer_reference"})
+                _reject(rejected, i, "unknown customer_reference")
                 continue
-        with db.begin_nested():
-            order_service.create_manual(
-                db,
-                org=org,
-                actor_user_id=actor,
-                ip=ip,
-                customer_id=customer.id if customer else None,
-                currency=currency,
-                lines=parsed,
-                source="connector",
-                external_ref=ref,
-                notes=f"connector {conn.kind}",
-            )
+        try:
+            with db.begin_nested():
+                order_service.create_manual(
+                    db,
+                    org=org,
+                    actor_user_id=actor,
+                    ip=ip,
+                    customer_id=customer.id if customer else None,
+                    currency=currency,
+                    lines=parsed,
+                    source="connector",
+                    external_ref=ref,
+                    notes=f"connector {conn.kind}",
+                )
+        except DBAPIError:
+            _reject(rejected, i, "record could not be stored")
+            continue
         applied += 1
     return applied, 0, rejected
 
@@ -436,6 +459,8 @@ def resolve_conflict(
         raise StateError("Conflict already resolved")
     if resolution not in ("keep_local", "apply_remote", "dismiss"):
         raise ValidationFailed("resolution must be keep_local, apply_remote or dismiss", field="resolution")
+    before: dict[str, Any] = {}
+    after: dict[str, Any] = {}
     if resolution == "apply_remote":
         if conflict.entity == "products":
             active = active_version_for_org(db, org.id)
@@ -453,15 +478,22 @@ def resolve_conflict(
                 raise StateError("Remote value is a new SKU; import it through a catalog version instead")
             for f in conflict.fields:
                 val = conflict.remote_value.get(f)
-                if f in ("list_price", "cost_price"):
-                    setattr(product, f, Decimal(val) if val is not None else None)
-                elif f in ("description", "unit"):
-                    setattr(product, f, val)
+                try:
+                    if f in ("list_price", "cost_price"):
+                        new_price = decimal_field(val, name=f, minimum=Decimal(0), maximum=MAX_PRICE)
+                        before[f], after[f] = str(getattr(product, f)), str(new_price)
+                        setattr(product, f, new_price)
+                    elif f in ("description", "unit"):
+                        text = text_field(val, name=f, max_len=16 if f == "unit" else 500, required=True)
+                        before[f], after[f] = getattr(product, f), text
+                        setattr(product, f, text)
+                except FieldError as exc:
+                    raise StateError(f"Remote value cannot be applied: {exc}") from exc
         elif conflict.entity == "customers":
             customer = db.scalar(
                 select(Customer).where(Customer.organization_id == org.id, Customer.reference == conflict.entity_key)
             )
-            if customer is None:
+            if customer is None or customer.deleted_at is not None:
                 raise StateError("Customer no longer exists")
             for f in conflict.fields:
                 if f in CUSTOMER_MASTER_FIELDS:
@@ -486,6 +518,8 @@ def resolve_conflict(
             "entity": conflict.entity,
             "key": conflict.entity_key,
             "fields": conflict.fields,
+            "before": before,
+            "after": after,
         },
     )
     return conflict

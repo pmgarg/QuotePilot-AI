@@ -105,7 +105,7 @@ export function FollowUpPanel({ quote, onQuoteChanged }: { quote: Quote; onQuote
       {editing && (
         <form className="mt-3 flex flex-col gap-2 rounded-md border border-slate-200 p-3" onSubmit={(e) => { e.preventDefault(); const fd = new FormData(e.currentTarget); void run(() => api(`/drafts/${editing.id}`, { method: "PATCH", json: { subject: fd.get("subject"), body: fd.get("body") } }).then(() => setEditing(null)), "Draft updated."); }}>
           <Field label="Subject" htmlFor="d-subject"><input id="d-subject" name="subject" className={inputClass} defaultValue={editing.subject} maxLength={300} data-testid="draft-subject" /></Field>
-          <Field label="Body (plain text; placeholders in braces are allowed)" htmlFor="d-body"><textarea id="d-body" name="body" rows={8} className={inputClass} defaultValue={editing.body} data-testid="draft-body" /></Field>
+          <Field label="Body (plain text; placeholders in braces are allowed)" htmlFor="d-body" hint="The opt-out instruction is always added when the message is sent, and placeholders are filled in at that moment."><textarea id="d-body" name="body" rows={8} className={inputClass} defaultValue={editing.body} data-testid="draft-body" /></Field>
           <div className="flex gap-2"><Button type="submit" disabled={busy}>Save draft</Button><Button variant="secondary" onClick={() => setEditing(null)}>Cancel</Button></div>
         </form>
       )}

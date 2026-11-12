@@ -19,7 +19,19 @@ from typing import Protocol
 
 from app.db.base import utcnow
 
-EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+\-']+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
+EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-']+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+_ADDRESS_IN_TEXT = re.compile(r"[A-Za-z0-9._%+\-']+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def scrub_error(text: str, limit: int = 400) -> str:
+    """Error text stored for admins: bounded, no e-mail addresses (providers often echo the recipient)."""
+    return _ADDRESS_IN_TEXT.sub("[EMAIL]", text)[:limit]
+
+
+def clean_header_text(text: str) -> str:
+    """Display names and similar header values: control characters (CR/LF included) become spaces."""
+    return _CONTROL.sub(" ", text).strip()
 
 
 class ProviderError(Exception):
@@ -72,7 +84,8 @@ class MailProvider(Protocol):
 
 
 def valid_email(address: str | None) -> bool:
-    return bool(address) and bool(EMAIL_RE.match(address or "")) and len(address or "") <= 320
+    # fullmatch: `$` would also accept a trailing newline (S2-SEC-09)
+    return bool(address) and bool(EMAIL_RE.fullmatch(address or "")) and len(address or "") <= 320
 
 
 class SimulatorProvider:
@@ -122,15 +135,18 @@ class SMTPProvider:
         if not valid_email(message.to_email):
             raise ProviderError("recipient address rejected", retryable=False, status=400)
         msg = EmailMessage()
-        msg["From"] = email.utils.formataddr((message.from_name, self.from_email))
-        msg["To"] = message.to_email
-        msg["Subject"] = message.subject.replace("\r", " ").replace("\n", " ")[:300]
-        msg["Message-ID"] = email.utils.make_msgid()
-        if message.reply_to and valid_email(message.reply_to):
-            msg["Reply-To"] = message.reply_to
-        for k, v in message.headers.items():
-            msg[k] = v.replace("\r", " ").replace("\n", " ")
-        msg.set_content(message.body_text)
+        try:
+            msg["From"] = email.utils.formataddr((clean_header_text(message.from_name), self.from_email))
+            msg["To"] = message.to_email
+            msg["Subject"] = message.subject.replace("\r", " ").replace("\n", " ")[:300]
+            msg["Message-ID"] = email.utils.make_msgid()
+            if message.reply_to and valid_email(message.reply_to):
+                msg["Reply-To"] = message.reply_to
+            for k, v in message.headers.items():
+                msg[k] = v.replace("\r", " ").replace("\n", " ")
+            msg.set_content(message.body_text)
+        except ValueError as exc:  # header policy refused a value: permanent, recorded by the caller (S2-SEC-10)
+            raise ProviderError("message headers were refused by the mail policy", retryable=False) from exc
         try:
             with smtplib.SMTP(self.host, self.port, timeout=20) as smtp:
                 if self.use_tls:

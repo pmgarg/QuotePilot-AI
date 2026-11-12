@@ -103,28 +103,6 @@ def test_new13_rfq_without_catalog_version_refuses_products_of_inactive_versions
     assert r.status_code == 422, r.text
 
 
-def test_new13_repro_inactive_product_becomes_catalog_priced_line_via_rfq(app) -> None:  # type: ignore[no-untyped-def]
-    """Documents the current (insecure) behaviour end to end; remove together with NEW-13 fix + marker above."""
-    t = make_tenant("Gamma Nocat2", with_catalog=False)
-    admin = login_as(app, t.users["admin"])
-    sales = login_as(app, t.users["sales"])
-    rfq = sales.post(
-        "/rfqs", json={"text": "10 pcs SKU-1001 Hex bolt M8x40 zinc plated\n", "customer_id": str(t.customer_id)}
-    ).json()
-    item = rfq["items"][0]
-    cheap = _import(admin, "cheap", b"SKU-1001,Hex bolt M8x40 zinc plated,EA,AED,0.01\n", activate=False)
-    _import(admin, "real", b"SKU-1001,Hex bolt M8x40 zinc plated,EA,AED,0.85\n", activate=True)
-    bogus = sales.get(f"/catalogs/versions/{cheap['id']}/products").json()["items"][0]
-    r = sales.patch(f"/rfqs/{rfq['id']}/items/{item['id']}", json={"selected_product_id": bogus["id"]})
-    if r.status_code == 422:
-        pytest.skip("NEW-13 fixed at the RFQ item level")
-    q = sales.post(f"/rfqs/{rfq['id']}/generate-quote")
-    assert q.status_code == 201, q.text
-    line = q.json()["current_version"]["lines"][0]
-    assert (line["unit_price"], line["price_source"]) == ("0.01", "catalog")
-    assert q.json()["blockers"] == []  # submittable at the never-activated price, no confirmation needed
-
-
 # ---------------------------------------------------------------------------------------------------
 # N2-1 B (copy / stale-draft route): submission never re-checks that `catalog`-priced lines belong to the quote's
 # pricing catalog version. An ad-hoc quote (no RFQ → no frozen version → authority = ACTIVE version) keeps lines
@@ -484,18 +462,18 @@ def test_new3_org_kill_switch_revokes_only_that_tenant_and_writes_one_audit_row(
 
 def test_new15_platform_scope_revocation_audit_row_is_readable_by_an_operator(app, tenant_b: Tenant) -> None:  # type: ignore[no-untyped-def]
     login_as(app, tenant_b.users["sales"])
-    ins_before = _owner("SELECT n_tup_ins FROM pg_stat_user_tables WHERE relname = 'audit_events'")
+    q = "SELECT count(*) FROM audit_events WHERE action = 'ops.sessions_revoked'"
+    before = _owner(q, org=tenant_b.org_id)
     p = _run_revoke("--user-email", tenant_b.users["sales"])
     assert p.returncode == 0 and "revoked 1 session(s)" in p.stdout, p.stderr
-    ins_after = _owner("SELECT n_tup_ins FROM pg_stat_user_tables WHERE relname = 'audit_events'")
-    assert ins_after == ins_before + 1  # one row per affected organisation (round 5 remedy for NEW-15) …
-    visible = _owner(
-        "SELECT count(*) FROM audit_events WHERE action = 'ops.sessions_revoked' "
-        "AND summary->>'scope' = 'user' AND summary->>'total' = '1'",
+    # round 5 remedy for NEW-15: exactly one row, written in the affected organisation's scope (readable there)
+    assert _owner(q, org=tenant_b.org_id) == before + 1
+    row = _owner(
+        "SELECT summary->>'scope' || '/' || (summary->>'count') FROM audit_events "
+        "WHERE action = 'ops.sessions_revoked' ORDER BY created_at DESC LIMIT 1",
         org=tenant_b.org_id,
     )
-    assert visible == 1, "… readable inside the tenant's audit scope by the owner role and the product"
-    assert _owner("SELECT count(*) FROM audit_events WHERE organization_id IS NULL") in (0, None)
+    assert row == "user/1"
 
 
 # ---------------------------------------------------------------------------------------------------

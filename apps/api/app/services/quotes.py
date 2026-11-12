@@ -27,7 +27,7 @@ from app.models.quote import ApprovalDecision, Quote, QuoteLine, QuoteVersion
 from app.models.rfq import RFQ
 from app.services import audit
 from app.services.authz import Permission, has_permission
-from app.services.money import is_supported_currency
+from app.services.money import MAX_QUANTITY, is_supported_currency
 from app.services.pricing import LineInput, compute_line, validate_line
 
 MAX_TOTAL = Decimal("100000000000000")  # 1e14 < NUMERIC(18,3) capacity; keeps every aggregate representable
@@ -127,13 +127,46 @@ def stale_catalog_lines(db: Session, org: Organization, version: QuoteVersion) -
         return set()
     allowed = _pricing_catalog_version_id(db, org, version)
     versions: dict[uuid.UUID, uuid.UUID] = {
-        pid: cv for pid, cv in db.execute(select(Product.id, Product.catalog_version_id).where(Product.id.in_(pids)))
+        pid: cv
+        for pid, cv in db.execute(
+            select(Product.id, Product.catalog_version_id).where(
+                Product.id.in_(pids), Product.organization_id == org.id
+            )
+        )
     }
     return {
         ln.line_no
         for ln in version.lines
         if ln.product_id is not None and ln.price_source == "catalog" and versions.get(ln.product_id) != allowed
     }
+
+
+def repriced_catalog_lines(db: Session, org: Organization, quote: Quote, version: QuoteVersion) -> dict[int, Decimal]:
+    """SEC3-10: open (draft/pending) lines labelled `catalog` whose product price was changed in place since the
+    line was priced (a connector conflict applied to the active catalog). Returns line_no → current list price."""
+    if version.status not in ("draft", "pending_approval"):
+        return {}
+    lines = [
+        ln
+        for ln in version.lines
+        if ln.product_id is not None and ln.price_source == "catalog" and ln.unit_price is not None
+    ]
+    if not lines:
+        return {}
+    current = {
+        pid: (Decimal(price), cur)
+        for pid, price, cur in db.execute(
+            select(Product.id, Product.list_price, Product.currency).where(
+                Product.id.in_([ln.product_id for ln in lines]), Product.organization_id == org.id
+            )
+        )
+    }
+    changed: dict[int, Decimal] = {}
+    for ln in lines:
+        found = current.get(ln.product_id) if ln.product_id is not None else None
+        if found is not None and found[1] == quote.currency and found[0] != Decimal(ln.unit_price or 0):
+            changed[ln.line_no] = found[0]
+    return changed
 
 
 def compute_blockers(
@@ -151,7 +184,17 @@ def compute_blockers(
     if not version.lines:
         blockers.append(Blocker("no_lines", "Quote has no lines"))
     stale = stale_catalog_lines(db, org, version) if db is not None else set()
+    repriced = repriced_catalog_lines(db, org, quote, version) if db is not None else {}
     for line in version.lines:
+        if line.line_no in repriced and line.line_no not in stale:
+            blockers.append(
+                Blocker(
+                    "catalog_price_changed",
+                    f"Line {line.line_no}: the catalog price changed to {repriced[line.line_no].normalize():f} "
+                    "since this line was priced; save the draft to take the new price",
+                    line.line_no,
+                )
+            )
         if line.line_no in stale:
             blockers.append(
                 Blocker(
@@ -237,7 +280,12 @@ def create_quote(
         raise ValidationFailed(f"Unsupported currency '{cur}'", field="currency")
     if (
         customer_id is not None
-        and db.scalar(select(Customer.id).where(Customer.id == customer_id, Customer.organization_id == org.id)) is None
+        and db.scalar(
+            select(Customer.id).where(
+                Customer.id == customer_id, Customer.organization_id == org.id, Customer.deleted_at.is_(None)
+            )
+        )
+        is None
     ):
         raise NotFoundError("Customer not found")
     quote = Quote(
@@ -330,7 +378,7 @@ def generate_from_rfq(db: Session, *, org: Organization, actor_user_id: uuid.UUI
                     item.line_no,
                 )
             )
-        if item.quantity is None:
+        if item.quantity is None or not (0 < item.quantity <= MAX_QUANTITY):
             problems.append(Blocker("quantity_missing", f"Line {item.line_no} has no valid quantity", item.line_no))
         if item.selected_product_id is None and not item.is_custom:
             problems.append(
@@ -379,7 +427,7 @@ def generate_from_rfq(db: Session, *, org: Organization, actor_user_id: uuid.UUI
             rfq_item_id=item.id,
             sku=product.sku if product else item.sku_hint,
             description=product.description if product else item.description,
-            quantity=item.quantity,
+            quantity=item.quantity if item.quantity is not None and 0 < item.quantity <= MAX_QUANTITY else None,
             unit=(product.unit if product else (item.unit_normalized or item.unit_raw or "EA")),
             tax_rate_pct=org.default_tax_rate,
             is_custom=item.is_custom,

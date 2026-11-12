@@ -1644,8 +1644,8 @@
           "rate": {
             "anyOf": [
               {
-                "exclusiveMinimum": 0.0,
                 "maximum": 1000000.0,
+                "minimum": 1e-08,
                 "type": "number"
               },
               {
@@ -3273,6 +3273,11 @@
           },
           "automation_enabled": {
             "title": "Automation Enabled",
+            "type": "boolean"
+          },
+          "dev_endpoints_enabled": {
+            "default": false,
+            "title": "Dev Endpoints Enabled",
             "type": "boolean"
           },
           "hourly_send_limit": {
@@ -6303,6 +6308,39 @@
         ]
       }
     },
+    "/api/v1/catalogs/active-version": {
+      "get": {
+        "description": "The catalog version new ad-hoc quote lines price from (the most recently activated catalog wins).",
+        "operationId": "active_version_api_v1_catalogs_active_version_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "title": "Response Active Version Api V1 Catalogs Active Version Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Active Version",
+        "tags": [
+          "catalogs"
+        ]
+      }
+    },
     "/api/v1/catalogs/import": {
       "post": {
         "operationId": "import_catalog_api_v1_catalogs_import_post",
@@ -6650,6 +6688,50 @@
           }
         },
         "summary": "Disable Connector",
+        "tags": [
+          "intelligence"
+        ]
+      }
+    },
+    "/api/v1/connectors/{connector_id}/enable": {
+      "post": {
+        "description": "Undo a disable (SEC3-07). Refused with 409 while another connector of the same kind is active.",
+        "operationId": "enable_connector_api_v1_connectors__connector_id__enable_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connector_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Connector Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Enable Connector",
         "tags": [
           "intelligence"
         ]
@@ -8301,7 +8383,7 @@
     },
     "/api/v1/jobs/run-once": {
       "post": {
-        "description": "Development helper: run the worker loop once for this process (disabled in production).",
+        "description": "Development helper: process the CALLER'S tenant queue once (bounded; disabled outside development/test).\nIt runs under the normal tenant scope \u2014 the cross-tenant worker scope belongs to the worker process only.",
         "operationId": "run_jobs_once_api_v1_jobs_run_once_post",
         "responses": {
           "200": {

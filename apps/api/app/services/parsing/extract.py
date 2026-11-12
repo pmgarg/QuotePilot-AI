@@ -57,6 +57,25 @@ HEADER_SYNONYMS: dict[str, tuple[str, ...]] = {
     "unit": ("unit", "uom", "units", "u/m", "measure", "einheit"),
 }
 SKU_TOKEN = re.compile(r"\b(?=[A-Za-z0-9\-_./]*\d)(?=[A-Za-z0-9\-_./]*[A-Za-z])[A-Za-z0-9][A-Za-z0-9\-_./]{3,30}\b")
+_SKU_RUN = re.compile(r"[A-Za-z0-9\-_./]+")
+MAX_SKU_RUN = 64
+MAX_TEXT_LINE = 1000
+
+
+def sku_tokens(text: str) -> list[str]:
+    """All SKU-like tokens in ``text``, in linear time.
+
+    ``SKU_TOKEN`` looks ahead over the rest of a run of token characters at every word boundary, which is quadratic on
+    a long run ("a-a-a-…"). Real SKUs are short, so runs longer than ``MAX_SKU_RUN`` are skipped and the pattern is
+    applied run by run (one character of right context keeps the ``\b`` semantics of a whole-text search)."""
+    found: list[str] = []
+    for run in _SKU_RUN.finditer(text):
+        if run.end() - run.start() > MAX_SKU_RUN:
+            continue
+        found.extend(m.group(0) for m in SKU_TOKEN.finditer(text, run.start(), min(len(text), run.end() + 1)))
+    return found
+
+
 MEASUREMENT = re.compile(
     r"^\d+(?:[.,]\d+)?(?:mm|cm|m|km|kg|g|mg|ml|l|v|a|w|hz|ah|mah|bar|psi|in|ft|x\d+(?:mm|cm|m)?)$",
     re.IGNORECASE,
@@ -213,11 +232,15 @@ def items_from_rows(rows: list[list[Any]], source: dict[str, Any]) -> list[Parse
 def items_from_text_lines(text: str, source: dict[str, Any]) -> list[ParsedItem]:
     items: list[ParsedItem] = []
     for lidx, line in enumerate(text.splitlines()):
-        s = line.strip()
+        # Whitespace runs are collapsed before any pattern sees the line: QTY_LEAD/QTY_TRAIL combine `\s*`, `.+?` and
+        # `\s+` and were quadratic on a long run of blanks (SEC5-5: 10,000 characters took seconds, in the API process).
+        s = " ".join(line.split())
         if len(s) < 3 or NOISE.match(s):
             continue
         item: ParsedItem | None = None
-        m = QTY_LEAD.match(s)
+        # a line longer than any real order line is kept as text (if it names a SKU) but never searched for a quantity
+        searchable = len(s) <= MAX_TEXT_LINE
+        m = QTY_LEAD.match(s) if searchable else None
         if m and len(m.group("desc")) >= 3:
             item = ParsedItem(
                 raw_text=s[:2000],
@@ -225,7 +248,7 @@ def items_from_text_lines(text: str, source: dict[str, Any]) -> list[ParsedItem]
                 quantity=parse_decimal(m.group("qty")),
                 unit_raw=m.group("unit"),
             )
-        else:
+        elif searchable:
             m = QTY_TRAIL.match(s)
             if (
                 m
@@ -243,7 +266,7 @@ def items_from_text_lines(text: str, source: dict[str, Any]) -> list[ParsedItem]
                 )
         if item is None:
             # keep lines that look like item descriptions with a SKU token but no quantity
-            if SKU_TOKEN.search(s) and not re.search(r"@|www\.|http", s):
+            if sku_tokens(s[:2000]) and not re.search(r"@|www\.|http", s):
                 item = ParsedItem(raw_text=s[:2000], description=s[:1000], flags=["quantity_missing"])
             else:
                 continue
@@ -252,7 +275,7 @@ def items_from_text_lines(text: str, source: dict[str, Any]) -> list[ParsedItem]
             item.quantity = None
         if s[:1] in ("=", "+", "@") or s[:2] in ("\t=", "\r="):
             item.flags.append("formula_like")
-        tokens = [t for t in SKU_TOKEN.findall(item.description) if looks_like_sku(t)]
+        tokens = [t for t in sku_tokens(item.description) if looks_like_sku(t)]
         if tokens:
             item.sku_hint = tokens[0][:100]
         if item.unit_raw and normalize_unit(item.unit_raw) is None:

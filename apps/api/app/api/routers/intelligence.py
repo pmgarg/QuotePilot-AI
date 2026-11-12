@@ -59,6 +59,7 @@ from app.services import audit
 from app.services import quotes as quote_service
 from app.services.authz import Permission, has_permission
 from app.services.catalog_import import active_version_for_org
+from app.services.customers import get_active_customer
 from app.services.intelligence import connectors as connector_service
 from app.services.intelligence import data_io, kpis, repeat_orders, retention, stock
 from app.services.intelligence import orders as order_service
@@ -354,11 +355,11 @@ async def import_data(
     raw = await file.read(data_io.MAX_CSV_BYTES + 1)
     if len(raw) > data_io.MAX_CSV_BYTES:
         raise PayloadTooLarge("CSV larger than 5 MB")
-    existing = db.scalar(
-        select(SyncRun).where(SyncRun.organization_id == principal.org_id, SyncRun.idempotency_key == idempotency_key)
-    )
+    import hashlib
+
+    existing = data_io.find_run(db, principal.org_id, data_io.scope_key("csv_import", None, entity), idempotency_key)
     if existing is not None:
-        return SyncRunOut.model_validate(existing)
+        return SyncRunOut.model_validate(data_io.replay_or_conflict(existing, hashlib.sha256(raw).hexdigest()))
     fn = data_io.import_customers if entity == "customers" else data_io.import_orders
     run = fn(
         db,
@@ -449,6 +450,34 @@ def disable_connector(connector_id: uuid.UUID, principal: PrincipalDep, db: DB) 
     return ConnectorOut.model_validate(conn)
 
 
+@router.post("/connectors/{connector_id}/enable", response_model=ConnectorOut)
+def enable_connector(connector_id: uuid.UUID, principal: PrincipalDep, db: DB) -> ConnectorOut:
+    """Undo a disable (SEC3-07). Refused with 409 while another connector of the same kind is active."""
+    principal.require(Permission.MANAGE_CONNECTORS)
+    conn = connector_service.get_connection(db, principal.org_id, connector_id)
+    if conn.status != "active":
+        other = db.scalar(
+            select(ConnectorConnection.id).where(
+                ConnectorConnection.organization_id == principal.org_id,
+                ConnectorConnection.kind == conn.kind,
+                ConnectorConnection.status == "active",
+            )
+        )
+        if other is not None:
+            raise StateError(f"Another '{conn.kind}' connector is active; disable it first")
+        conn.status = "active"
+        audit.record(
+            db,
+            organization_id=principal.org_id,
+            actor_user_id=principal.user.id,
+            action="connector.enable",
+            entity_type="connector",
+            entity_id=conn.id,
+            ip=principal.ip,
+        )
+    return ConnectorOut.model_validate(conn)
+
+
 @router.get("/sync-conflicts", response_model=list[ConflictOut])
 def list_conflicts(
     principal: PrincipalDep, db: DB, status: str | None = Query(default="open", max_length=16)
@@ -506,11 +535,12 @@ def stock_levels(
 # -------------------------------------------------------- customer profile
 @router.get("/customers/{customer_id}/profile", response_model=CustomerProfileOut)
 def customer_profile(customer_id: uuid.UUID, principal: PrincipalDep, db: DB) -> CustomerProfileOut:
-    customer = db.scalar(
-        select(Customer).where(Customer.id == customer_id, Customer.organization_id == principal.org_id)
+    customer = get_active_customer(
+        db,
+        principal.org_id,
+        customer_id,
+        include_deleted=has_permission(principal.role, Permission.MANAGE_RETENTION),
     )
-    if customer is None:
-        raise NotFoundError("Customer not found")
     contacts = db.scalars(select(Contact).where(Contact.customer_id == customer.id)).all()
     quotes = db.scalars(
         select(Quote).where(Quote.customer_id == customer.id).order_by(Quote.created_at.desc()).limit(50)
@@ -527,7 +557,7 @@ def customer_profile(customer_id: uuid.UUID, principal: PrincipalDep, db: DB) ->
         "won_quotes": won,
         "orders": len(orders),
         "confirmed_orders": sum(1 for o in orders if o.status in ("confirmed", "fulfilled")),
-        "last_order_at": next((o.confirmed_at for o in orders if o.confirmed_at), None),
+        "last_order_at": max((o.confirmed_at for o in orders if o.confirmed_at), default=None),
     }
     if has_permission(principal.role, Permission.VIEW_COSTS):
         margins: list[Decimal] = [
