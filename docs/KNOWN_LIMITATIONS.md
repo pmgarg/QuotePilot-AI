@@ -136,6 +136,13 @@
   a local part longer than 64 characters is only partly redacted and a domain label longer than 63 characters not at
   all. Such addresses are invalid and are rejected as contacts; they can only reach a log through hostile or corrupt
   text.
+- **Jobs left `running` (S2-RR1-4).** If a worker process dies while it holds a job, the job stays `running`: nothing
+  reclaims it after a timeout and the admin retry accepts only `dead`/`failed` jobs, so that follow-up is not
+  processed again until an operator resets the row. No duplicate send can result. Not covered by a test.
+- **Terminal schedule failure is untested (S2-RR1-2).** After the D-13 decision no test drives a schedule job to a
+  terminal failure, so marking the schedule `failed` and re-arming it through the admin retry are untested paths.
+- **S2-A05 (expired or invalid OAuth token).** Only exercised by proxy (a misconfigured SMTP provider, an outage);
+  no OAuth provider exists, and "job paused, admin notified" is not demonstrated.
 - **Opt-out matching.** Suppression compares addresses case-insensitively after trimming; plus-tags and dots are
   significant (`jane+x@…` is a different address from `jane@…`).
 - **Inbound replies.** A message is linked to a quote by sender/reply headers; linking by `In-Reply-To` alone has no

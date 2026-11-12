@@ -75,7 +75,7 @@ Priority: **C** = critical for the stage gate, **H** = high, **M** = medium.
 | S2-F04 | C | Draft generation: editable personalised email with accurate quote number, totals, validity, opt-out link text; templates per org. |
 | S2-F05 | C | Sending requires explicit user action, or an org-admin-enabled consented automation; default draft-only; rate limits; recipient validation; audit. |
 | S2-F06 | C | Provider adapters: simulator (default), SMTP, Gmail API, Microsoft Graph (optional, minimal scopes, encrypted token storage, revocation handling). |
-| S2-F07 | C | Job runner (Redis-backed) with idempotency keys, capped exponential backoff, dead-letter view, no duplicate sends. |
+| S2-F07 | C | Job runner (PostgreSQL queue with `SKIP LOCKED`, ADR-012 as amended; originally planned on Redis) with idempotency keys, capped exponential backoff, dead-letter view, no duplicate sends. |
 | S2-F08 | H | Inbound sync (simulator / configured provider) links replies to quotes by thread/quote number; never fabricates replies. |
 | S2-F09 | H | Sales timeline per quote/customer showing recorded events only. |
 | S2-F10 | H | Pending follow-ups view with cancel/reschedule. |

@@ -342,7 +342,7 @@ Required retest per the reviewer: none for the conditions as written; a targeted
 
 ---
 
-# Stage 2 gate log (branch `claude/stage2-followup-assistant`, PR #2) — status: OPEN, not reviewed
+# Stage 2 gate log (branch `claude/stage2-followup-assistant`, PR #2) — status: release review 1 = PASS WITH CONDITIONS; not VERIFIED
 
 Stage 2 has its own gate. Nothing in this section is a PASS; the release reviewer has not been invoked for Stage 2.
 
@@ -414,3 +414,26 @@ SEC8-1). Skips (5): three tests that need git history, two compose-render tests 
 3. CI on the gated HEAD for both events, with job-level results and counts, including the CodeQL code-scanning check.
 4. Release review by the read-only `release-reviewer` with a fresh context; findings recorded here verbatim.
 Stage 2 also depends on Stage 1 being VERIFIED (ROADMAP); Stage 1's gate is still open.
+
+## Review 1 — Stage 2 @0d610fd (2026-11-12) — verdict PASS WITH CONDITIONS
+Full report, verbatim: `docs/evidence/release-review-1-stage2-2026-11-12.md` (project `release-reviewer` agent, fresh
+context, read-only; it ran no tests and could not query GitHub). No open Critical or High defect; the send gate,
+address-level suppression, exactly-once send, tenant scoping of the worker and RLS on the nine Stage 2 tables are
+implemented as claimed in the code it read. **Stage 2 is not VERIFIED.** A simulator-only demo is acceptable after C3,
+C5 and the human decisions in C2; real-provider or real-tenant use is blocked until S2-RR1-7 and C1 are resolved.
+
+| Condition | Who | State |
+|---|---|---|
+| **C1** Stage 1's two open human conditions must be closed first (Stage 2 is stacked on Stage 1) | Human owner | **OPEN** |
+| **C2** A signed decision on each of: D-13 (withdrawn consent → draft; decided by the orchestrator, not a human); O-1 (plus-tag/dot variants of an opted-out address are not suppressed); S2-SEC-06 (all tenants send through one process-wide SMTP account — "accepted" so far only by an agent); S2-SEC-12 (Low, partial log redaction of invalid addresses); the scope gap on S2-F06/S2-A05 (Gmail and Graph not shipped, "job paused, admin notified" not demonstrated); an unsubscribe from an address with no contact row does not suppress a contact created later (S2-RR1-3) | Named human owner | **OPEN** |
+| **C3** Per-requirement-group traceability for Stage 2; stale statements corrected | Orchestrator | done in this commit (matrix rebuilt from the reviewer's table; PRD S2-F07 and LLD no longer say Redis; this heading) |
+| **C4** Close S2-RR1-2 (no test produces a terminally failed schedule job, so `_fail_schedule` and the retry re-arm are untested) and S2-RR1-4 (a job left `running` after a worker crash is never reclaimed) with tests or a documented limitation; one independent full API and browser run on the final head; one hostile exploratory session on the send and consent paths | QA, then reviewer | **OPEN** — S2-RR1-4 is documented as a limitation in this commit; the rest is not done |
+| **C5** CI result for the gated head stored as an evidence file | Orchestrator | done: `docs/evidence/ci-stage2-0d610fd-2026-11-12.md` |
+
+Other findings: S2-RR1-5 (Low, stale documents → C3), S2-RR1-6 (Medium: S2-A05 is proxy-tested only — now marked
+PARTIAL), S2-RR1-7 (Medium: shared SMTP identity, no real provider ever exercised), S2-RR1-8 (Low → C5), S2-RR1-9
+(Low: some QA confirmation tests are permissive), S2-RR1-10 (Low: inbound linking / follow-up suppression once a real
+inbound adapter ships), S2-RR1-11 (Low, process: the orchestrator wrote fix round 2, decided D-13, edited auditor
+tests and chose the narrow verification). Required retest per the reviewer: the C4 items, an RLS/cross-tenant re-run
+for the Stage 2 tables including migration 0006b, an opt-out-versus-in-flight-send race, a scan on the gated head;
+then re-invoke the reviewer.
