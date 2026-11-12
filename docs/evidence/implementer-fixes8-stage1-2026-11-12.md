@@ -62,7 +62,7 @@ being read as some number; `Rs. 500`, `AED 12.50`, `1 234,56`, `(12.50)`, `−5`
 - An earlier run of the same code on a scratch worktree (before the verifier files were final) gave 582 passed,
   2 skipped, 1 xfailed as well; the D5 test alone was also run against the old dependency scope: 1 failed, 1 passed.
 
-## Round 8b (same day) — regression introduced by round 8, caught by CI's CodeQL check
+## Round 8b (same day) — regression introduced by round 8, found while investigating a failing CodeQL check
 The round-8 push (3586da2) got a failing GitHub code-scanning check: "1 new alert including 1 high severity security
 vulnerability". The alert text could not be read from the development container (no code-scanning API access), so the
 cause was established by experiment: the pattern used for the text *before* the number (`\s*` + lazy class that also
@@ -84,3 +84,14 @@ Whether the CodeQL check is green again is recorded in `docs/RELEASE_GATES.md` f
 suites for 8b are part of re-verification 5 (the verifiers were told the HEAD moved). The CodeQL *check* (code-scanning
 result) is separate from the `security` workflow conclusion, which was green on 3586da2 — earlier gate tables recorded
 only workflow conclusions, so that check's history on earlier commits is **unknown** and must be recorded from now on.
+
+### Correction (after CI on 6b3c452)
+The CodeQL code-scanning check is **still failing on 6b3c452** with the same summary ("1 new alert including 1 high
+severity"), so the polynomial pattern fixed in 8b was **not shown to be that alert** — the heading above originally
+said "caught by CodeQL", which was an assumption. The slowdown itself was real (measured) and is fixed; the alert is a
+separate, still unidentified item. Its rule and location are not readable from the development container, and the
+CodeQL job logs list only the queries that ran, not their results. `.github/workflows/security.yml` now prints every
+SARIF result (rule id, level, file:line, message) to the job log; the alert is recorded in `docs/RELEASE_GATES.md`
+from the next run. Because PR #1 contains the whole project, "new in this pull request" does not mean "new in round
+8": the alert may be older, and the check's history on earlier commits was never recorded. Until it is identified and
+either fixed or explicitly accepted by a human, it blocks the Stage 1 gate.

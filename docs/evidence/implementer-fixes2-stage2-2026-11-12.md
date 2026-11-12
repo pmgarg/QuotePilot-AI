@@ -37,3 +37,21 @@ opt-out in the UI) are **not explained yet**. Both specs passed in earlier runs 
 run has since shown that the API answered 2xx before its transaction was committed (defect D5, fixed in Stage 1 fix
 round 8), which produces exactly this kind of stale-read failure. That is a hypothesis, not a result: the browser suite
 has to be re-run after the round-8 merge, and a green run is required before the Stage 2 gate.
+
+## Runs after merging Stage 1 fix round 8 (commit f09a842; same DB and ports; two other suites running)
+| Command (cwd) | Exit | Result |
+|---|---|---|
+| `ruff check` / `ruff format --check` / `mypy app` (`apps/api`) | 0 / 0 / 0 | clean; 111 files formatted; 72 source files |
+| `.venv/bin/pytest -q -p no:cacheprovider -rxs` (full API suite) | 0 | **730 passed, 2 skipped, 2 xfailed** in 1003 s (xfails: S2-SEC-06 accepted; the Stage 1 auditor's `test_sec4_4` whose own expression raises) |
+| `npx tsc --noEmit`, `npx eslint .` (`apps/web`) | 0 / 0 | clean |
+| `npx playwright test --reporter=list --trace off` (`tests/e2e`, web rebuilt) | 0 | **49 passed, 1 skipped**, 0 failed, 0 flaky |
+
+The two browser failures of the previous run did not recur on the tree that contains the commit-before-response fix.
+That is one green run under load, consistent with the D5 explanation but not proof of it.
+
+## Runs after merging Stage 1 fix round 8b (commit 27b252f; three other suites running)
+| Command (cwd) | Exit | Result |
+|---|---|---|
+| `ruff check` / `ruff format --check` / `mypy app` (`apps/api`) | 0 / 0 / 0 | clean; 111 files formatted; 72 source files |
+| `.venv/bin/pytest -q -p no:cacheprovider` (full API suite) | 0 | **731 passed, 2 skipped, 2 xfailed** in 1142 s |
+| `npx playwright test --reporter=list --trace off` (`tests/e2e`, web rebuilt) | 0 | **49 passed, 1 skipped**, 0 failed, 0 flaky |

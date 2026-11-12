@@ -1,13 +1,13 @@
-"""Synthetic demo data. Run: python -m app.fixtures.seed  (idempotent; prints local-only credentials).
+"""Synthetic demo data. Run: python -m app.fixtures.seed  (idempotent; lists the demo accounts, never a password).
 
-Two organisations prove tenant isolation. Passwords come from DEMO_PASSWORD (env) or a generated value printed once.
+Two organisations prove tenant isolation. The password comes from
+DEMO_PASSWORD (environment or .env); it is never generated or printed.
 Never use these fixtures with real customer data.
 """
 
 from __future__ import annotations
 
 import os
-import secrets
 import sys
 import uuid
 from decimal import Decimal
@@ -17,6 +17,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.security import hash_password
 from app.db.session import get_sessionmaker, set_auth_scope, set_tenant
 from app.models.customer import Customer
@@ -72,11 +73,11 @@ DEMO_ORGS: list[dict[str, Any]] = [
 ]
 
 
-def _password() -> str:
-    pw = os.environ.get("DEMO_PASSWORD")
-    if pw:
-        return pw
-    return "Demo-" + secrets.token_urlsafe(12)
+def _password() -> str | None:
+    """The demo password is chosen by the person running the seed (DEMO_PASSWORD in the environment or `.env`).
+    The seed never generates one and never prints one: a credential, even a synthetic one, does not belong in a
+    console or container log."""
+    return os.environ.get("DEMO_PASSWORD") or get_settings().demo_password or None
 
 
 def seed(db: Session, password: str, verbose: bool = True) -> dict[str, dict[str, str]]:
@@ -168,14 +169,19 @@ def seed(db: Session, password: str, verbose: bool = True) -> dict[str, dict[str
             print(f"  {org_name}:")
             for role, email in accounts.items():
                 print(f"    {role:9s} {email}")
-        print(f"  password for all demo accounts: {password}")
+        print("  password for all demo accounts: the value of DEMO_PASSWORD (not shown)")
+        print("  accounts that already existed keep the password they were created with")
     return created
 
 
 def main() -> int:
     password = _password()
-    if len(password) < 12:
-        print("DEMO_PASSWORD must be at least 12 characters", file=sys.stderr)
+    if password is None or len(password) < 12:
+        print(
+            "Set DEMO_PASSWORD (at least 12 characters) in the environment or in .env before seeding. "
+            "The seed does not generate or print a password.",
+            file=sys.stderr,
+        )
         return 2
     with get_sessionmaker()() as db:
         seed(db, password)

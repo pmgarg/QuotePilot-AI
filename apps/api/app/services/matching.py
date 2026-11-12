@@ -9,7 +9,7 @@ from decimal import Decimal
 from rapidfuzz import fuzz, process
 
 from app.models.catalog import Product
-from app.services.parsing.extract import SKU_TOKEN, looks_like_sku
+from app.services.parsing.extract import looks_like_sku, sku_tokens
 from app.services.units import normalize_sku, normalize_text
 
 LIKELY_MIN = 90.0
@@ -53,7 +53,7 @@ class CatalogIndex:
                     (Candidate(p, Decimal("100"), "exact", f"exact SKU match on '{sku_hint}'", "sku"),),
                 )
         # tokens in the raw text that equal a catalog SKU
-        for token in SKU_TOKEN.findall(raw_text or ""):
+        for token in sku_tokens(raw_text or ""):
             if not looks_like_sku(token):
                 continue
             p = self.by_sku.get(normalize_sku(token))

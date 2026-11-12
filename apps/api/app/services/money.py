@@ -103,9 +103,10 @@ def quantize(value: Decimal, currency: str, rounding_mode: str = "HALF_UP") -> D
 
 
 _SCI = re.compile(r"^[+-]?(\d+(\.\d*)?|\.\d+)[eE][+-]?\d+$")
-# U+2212 MINUS SIGN and its small/full-width forms are real minus signs (a dropped sign turns a credit into a charge);
 # U+066B/U+066C are the Arabic decimal and thousands separators.
-_TRANSLATE = str.maketrans({"\u2212": "-", "\ufe63": "-", "\uff0d": "-", "\u066b": ".", "\u066c": ","})
+_TRANSLATE = str.maketrans({"\u066b": ".", "\u066c": ","})
+# U+2212 MINUS SIGN and U+2796 HEAVY MINUS SIGN are not in the dash category but are minus signs.
+_MINUS_LIKE = frozenset("\u2212\u2796")
 _GROUP_SEPARATORS = " \u00a0\u202f'"
 _SPACE_GROUPED = re.compile(r"^\d{1,3}(?:[ \u00a0\u202f']\d{3})+(?:[.,]\d+)?$")
 _CORE = re.compile(r"^[\d.,]+$")
@@ -157,7 +158,14 @@ def parse_decimal(raw: object) -> Decimal | None:
     s = str(raw)
     if len(s) > 4 * MAX_NUMBER_TEXT:
         return None  # checked before normalisation so that hostile megabyte cells cost nothing
-    s = unicodedata.normalize("NFKC", s).translate(_TRANSLATE).strip()
+    # "5²", "10³", "5①", "½": NFKC would turn these into ordinary digits glued to the number (52, 103, 51, 1/2).
+    # A character that carries a numeric value without being a decimal digit makes the cell not-a-plain-number.
+    if any(not ch.isdecimal() and unicodedata.numeric(ch, None) is not None for ch in s):
+        return None
+    s = unicodedata.normalize("NFKC", s).translate(_TRANSLATE)
+    # every dash and hyphen (category Pd: U+2010..U+2015, U+2E3A, U+FE58, U+FE63, U+FF0D …) and the minus signs are
+    # read as "-": a dropped sign turns a credit into a charge, a kept one at worst makes the cell a rejected negative
+    s = "".join("-" if ch in _MINUS_LIKE or unicodedata.category(ch) == "Pd" else ch for ch in s).strip()
     if not s or len(s) > MAX_NUMBER_TEXT:
         return None
     if _SCI.match(s):
@@ -178,8 +186,8 @@ def parse_decimal(raw: object) -> Decimal | None:
     # a decimal point directly before the first digit belongs to the number (".5", "$.50") unless it ends a word
     # ("Rs.500" is ambiguous: 500 or 0.500?) — then the cell is rejected instead of guessed
     if head.endswith("."):
-        if head[-2:-1].isalpha():
-            return None
+        if head[-2:-1].isalpha() or head[-2:-1] in (".", ","):
+            return None  # "Rs.500" is ambiguous, "..5" is a typo
         head, core = head[:-1], "." + core
     if tail.startswith(".") and (len(tail) == 1 or tail[1].isspace()):
         tail = tail[1:]  # "12." / "12. pcs"
@@ -215,7 +223,12 @@ def parse_decimal(raw: object) -> Decimal | None:
             core = core.replace(",", "")  # 1,234.56
     elif "," in core:
         parts = core.split(",")
-        if len(parts) == 2 and len(parts[1]) in (1, 2, 3) and len(parts[0]) <= 3 and len(parts[1]) != 3:
+        if parts[0].startswith("0"):
+            # a thousands group never starts with a zero: "0,500" is half a unit, not five hundred
+            if len(parts) != 2:
+                return None
+            core = core.replace(",", ".")
+        elif len(parts) == 2 and len(parts[1]) in (1, 2, 3) and len(parts[0]) <= 3 and len(parts[1]) != 3:
             core = core.replace(",", ".")  # 12,5 or 12,50
         elif len(parts) == 2 and len(parts[1]) == 3 and len(parts[0]) <= 3:
             core = core.replace(",", "")  # 1,234 → thousands (ambiguous; documented)
