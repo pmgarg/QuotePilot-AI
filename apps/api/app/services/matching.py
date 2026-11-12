@@ -17,6 +17,12 @@ LIKELY_GAP = 10.0
 AMBIGUOUS_MIN = 70.0
 CUTOFF = 60.0
 TOP_N = 5
+# Fuzzy matching compares one request line with every catalog description, in the API process. Both factors are
+# bounded: the part of a line that is compared, and the total number of comparisons one index (= one RFQ parse or one
+# re-match) may spend. Lines beyond the budget are still matched by exact SKU and are otherwise left for a person
+# (flag `match_skipped_budget`); nothing is guessed (SEC6-2).
+MAX_QUERY_CHARS = 200
+MAX_FUZZY_COMPARISONS = 2_000_000
 
 
 @dataclass(frozen=True)
@@ -32,6 +38,7 @@ class Candidate:
 class MatchOutcome:
     status: str  # exact | likely | ambiguous | unmatched
     candidates: tuple[Candidate, ...]
+    fuzzy_skipped: bool = False  # the comparison budget of this index was exhausted before this line
 
 
 class CatalogIndex:
@@ -43,6 +50,7 @@ class CatalogIndex:
             self.by_sku.setdefault(p.sku_normalized, p)
             self.descriptions.append(normalize_text(f"{p.description} {p.sku}"))
             self.products.append(p)
+        self.fuzzy_comparisons = 0
 
     def match(self, *, sku_hint: str | None, description: str, raw_text: str) -> MatchOutcome:
         if sku_hint:
@@ -70,9 +78,12 @@ class CatalogIndex:
                         ),
                     ),
                 )
-        query = normalize_text(description or raw_text)
+        query = normalize_text((description or raw_text)[: 4 * MAX_QUERY_CHARS])[:MAX_QUERY_CHARS]
         if not query or not self.descriptions:
             return MatchOutcome("unmatched", ())
+        if self.fuzzy_comparisons + len(self.descriptions) > MAX_FUZZY_COMPARISONS:
+            return MatchOutcome("unmatched", (), fuzzy_skipped=True)
+        self.fuzzy_comparisons += len(self.descriptions)
         hits = process.extract(query, self.descriptions, scorer=fuzz.WRatio, limit=TOP_N, score_cutoff=CUTOFF)
         if not hits:
             return MatchOutcome("unmatched", ())

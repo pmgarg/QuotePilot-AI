@@ -112,7 +112,6 @@ UNIT_ALIASES: dict[str, str] = {
 KNOWN_UNITS = frozenset(UNIT_ALIASES.values())
 
 _WS = re.compile(r"\s+")
-_SKU_STRIP = re.compile(r"^[\s\W_]+|[\s\W_]+$")
 
 
 def normalize_unit(raw: str | None) -> str | None:
@@ -133,9 +132,15 @@ def normalize_unit(raw: str | None) -> str | None:
 def normalize_sku(raw: str | None) -> str:
     if raw is None:
         return ""
-    s = _WS.sub(" ", str(raw)).strip()
-    s = _SKU_STRIP.sub("", s)
-    return s.upper()
+    s = " ".join(str(raw).split())
+    # strip everything that is not a letter or digit from both ends, in linear time (the pattern used before,
+    # `[\s\W_]+$` tried at every position, was quadratic on a long run of punctuation — SEC6-1)
+    start, end = 0, len(s)
+    while start < end and not s[start].isalnum():
+        start += 1
+    while end > start and not s[end - 1].isalnum():
+        end -= 1
+    return s[start:end].upper()
 
 
 def normalize_text(raw: str | None) -> str:

@@ -55,3 +55,16 @@ That is one green run under load, consistent with the D5 explanation but not pro
 | `ruff check` / `ruff format --check` / `mypy app` (`apps/api`) | 0 / 0 / 0 | clean; 111 files formatted; 72 source files |
 | `.venv/bin/pytest -q -p no:cacheprovider` (full API suite) | 0 | **731 passed, 2 skipped, 2 xfailed** in 1142 s |
 | `npx playwright test --reporter=list --trace off` (`tests/e2e`, web rebuilt) | 0 | **49 passed, 1 skipped**, 0 failed, 0 flaky |
+
+## Runs after merging Stage 1 fix round 9 and the e2e harness fix (commit be754fd; two other suites running)
+| Command (cwd) | Exit | Result |
+|---|---|---|
+| `ruff check` / `ruff format --check` / `mypy app` (`apps/api`) | 0 / 0 / 0 | clean; 115 files formatted; 72 source files |
+| `.venv/bin/pytest -q -p no:cacheprovider -rfEx` (full API suite) | 0 | **1156 passed, 2 skipped, 1 xfailed** in 1093 s (xfail: S2-SEC-06, accepted) |
+| `npx tsc --noEmit`, `npx eslint .` (`apps/web`) | 0 / 0 | clean |
+| `npx playwright test --reporter=list --trace off` (`tests/e2e`; build now inside the web-server command) | 0 | **51 passed, 1 skipped**, 0 failed, 0 flaky |
+
+Known CI issue inherited from Stage 1 at this merge: five tests in the Stage 1 QA file
+`tests/qa/test_qa_reverify_review5.py` read `DATABASE_ADMIN_URL_TEST` directly and fail on GitHub Actions, where only
+the conftest default is used (they pass locally, where the variable is exported). The QA verifier is correcting its
+file on the Stage 1 branch; until that is merged the `api` job of this branch is expected to be red for that reason.
