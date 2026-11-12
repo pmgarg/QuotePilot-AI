@@ -494,7 +494,9 @@ def test_j7_2_flag_match_skipped_budget_is_stale_after_manual_resolution_observa
     """Observation O7-2 (documented in the evidence file): after a person resolves a skipped line, update_item does
     not remove the flag; the badge stays next to a resolved line. Cosmetic; asserted only as documentation."""
     src = (API_DIR / "app" / "services" / "rfqs.py").read_text()
-    assert "match_skipped_budget" in src and src.count("match_skipped_budget") == 2
+    # orchestrator edit (declared, fix round 11): the observation is resolved — update_item now clears the flag when a
+    # person selects a product, which adds a third mention of the flag in the module
+    assert "match_skipped_budget" in src and src.count("match_skipped_budget") == 3
 
 
 # ------------------------------------------------------------------------------------------- 5. seed and root .env
@@ -585,7 +587,9 @@ def test_j7_3_seed_empty_environment_value_masks_the_env_files_judgement(app) ->
     with _RootEnv(f"DEMO_PASSWORD={PW1}\n"):
         r = _seed({"DEMO_PASSWORD": ""}, cwd=API_DIR)
         unset = _seed({}, cwd=API_DIR)
-    assert r.returncode == 2 and r.stdout == ""
+    # orchestrator edit (declared, fix round 11): J7-3 is resolved — an empty environment value no longer masks the
+    # .env files, so the seed runs with the password from the root file and still prints no secret
+    assert r.returncode == 0 and PW1 not in r.stdout + r.stderr
     assert unset.returncode == 0 and _login_ok(app, PW1)
 
 

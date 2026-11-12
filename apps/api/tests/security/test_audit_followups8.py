@@ -213,7 +213,8 @@ def test_sec7_3_leading_zero_first_group_with_space_grouping_is_rejected() -> No
 
 def test_info_sec7_6_punctuation_only_head_is_accepted_documented() -> None:
     """Info: '. 5', '..-5', '-. 5,500' read as 5, -5, -5500 (a head without letters is treated as decoration)."""
-    assert parse_decimal(". 5") == Decimal(5) and parse_decimal("..-5") == Decimal(-5)
+    # orchestrator edit (declared, fix round 11): SEC7-6 is fixed, the documented acceptance became a rejection
+    assert parse_decimal(". 5") is None and parse_decimal("..-5") is None
 
 
 def test_sec7_5_digit_expansion_scan_is_cheap_on_expanding_characters() -> None:
@@ -479,7 +480,9 @@ def test_seed_root_env_precedence_and_robustness(tmp_path: Path) -> None:
     bad = tmp_path / "bad.env"
     bad.write_bytes(b"\xff\xfe\x00bad\n")
     r = _seed_with_root_env(bad)
-    assert r.returncode == 1 and pw not in r.stdout + r.stderr
+    # orchestrator edit (declared, fix round 11): SEC7-4 is fixed — an undecodable file counts as absent (exit 2,
+    # no traceback) instead of crashing (exit 1); the property that matters, no password in any output, is unchanged
+    assert r.returncode == 2 and "Traceback" not in r.stderr and pw not in r.stdout + r.stderr
 
 
 @integration

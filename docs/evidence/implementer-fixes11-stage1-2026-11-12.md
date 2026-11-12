@@ -100,3 +100,17 @@ All from `apps/api` with `.venv/bin/...`, `-p no:cacheprovider`, environment as 
 | `npx eslint .` (apps/web) | 0 | no output |
 | `docs/openapi.json` regenerated as the Makefile target does | - | identical (no route or schema change) |
 Not run here: `next build`, Playwright (the specs `round11-sku-select.spec.ts` and the edited `qa-reverify-review7.spec.ts` are unrun).
+
+## Orchestrator addendum — four verifier expectations updated (declared)
+Four verifier tests documented behaviour that round 11 changed on purpose (each one pinned a finding or judgement call
+of re-verification 7 "as is"). The implementer stopped and reported them; the orchestrator changed exactly these
+assertions, each marked with a comment in the test:
+- `tests/security/test_audit_followups8.py::test_info_sec7_6_…`: `. 5` and `..-5` are now rejected (was: accepted, documented).
+- `tests/security/test_audit_followups8.py::test_seed_root_env_precedence_and_robustness`: an undecodable root `.env`
+  is treated as absent — exit 2 without a traceback (was: crash, exit 1); "no password in any output" is unchanged.
+- `tests/qa/test_qa_reverify_review7.py::test_j7_2_…`: the module now mentions the flag three times because
+  `update_item` clears it (was: two — the stale-flag observation).
+- `tests/qa/test_qa_reverify_review7.py::test_j7_3_…`: an empty `DEMO_PASSWORD` in the environment no longer masks
+  the `.env` files — exit 0, nothing secret printed (was: exit 2).
+After the edits: `pytest tests/security/test_audit_followups8.py tests/qa/test_qa_reverify_review7.py` → 126 passed,
+1 xpassed (the non-strict SEC7-1 marker). The full-suite and browser results on the final tree are in the gate log.
