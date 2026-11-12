@@ -100,3 +100,9 @@ each also failing its retry) and **CodeQL code-scanning check failure** (python 
 Local browser suite on this tree, web app rebuilt, fresh database: **53 passed, 1 skipped**, exit 0. (A second run on
 the same database had 1 failure, `stage2-followup.spec.ts:66`, the spec QA recorded as order-dependent on accumulated
 data — it failed in 2 s on its data assumption, not on the click.)
+
+## CI on the head with the fixes above (PR #2, queried 2026-11-12): all 15 checks green on both events
+`api` success: pytest `1509 passed, 5 skipped, 3 xfailed, 1 xpassed`; `e2e` success: Playwright `53 passed`, `1 skipped`,
+no flaky or failed line; `web` success; `security` jobs success; CodeQL code-scanning check success (the two
+`py/polynomial-redos` alerts are gone). The three browser tests that timed out on the Contacts button pass.
+This is CI evidence for the implementing side's fixes; independent re-verification and the release review are still owed.
