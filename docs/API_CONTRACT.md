@@ -150,6 +150,13 @@ HTTP 409
   A soft-deleted customer (approved deletion) returns **404** on every route that would start new processing (RFQ,
   quote, contact creation, order proposal) for all roles, and on read routes for roles without `manage_retention`;
   owner/admin can still read the customer, its contacts and profile with `deleted_at` set.
+  **Fix round 2**: `POST /quotes/{id}/orders` and `POST /order-proposals/{id}/approve` also return **404** for a
+  customer pending erasure (rejecting a proposal stays possible). `GET /quotes` returns `customer_name: null` for
+  quotes of such a customer, and a `q=` name search does not match it, unless the role has `manage_retention`.
+  `POST /orders/{id}/confirm|fulfil|cancel` lock the order row: of two concurrent requests the loser gets **409**
+  (one event, one audit row). A connector sync replayed concurrently under one key answers the loser like a
+  sequential replay (same payload → the existing run, different payload → **409**), never 500. The purge summary
+  and the `retention.purged` audit row carry `communication_events_redacted`.
   `GET /quotes/{id}` may report the blocker `catalog_price_changed` (a draft/pending catalog-priced line whose product
   price was changed in place by an applied connector conflict); it blocks submit/approve until the line is re-priced
   or explicitly overridden. `pending_value` counts approved quotes in lifecycle `approved`, `sent`, `acknowledged`

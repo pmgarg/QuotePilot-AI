@@ -152,17 +152,29 @@ remains. Pricing snapshot (currency, rounding, tax default, min margin, catalog 
   (opt-out → `suppressed`). `services/followup/recommend.py` rule set emits `{action, reason_facts[]}`.
 - `services/comms/providers/{simulator,smtp,gmail,msgraph}.py` behind `MailProvider` protocol: `send(draft) ->
   ProviderResult`, `fetch_inbound(since)`; tokens encrypted with envelope key from env (`TOKEN_ENCRYPTION_KEY`).
-- `workers/runner.py`: Redis list queue; job row with `idempotency_key` UNIQUE; backoff `min(2^n * 30s, 1h)` ≤ 5 attempts;
+- `workers/runner.py`: PostgreSQL job queue (`job_runs`, claimed with `SKIP LOCKED`; ADR-012 as amended — not Redis); job row with `idempotency_key` UNIQUE; backoff `min(2^n * 30s, 1h)` ≤ 5 attempts;
   dead-letter table + `/api/v1/jobs/dead-letters`.
 - Sending gate: `policy.automation_enabled && consented_by admin && contact.not_opted_out && rate_limit.ok` or explicit
   `POST /drafts/{id}/send` by Sales+ with CSRF; both audited; provider message id stored; no "sent" without provider ack.
 
-## Stage 3 LLD sketch
-- `services/orders.py` convert approved/won quote version → order (approval decision required), order events.
-- `services/kpis.py` pure functions over event tables with explicit definitions; reporting currency via `fx_rates`
-  (manual entry) else bucket `unconverted`.
-- `services/connectors/{base,csv,erp_stub}.py`: `pull()` into `sync_staging`, diff → apply or `sync_conflicts`.
-- Role-aware serializer: `strip_sensitive(payload, role)` removes cost/margin for Sales/Read-only (API + exports).
+## Stage 3 LLD (as implemented)
+All Stage 3 services live in `app/services/intelligence/`; the router is `app/api/routers/intelligence.py`.
+- `orders.py`: converts the *current approved* quote version into a `proposed` order (totals copied, never recomputed);
+  confirmation is a separate decision by a different user; transitions take a row lock (`get_order(for_update=True)`)
+  and write `order_events`. A customer pending erasure cannot get a new order.
+- `kpis.py` / `fx.py`: pure functions over quotes/orders with written `DEFINITIONS`; reporting currency through the
+  tenant's manually entered `fx_rates` (latest rate on or before the quote date), otherwise the `unconverted` bucket.
+- `data_io.py` / `inputs.py`: CSV import of customers and orders (per-row validation and savepoint, idempotency key +
+  request hash, failed-row report) and role-gated, audited, formula-neutralised export.
+- `connectors.py`: **push model** — an authenticated caller posts records to `/connectors/{id}/sync`; there is no
+  `pull()` and no staging table. Differences from master data go to `sync_conflicts` and are applied only by an
+  explicit, audited resolution. Shipped connector kinds are stubs; no real ERP/CRM adapter exists.
+- `stock.py`: availability labels only from timestamped `stock_snapshots`; otherwise `unknown`.
+- `repeat_orders.py`: proposals from the customer's own confirmed orders; a human decides.
+- `retention.py`: deletion request → approval by another user → soft delete → worker purge (`purge_customer` job,
+  re-queue cap, reclaim of abandoned jobs), legal hold, audit at each step.
+- Cost/margin visibility: there is no generic `strip_sensitive` serializer; each response and export adds cost
+  columns only when the principal has `view_costs`.
 
 ## Stage 4 LLD sketch
 - `services/policy.py`: `allowed_tools(user, org, plan)`; `services/tools/registry.py` with JSON-schema args, scope

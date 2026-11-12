@@ -18,7 +18,7 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import select
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -189,6 +189,14 @@ def find_run(db: Session, org_id: uuid.UUID, scope: str, key: str) -> SyncRun | 
     )
 
 
+class ReplayedRun(Exception):
+    """Raised when a concurrent request with the same idempotency key won the insert; carries its run."""
+
+    def __init__(self, run: SyncRun) -> None:
+        super().__init__("idempotent replay")
+        self.run = run
+
+
 def replay_or_conflict(existing: SyncRun, request_hash: str) -> SyncRun:
     """Same key + same payload → the earlier outcome; same key + different payload → 409, never a silent no-op."""
     if existing.request_hash and existing.request_hash != request_hash:
@@ -208,8 +216,16 @@ def _start_run(db: Session, org_id: uuid.UUID, entity: str, key: str, received: 
         status="running",
         received=received,
     )
-    db.add(run)
-    db.flush()
+    try:
+        with db.begin_nested():  # savepoint: a lost race must not poison the surrounding transaction
+            db.add(run)
+            db.flush()
+    except IntegrityError as exc:
+        # S3-RR1-4: a concurrent upload with the same key committed first; answer as a sequential replay would
+        winner = find_run(db, org_id, run.scope_key, key)
+        if winner is None:
+            raise
+        raise ReplayedRun(replay_or_conflict(winner, request_hash)) from exc
     return run
 
 

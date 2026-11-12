@@ -8,7 +8,7 @@ import uuid
 from datetime import timedelta
 from typing import Any, cast
 
-from sqlalchemy import delete, select, text, update
+from sqlalchemy import delete, or_, select, text, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
@@ -17,7 +17,7 @@ from app.core.errors import ForbiddenError, NotFoundError, StateError, Validatio
 from app.db.base import utcnow
 from app.db.session import set_tenant
 from app.models.customer import Customer
-from app.models.followup import CommunicationDraft, Contact, FollowUpSchedule
+from app.models.followup import CommunicationDraft, CommunicationEvent, Contact, FollowUpSchedule
 from app.models.intelligence import DeletionRequest, SyncConflict, SyncRun
 from app.models.org import Organization
 from app.models.quote import Quote, QuoteVersion
@@ -192,7 +192,28 @@ MAX_PURGE_JOBS = 10
 def _redact_copies(db: Session, org: Organization, customer: Customer, short: str) -> dict[str, int]:
     """SEC3-03: remove the subject's identifiers from copies outside the customer row — the connector conflict
     queue, import-run reports (failed rows) and approved quote documents (snapshot + stored PDF)."""
-    counts = {"conflicts_redacted": 0, "import_rows_redacted": 0, "documents_pseudonymised": 0}
+    counts = {
+        "conflicts_redacted": 0,
+        "import_rows_redacted": 0,
+        "sync_rejections_redacted": 0,
+        "documents_pseudonymised": 0,
+        "communication_events_redacted": 0,
+    }
+    # SEC3-15: the subject line, the body snippet (greets the contact by name) and the provider headers of events
+    # linked to the customer's quotes or contacts. The rows stay so the timeline keeps its kinds and times.
+    quote_ids = select(Quote.id).where(Quote.organization_id == org.id, Quote.customer_id == customer.id)
+    contact_ids = select(Contact.id).where(Contact.organization_id == org.id, Contact.customer_id == customer.id)
+    for event in db.scalars(
+        select(CommunicationEvent).where(
+            CommunicationEvent.organization_id == org.id,
+            or_(CommunicationEvent.quote_id.in_(quote_ids), CommunicationEvent.contact_id.in_(contact_ids)),
+        )
+    ):
+        if event.subject is not None or event.snippet is not None or event.payload != REDACTED:
+            event.subject = None
+            event.snippet = None
+            event.payload = dict(REDACTED)
+            counts["communication_events_redacted"] += 1
     if customer.reference:
         for conflict in db.scalars(
             select(SyncConflict).where(
@@ -215,14 +236,30 @@ def _redact_copies(db: Session, org: Organization, customer: Customer, short: st
             rows = []
             changed = False
             for failed in report.get("failed_rows") or []:
-                blob = " ".join(str(v).lower() for v in (failed.get("values") or {}).values())
-                if any(n in blob for n in needles):
-                    failed = {**failed, "values": dict(REDACTED)}
+                values = " ".join(str(v).lower() for v in (failed.get("values") or {}).values())
+                errors = " ".join(str(e).lower() for e in (failed.get("errors") or []))
+                if any(n in values or n in errors for n in needles):
+                    # the error texts can quote the subject too ("reference CUST-1 already exists") — QA D6
+                    failed = {**failed, "values": dict(REDACTED), "errors": ["redacted: customer erased"]}
                     changed = True
                     counts["import_rows_redacted"] += 1
                 rows.append(failed)
             if changed:
                 report["failed_rows"] = rows
+                run.report = report
+        # S3-RR1-3: connector run reports keep rejection reasons, which can quote a pushed value
+        for run in db.scalars(select(SyncRun).where(SyncRun.organization_id == org.id, SyncRun.kind == "connector")):
+            report = dict(run.report or {})
+            rejected = []
+            changed = False
+            for entry in report.get("rejected") or []:
+                if any(n in str(entry.get("reason", "")).lower() for n in needles):
+                    entry = {**entry, "reason": "redacted: customer erased"}
+                    changed = True
+                    counts["sync_rejections_redacted"] += 1
+                rejected.append(entry)
+            if changed:
+                report["rejected"] = rejected
                 run.report = report
     storage = get_storage()
     for version in db.scalars(
@@ -306,7 +343,9 @@ def enqueue_due_purges(db: Session) -> int:
     job, so an approved erasure cannot silently stall (SEC3-01); after MAX_PURGE_JOBS it is flagged instead."""
     from app.services.jobs import queue
 
-    n = 0
+    # a purge job whose worker died is put back in the queue first (visibility timeout), so an approved erasure
+    # cannot stall silently behind a job that is `running` forever (SEC3-14); it counts as queued here
+    n = queue.reclaim_abandoned(db, kind="purge_customer", count_dead=False)
     for rid, org_id in queue.due_purge_requests(db):
         set_tenant(db, org_id, None)
         prior = [

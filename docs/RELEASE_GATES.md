@@ -342,7 +342,7 @@ Required retest per the reviewer: none for the conditions as written; a targeted
 
 ---
 
-# Stage 2 gate log (branch `claude/stage2-followup-assistant`, PR #2) — status: OPEN, not reviewed
+# Stage 2 gate log (branch `claude/stage2-followup-assistant`, PR #2) — status: release review 1 = PASS WITH CONDITIONS; not VERIFIED
 
 Stage 2 has its own gate. Nothing in this section is a PASS; the release reviewer has not been invoked for Stage 2.
 
@@ -367,18 +367,82 @@ Stage 2 has its own gate. Nothing in this section is a PASS; the release reviewe
 Recorded there; the table is updated with every merge. A green browser run on the tree that contains D5 exists
 (49 passed, 1 skipped, 0 failed at f09a842).
 
+## CI on the head with fix rounds 1–2 and Stage 1 round 11 merged (PR #2, 2026-11-12)
+First run after the merge: `api` and `web` green, **e2e red** (three follow-up tests timed out clicking a customer's
+Contacts button — the directory table slid under the neighbouring panel on the runner) and the **CodeQL check red**
+(`py/polynomial-redos` in the log redaction and e-mail validation patterns). Both fixed (table scrolls inside its
+card; bounded patterns). Next run: **all 15 checks green on both events** — pytest `1509 passed, 5 skipped, 3 xfailed,
+1 xpassed`; Playwright `53 passed`, `1 skipped`, no flaky or failed line; CodeQL 0 results.
+
+## Independent re-verification of the fix rounds (2026-11-12) — narrow, checklist-driven
+Two fresh verifier agents, fixed checklists, no full-suite re-runs and no exploratory campaign (the cost-driven
+process described in the Stage 1 gate log). Verified at 43ec762.
+- QA (`docs/evidence/qa-stage2-reverify-2026-11-12.md`): 7 of 7 items CONFIRMED, no defect. All 55 original QA defect
+  tests pass with **no QA assertion edited**; both Critical fixes re-proven with new tests (an opted-out address
+  cannot be mailed through a case variant, padded address, duplicate contact, earlier draft or the automation path;
+  8 concurrent sends → one delivery, one audit row); the four High fixes and the D-13 decision confirmed; S2-A01..A08
+  pass (A05/A06 only against simulator/fake providers — no real provider exists); the two Stage 2 browser specs
+  8 passed on a fresh database. The customer-table layout change was confirmed by code reading only.
+- Security (`docs/evidence/security-stage2-reverify-2026-11-12.md`): S2-SEC-01/07/11, 02, 03, 04, 09, 10 and the
+  consent re-check CLOSED; S2-SEC-05 MITIGATED; S2-SEC-06 ACCEPTED as documented; the declared edits to the audit
+  tests judged legitimate (ten xfail markers removed with test bodies unchanged; two assertions changed by the D-13
+  decision keep the security property). **New: S2-SEC-12 (Low, backlog)** — the bounded log-redaction pattern leaves
+  part of an over-long (RFC-invalid) address visible. No Critical or High finding open; nothing the auditor considers
+  release-blocking.
+
+### CI evidence for 0d610fd — the gated Stage 2 head (GitHub Actions, queried 2026-11-12): all 15 checks green
+`ci` runs 43295840234 and 43295851515 (the latter on the pull-request merge commit of 0d610fd): api, web, e2e success
+on both; pytest `1521 passed, 5 skipped, 4 xfailed, 1 xpassed in 1030.61s`; Playwright `53 passed (2.3m)`, `1 skipped`,
+no flaky line, no failed line. `security` workflow jobs (CodeQL python and javascript-typescript, gitleaks,
+pip-audit/npm audit/bandit/semgrep) success on both events; CodeQL code-scanning check success.
+Expected failures (4): S2-SEC-06 (accepted), S2-SEC-12 (new Low), and Stage 1's two (matching latency residual,
+SEC8-1). Skips (5): three tests that need git history, two compose-render tests that need a repo-root `.env`.
+
+### Open for Stage 2 (single list for the reviewer)
+| ID | Severity | State |
+|---|---|---|
+| S2-SEC-06 per-tenant provider secret stored but unused | Low | accepted, documented, strict xfail |
+| S2-SEC-12 partial redaction of RFC-invalid addresses in logs | Low | open, backlog, strict xfail |
+| O-1 plus-tag / dot variants of an opted-out address are not suppressed | Low (policy) | needs a product decision |
+| O-4 inbound linking by `in_reply_to` alone has no sender check | Low today | backlog; matters once a real inbound adapter ships |
+| duplicate contact rows accepted at creation; `{Foo}`-style unknown braces sent literally; a dead send job leaves its draft un-failed; stale copy on the customers page | Info | observations |
+| no real e-mail provider has ever been exercised (simulator and fakes only) | — | limitation |
+
 ## Still required before any Stage 2 verdict
-1. Independent QA re-verification of fix rounds 1–2 (including a judgement of every declared edit to verifier tests).
-2. Independent security re-verification (S2-SEC-01..11, the new send gate, tenant-scoped run-once, address-level opt-out).
+1. ~~Independent QA re-verification of fix rounds 1–2~~ — done (narrow), see above.
+2. ~~Independent security re-verification~~ — done (narrow), see above.
 3. CI on the gated HEAD for both events, with job-level results and counts, including the CodeQL code-scanning check.
 4. Release review by the read-only `release-reviewer` with a fresh context; findings recorded here verbatim.
 Stage 2 also depends on Stage 1 being VERIFIED (ROADMAP); Stage 1's gate is still open.
 
+## Review 1 — Stage 2 @0d610fd (2026-11-12) — verdict PASS WITH CONDITIONS
+Full report, verbatim: `docs/evidence/release-review-1-stage2-2026-11-12.md` (project `release-reviewer` agent, fresh
+context, read-only; it ran no tests and could not query GitHub). No open Critical or High defect; the send gate,
+address-level suppression, exactly-once send, tenant scoping of the worker and RLS on the nine Stage 2 tables are
+implemented as claimed in the code it read. **Stage 2 is not VERIFIED.** A simulator-only demo is acceptable after C3,
+C5 and the human decisions in C2; real-provider or real-tenant use is blocked until S2-RR1-7 and C1 are resolved.
+
+| Condition | Who | State |
+|---|---|---|
+| **C1** Stage 1's two open human conditions must be closed first (Stage 2 is stacked on Stage 1) | Human owner | **OPEN** |
+| **C2** A signed decision on each of: D-13 (withdrawn consent → draft; decided by the orchestrator, not a human); O-1 (plus-tag/dot variants of an opted-out address are not suppressed); S2-SEC-06 (all tenants send through one process-wide SMTP account — "accepted" so far only by an agent); S2-SEC-12 (Low, partial log redaction of invalid addresses); the scope gap on S2-F06/S2-A05 (Gmail and Graph not shipped, "job paused, admin notified" not demonstrated); an unsubscribe from an address with no contact row does not suppress a contact created later (S2-RR1-3) | Named human owner | **OPEN** |
+| **C3** Per-requirement-group traceability for Stage 2; stale statements corrected | Orchestrator | done in this commit (matrix rebuilt from the reviewer's table; PRD S2-F07 and LLD no longer say Redis; this heading) |
+| **C4** Close S2-RR1-2 (no test produces a terminally failed schedule job, so `_fail_schedule` and the retry re-arm are untested) and S2-RR1-4 (a job left `running` after a worker crash is never reclaimed) with tests or a documented limitation; one independent full API and browser run on the final head; one hostile exploratory session on the send and consent paths | QA, then reviewer | **OPEN** — S2-RR1-4 is documented as a limitation in this commit; the rest is not done |
+| **C5** CI result for the gated head stored as an evidence file | Orchestrator | done: `docs/evidence/ci-stage2-0d610fd-2026-11-12.md` |
+
+Other findings: S2-RR1-5 (Low, stale documents → C3), S2-RR1-6 (Medium: S2-A05 is proxy-tested only — now marked
+PARTIAL), S2-RR1-7 (Medium: shared SMTP identity, no real provider ever exercised), S2-RR1-8 (Low → C5), S2-RR1-9
+(Low: some QA confirmation tests are permissive), S2-RR1-10 (Low: inbound linking / follow-up suppression once a real
+inbound adapter ships), S2-RR1-11 (Low, process: the orchestrator wrote fix round 2, decided D-13, edited auditor
+tests and chose the narrow verification). Required retest per the reviewer: the C4 items, an RLS/cross-tenant re-run
+for the Stage 2 tables including migration 0006b, an opt-out-versus-in-flight-send race, a scan on the gated head;
+then re-invoke the reviewer.
 ---
 
-# Stage 3 gate log (branch `claude/stage3-customer-order-intelligence`, PR #3) — status: OPEN, not reviewed
+# Stage 3 gate log (branch `claude/stage3-customer-order-intelligence`, PR #3) — status: release review 1 = PASS WITH CONDITIONS (conditions open; not VERIFIED)
 
-Stage 3 has its own gate. Nothing in this section is a PASS; the release reviewer has not been invoked for Stage 3.
+Stage 3 has its own gate. Release review 1 (2026-11-12) returned PASS WITH CONDITIONS — see the end of this section.
+The earlier entries are kept as written at the time.
 
 ## Independent verification of the first implementation (2026-11-02 / 2026-11-10)
 - **QA** (`docs/evidence/qa-stage3-2026-11-02.md`; 46 API + 5 browser tests derived from the PRD): S3-A02, A04, A05,
@@ -398,14 +462,83 @@ tests are declared there: removed xfail markers, and four QA tests whose expecta
 (idempotency replay with a different payload → 409; a customer pending erasure is readable only with
 `manage_retention`). Migration `0007b` added; `0007` now follows Stage 2's `0006b`.
 
-## Still required before any Stage 3 verdict
-1. A green full API and browser run on the merged tree (recorded in the fixes1 evidence file when available).
-2. Independent QA re-verification (must judge the declared test edits and re-run the full browser suite, which QA
-   did not re-run after its last spec change).
-3. Independent security re-verification of SEC3-01..11 and of the new validation/idempotency/erasure code.
-4. CI on the gated HEAD for both events with job-level results, counts and the CodeQL code-scanning check.
-5. Release review by the read-only `release-reviewer` with a fresh context; findings recorded here verbatim.
-Stage 3 depends on Stages 1 and 2 being VERIFIED; both gates are still open.
+## Independent re-verification of fix round 1 (2026-11-12, at ee865da)
+Two fresh verifier agents with fixed checklists; QA additionally made one full independent API and browser run, the
+security verifier a time-boxed adversarial pass of 12 probes.
+- QA (`docs/evidence/qa-stage3-reverify-2026-11-12.md`): D1–D5 CONFIRMED fixed; the five edits to QA's own tests
+  judged legitimate (the property QA cared about is still asserted in each; both decisions — 409 for a replayed key
+  with a different payload, 404 for sales on a customer pending erasure — acceptable and documented); S3-A01..A09
+  PASS; order totals equal the approved document for AED, JPY, KWD, BHD; retention confirmed. Full runs: API exit 1
+  with `1646 passed, 1 failed, 2 skipped, 3 xfailed, 1 xpassed` (the failure is its new defect test), browser exit 0
+  with `62 passed, 1 skipped`, 0 flaky. **New: D6 (Low)** — an import error text kept an erased customer's reference.
+- Security (`docs/evidence/security-stage3-reverify-2026-11-12.md`): SEC3-04, 06, 07, 08, 09, 10 CLOSED, tenant
+  isolation and role gates CLOSED, SEC3-01/02/03 MITIGATED, test edits ACCEPTED. **New:** SEC3-12 (Medium: an existing
+  approved quote or open proposal of a customer pending erasure could still become an order), SEC3-14 (Medium: a
+  purge job left `running` by a crashed worker stalls the erasure), SEC3-15 (Medium: the purge left message subject
+  and snippet in `communication_events`), SEC3-13, SEC3-16, SEC3-17 (Low). No Critical or High.
+
+## Fix round 2 (same day)
+All six security findings and D6 fixed (details, declared edits and runs in `implementer-fixes1-stage3-2026-11-12.md`,
+sections "Fix round 2" and the two orchestrator addenda). The verifiers' own reproduction tests — written before the
+fixes — now pass with their xfail decorators removed (151 passed across the Stage 3 QA and security files). One
+earlier security test was reordered (declared). These fixes have **not** been re-checked by a verifier agent; the
+evidence is the pre-written tests plus CI.
+
+### CI evidence for e2e6c3f — the gated Stage 3 head: all 15 checks green on both events
+Details in `docs/evidence/ci-stage3-e2e6c3f-2026-11-12.md`: pytest `1682 passed, 5 skipped, 4 xfailed, 1 xpassed`;
+Playwright `62 passed`, `1 skipped`, no flaky or failed line; CodeQL check success. No Stage 3 test is an expected
+failure. Earlier red runs of this PR (inherited Stage 1 timing test, browser click failures on the customers page,
+`py/polynomial-redos` alerts) are described in the Stage 2 and Stage 3 evidence files; one CI run of the previous
+green head had one flaky browser test (the accessibility scan, passed on retry; not reproduced by QA).
+
+### Open for Stage 3 (single list for the reviewer)
+| Item | Severity | State |
+|---|---|---|
+| Purge does not cover `rfq_items.raw_text`, uploaded RFQ files, audit summaries, order/quote notes, backups | Medium (privacy, documented) | limitation in KNOWN_LIMITATIONS / PRIVACY_AND_RETENTION |
+| CSV imports have the same concurrent-replay pattern that SEC3-16 fixed for connector syncs | Low | not changed (reported by the implementer) |
+| Control characters other than NUL are stored; purge/decide/conflict resolution take no row lock; failed-row redaction matches by substring and can over-redact | Low / observations | backlog |
+| A worker that dies after the provider accepted a message but before the draft is committed can redeliver on reclaim; the visibility timeout must exceed the longest handler run | Low (Stage 2 queue) | documented |
+| The erased-customer 404 was not exercised in the web UI; the real worker loop was driven in-process only | — | not tested |
+| No real ERP/CRM pull adapter exists (push-model stubs only) | — | limitation |
+
+## Still required before any Stage 3 verdict (list as written before review 1 — superseded)
+Items 1–5 of the earlier list (green run on the merged tree, QA and security re-verification, CI on the gated head,
+release review) have all happened and are recorded above and below. What is open now is the condition list of review 1.
+
+## Release review 1 (2026-11-12) — verdict: PASS WITH CONDITIONS
+Invoked by the orchestrator as the read-only `release-reviewer` subagent with a fresh context on HEAD 9f63da8 (gated
+code head e2e6c3f). The report is saved verbatim in `docs/evidence/release-review-1-stage3-2026-11-12.md`. The
+reviewer ran no tests; it read the evidence and the source. No Critical and no High finding. Stage 3 stays
+IMPLEMENTED, **not VERIFIED**.
+
+| Condition | Owner | State |
+|---|---|---|
+| C1 named decision on the erasure scope the purge does not cover (`rfq_items.raw_text`, uploaded RFQ files, audit summaries, order and quote notes, backups; also order `external_ref`/notes — S3-RR1-1, S3-RR1-3) | human | **open** |
+| C2 ratify two product decisions taken by an agent: replayed idempotency key with a different payload → 409; customer pending erasure → 404 for roles without `manage_retention` | human | **open** |
+| C3 targeted verifier re-check of fix round 2 at the final head, with a fresh full API + browser run and a scan with counts for that head | QA + security verifiers | see "After review 1" below |
+| C4 correct the stale documents (S3-RR1-5..7) | implementing side | done in this commit (KNOWN_LIMITATIONS, LLD, ROADMAP, traceability rewritten from the reviewer's table) — not yet looked at by the reviewer |
+| C5 Stage 1 and Stage 2 conditions closed (Stage 3 cannot be VERIFIED before they are) | human | **open** |
+
+Findings (full text in the report): S3-RR1-1 Medium privacy (purge scope → C1); S3-RR1-2 Medium process (fix round 2
+not verifier-checked → C3); S3-RR1-3 Medium data (connector run reports / order refs not covered by a purge test);
+S3-RR1-4 Low (CSV same-key race); S3-RR1-5..7 Low docs; S3-RR1-8 Low (CI ran on the PR merge commit, scan counts not
+read, one flaky a11y spec on an earlier head not investigated); S3-RR1-9 Low (single-round race test); S3-RR1-10
+Low/observations (backlog).
+
+Decisions the reviewer lists as made by an agent and needing human ratification: the 409 and 404 rules (C2), the
+re-queue cap of 10 for purge jobs, name/notes truncation on customer import, and the judgement that SEC3-13/14/15/17
+were not blocking.
+
+### After review 1 — fix round 3 (implementing side; small, each with a regression test)
+| Finding | Change | Test |
+|---|---|---|
+| S3-RR1-4 | `data_io._start_run` inserts the run inside a savepoint; a lost same-key race raises `ReplayedRun` and the endpoint answers exactly as a sequential replay (same payload → the winner's run, different payload → 409) | `test_stage3_fixes2.py::test_csv_import_replayed_concurrently_is_applied_once_without_a_500` (8 rounds) |
+| S3-RR1-3 (part) | `_redact_copies` also redacts connector run rejection reasons that quote the subject's reference, e-mail or name; counted as `sync_rejections_redacted` in the request summary and audit row | `test_stage3_fixes2.py::test_purge_redacts_connector_rejection_reasons_that_quote_the_subject` |
+| S3-RR1-9 | the implementing side's confirm-race test now runs 6 rounds (the auditor's own SEC3-16/17 tests in `tests/security/test_stage3_confirm.py` already ran 8 rounds each) | `test_concurrent_confirm_loser_gets_409_with_one_event_and_one_audit_row` |
+| S3-RR1-5..7 | documents corrected | — |
+Not changed: order `external_ref` and notes are kept after erasure (part of C1, a human decision); S3-RR1-10 items
+stay in the backlog. Commands, exit codes and counts: `docs/evidence/implementer-fixes1-stage3-2026-11-12.md`
+("Fix round 3"). These changes are **not** independently verified until the C3 re-check is recorded.
 
 ---
 

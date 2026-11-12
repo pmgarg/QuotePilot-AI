@@ -117,7 +117,7 @@ def propose_order_from_quote(
 
 
 def _transition(order_id: uuid.UUID, to: str, payload: OrderTransitionIn, principal: PrincipalDep, db: DB) -> OrderOut:
-    order = order_service.get_order(db, principal.org_id, order_id)
+    order = order_service.get_order(db, principal.org_id, order_id, for_update=True)
     order = order_service.transition(
         db,
         org=principal.organization,
@@ -361,14 +361,17 @@ async def import_data(
     if existing is not None:
         return SyncRunOut.model_validate(data_io.replay_or_conflict(existing, hashlib.sha256(raw).hexdigest()))
     fn = data_io.import_customers if entity == "customers" else data_io.import_orders
-    run = fn(
-        db,
-        org=principal.organization,
-        actor_user_id=principal.user.id,
-        ip=principal.ip,
-        raw=raw,
-        idempotency_key=idempotency_key,
-    )
+    try:
+        run = fn(
+            db,
+            org=principal.organization,
+            actor_user_id=principal.user.id,
+            ip=principal.ip,
+            raw=raw,
+            idempotency_key=idempotency_key,
+        )
+    except data_io.ReplayedRun as replay:
+        run = replay.run
     return SyncRunOut.model_validate(run)
 
 

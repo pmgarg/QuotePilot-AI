@@ -74,6 +74,7 @@ class Settings(BaseSettings):
     retention_grace_days: int = 30
     max_import_rows: int = 10_000
     max_sync_records: int = 5_000
+    job_visibility_timeout_seconds: int = Field(default=900, ge=1)  # a job `running` longer than this is abandoned
     # Stage 4
     platform_kill_switch: bool = False  # platform-wide: stops assistant turns and workflow steps everywhere
     assistant_max_steps: int = 8  # tool steps per user message

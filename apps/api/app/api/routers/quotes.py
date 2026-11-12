@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Query
 from fastapi.responses import Response
-from sqlalchemy import or_, select
+from sqlalchemy import ColumnElement, or_, select
 
 from app.api.deps import DB, Principal, PrincipalDep, clean_param
 from app.models.audit import AuditEvent
@@ -101,10 +101,11 @@ def list_quotes(
     customer_id: uuid.UUID | None = None,
 ) -> list[QuoteSummary]:
     stmt = (
-        select(Quote, Customer.name)
+        select(Quote, Customer.name, Customer.deleted_at)
         .outerjoin(Customer, Customer.id == Quote.customer_id)
         .where(Quote.organization_id == principal.org_id)
     )
+    see_erased = has_permission(principal.role, Permission.MANAGE_RETENTION)
     status = clean_param(status)
     if status:
         stmt = stmt.where(Quote.status == status)
@@ -113,10 +114,15 @@ def list_quotes(
     q = clean_param(q)
     if q:
         like = f"%{q.replace('%', r'\%').replace('_', r'\_')}%"
-        stmt = stmt.where(or_(Quote.number.ilike(like, escape="\\"), Customer.name.ilike(like, escape="\\")))
+        name_match: ColumnElement[bool] = Customer.name.ilike(like, escape="\\")
+        if not see_erased:  # SEC3-13: do not let a name search reveal a customer pending erasure
+            name_match = name_match & Customer.deleted_at.is_(None)
+        stmt = stmt.where(or_(Quote.number.ilike(like, escape="\\"), name_match))
     rows = db.execute(stmt.order_by(Quote.created_at.desc()).limit(200)).all()
     out: list[QuoteSummary] = []
-    for quote, customer_name in rows:
+    for quote, customer_name, customer_deleted_at in rows:
+        if customer_deleted_at is not None and not see_erased:
+            customer_name = None  # SEC3-13: name of a customer pending erasure is withheld
         current = quote_service.current_version(quote)
         out.append(
             QuoteSummary(
