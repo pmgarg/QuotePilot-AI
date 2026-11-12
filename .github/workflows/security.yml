@@ -60,3 +60,18 @@ jobs:
       - uses: github/codeql-action/init@v3
         with: { languages: "${{ matrix.language }}" }
       - uses: github/codeql-action/analyze@v3
+      # The code-scanning *check* (alerts) is reported separately from this job's conclusion, and its alert list is
+      # only visible in the repository's Security tab. Print rule, location and message here so that every gate
+      # record can cite the alerts from the job log.
+      - name: Print code-scanning results (rule, level, location, message)
+        if: always()
+        run: |
+          shopt -s nullglob
+          found=0
+          for f in "${{ runner.workspace }}"/results/*.sarif; do
+            n=$(jq '[.runs[].results[]] | length' "$f")
+            echo "SARIF $(basename "$f"): $n result(s)"
+            found=$((found + n))
+            jq -r '.runs[] | .results[] | "ALERT\t\(.ruleId)\t\(.level // "-")\t\(.locations[0].physicalLocation.artifactLocation.uri // "?"):\(.locations[0].physicalLocation.region.startLine // 0)\t\(.message.text | gsub("[\\n\\r\\t]"; " ") | .[0:400])"' "$f"
+          done
+          echo "TOTAL code-scanning results in this job: $found"
