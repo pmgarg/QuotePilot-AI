@@ -90,3 +90,11 @@ to this branch's `api` job as well until the corrected file is merged.
 This is the first full API run of this branch that includes the worker-scope change (`queue.due_purge_requests`); it
 supersedes the note above that such a run was still owed by the implementing side. The Stage 1 CI timing issue
 described in the Stage 2 evidence applies to this branch's `api` job as well until Stage 1 fix round 11 is merged.
+
+## CI after merging Stage 1 fix round 11 and the Stage 2 fixes (PR #3, queried 2026-11-12): all 15 checks green
+`api` success: pytest `1635 passed, 5 skipped, 3 xfailed, 1 xpassed`; `e2e` success: Playwright `61 passed`, `1 skipped`,
+**`1 flaky`** — `qa-reverify-review1.spec.ts:230` (the accessibility scan across six screens) failed once and passed on
+its retry in one of the two runs; not investigated. `web`, `security` jobs and the CodeQL check success (the inherited
+`py/polynomial-redos` alerts are gone). Before this merge the PR's CI was red (inherited Stage 1 timing test; the
+browser click failures and CodeQL alerts described in the Stage 2 evidence).
+Independent re-verification and the release review are still owed.
