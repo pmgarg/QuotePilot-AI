@@ -265,6 +265,13 @@ errors in the confirmation agents' new test files (two unused imports, two unsor
 run and e2e was skipped. The orchestrator had committed those files without linting them. Fixed mechanically
 (`ruff check --fix`, `ruff format`; no assertion changed; both files re-run locally: 14 passed, 1 xfailed).
 
+CI on 58b1023 (lint fix; runs 43209371016 and 43209377707): `web` success; `security` workflow success on both
+events (SARIF python 0, javascript 0; gitleaks success); CodeQL check success; **`api` failure**:
+`1 failed, 1360 passed, 5 skipped, 2 xfailed, 1 xpassed` (coverage TOTAL 92 %) on both events — the single failure is
+the security confirmation test `test_item1_worst_case_end_to_end_and_add_item_cost`, which wrote its measurements to a
+path that exists only on the development machine (`FileNotFoundError`); its assertions had passed. e2e skipped.
+Fixed by writing the dump to the system temp directory (declared edit, no assertion changed).
+
 ### Open for Stage 1 after round 11 (single list for the reviewer)
 | ID | Severity | State |
 |---|---|---|

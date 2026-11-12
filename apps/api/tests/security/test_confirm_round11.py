@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 
@@ -130,9 +131,9 @@ def test_item1_worst_case_end_to_end_and_add_item_cost(app, tenant_a: Tenant) ->
         )
         times.append(time.perf_counter() - t1)
         assert a.status_code in (200, 201), a.text
-    with open(
-        "/tmp/claude-0/-home-user-QuotePilot-AI/98b61cc2-31d0-51f6-a519-b934aa445354/scratchpad/item1.json", "w"
-    ) as fh:
+    # orchestrator edit (declared): the measurement dump went to a path that exists only on the auditor's machine
+    # and failed in CI with FileNotFoundError; it now goes to the system temp directory
+    with open(os.path.join(tempfile.gettempdir(), "qp_confirm_round11_item1.json"), "w") as fh:
         json.dump(
             {
                 "elapsed": elapsed,
