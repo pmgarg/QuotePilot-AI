@@ -1,0 +1,77 @@
+# Local demonstration topology. No paid services. Secrets come from ../.env (copy from ../.env.example).
+name: quotepilot
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_SUPER_PASSWORD:-postgres-local-only}
+      POSTGRES_DB: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  redis:            # not used by Stage 1; reserved for the Stage 2 job runner
+    image: redis:7-alpine
+    profiles: ["stage2"]
+
+  migrate:
+    build: { context: ../apps/api, dockerfile: Dockerfile }
+    command: ["sh", "-c", "alembic upgrade head && python -m app.fixtures.seed"]
+    env_file: ../.env
+    environment:
+      DATABASE_URL: postgresql+psycopg://quotepilot_app:${QP_APP_PASSWORD:-quotepilot_app}@postgres:5432/quotepilot
+      DATABASE_ADMIN_URL: postgresql+psycopg://quotepilot_owner:${QP_OWNER_PASSWORD:-quotepilot_owner}@postgres:5432/quotepilot
+      STORAGE_DIR: /data/storage
+    volumes:
+      - storage:/data/storage
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  api:
+    build: { context: ../apps/api, dockerfile: Dockerfile }
+    # No env_file here (NEW-16): the API container receives an explicit allow-list of variables, so the owner
+    # role's password and the migration DSN never enter its environment (review 2, L2-2). Add optional provider
+    # settings (SMTP_*, ANTHROPIC_API_KEY, TOKEN_ENCRYPTION_KEY) by name when you enable those features.
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env}
+      DATABASE_URL: postgresql+psycopg://quotepilot_app:${QP_APP_PASSWORD:-quotepilot_app}@postgres:5432/quotepilot
+      DATABASE_ADMIN_URL: ""
+      STORAGE_DIR: /data/storage
+      CORS_ORIGINS: http://localhost:3000
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-}
+      AI_PROVIDER: ${AI_PROVIDER:-disabled}
+    volumes:
+      - storage:/data/storage
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    # not published: the API is reached only through the web proxy (add a `ports:` mapping locally if you need it)
+    expose: ["8000"]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8000/api/v1/health')\""]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  web:
+    build:
+      context: ../apps/web
+      dockerfile: Dockerfile
+    environment:
+      API_INTERNAL_URL: http://api:8000
+    depends_on:
+      api: { condition: service_healthy }
+    ports:
+      - "127.0.0.1:3000:3000"
+
+volumes:
+  pgdata:
+  storage:

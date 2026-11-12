@@ -1,0 +1,5 @@
+SKU,Description,Unit,Currency,List Price
+=cmd|' /C calc'!A0,Evil sku,EA,AED,1.00
+SKU-X1,-1+1 description trick,EA,AED,2.00
+SKU-X1,Duplicate sku,EA,AED,3.00
+SKU-X3,Bad price,EA,AED,abc

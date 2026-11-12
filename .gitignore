@@ -1,0 +1,27 @@
+# secrets / env
+.env
+.env.*
+!.env.example
+# python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+coverage.xml
+# node
+node_modules/
+.next/
+out/
+# runtime data
+var/
+apps/api/var/
+tests/e2e/test-results/
+tests/e2e/playwright-report/
+playwright-report/
+test-results/
+# os
+.DS_Store

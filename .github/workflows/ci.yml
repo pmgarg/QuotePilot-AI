@@ -1,0 +1,113 @@
+name: ci
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api:
+    name: api (lint, types, migrations, tests)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      DATABASE_URL: postgresql+psycopg://quotepilot_app:quotepilot_app@localhost:5432/quotepilot_test
+      DATABASE_ADMIN_URL: postgresql+psycopg://quotepilot_owner:quotepilot_owner@localhost:5432/quotepilot_test
+      APP_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with: { version: "0.9.x" }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
+      - name: Create roles and databases
+        run: ./scripts/db_setup.sh
+      - name: Install
+        run: cd apps/api && uv sync --all-extras
+      - name: Lint and type-check
+        run: cd apps/api && uv run ruff check app tests && uv run ruff format --check app tests && uv run mypy app
+      - name: Migration up / down / up
+        run: cd apps/api && uv run alembic upgrade head && uv run alembic downgrade base && uv run alembic upgrade head
+      - name: Tests with coverage
+        run: cd apps/api && uv run pytest -q --cov=app --cov-report=term --cov-report=xml
+      - name: Compose topology renders and keeps owner credentials out of api/web (R3-3, NEW-16)
+        run: |
+          cp .env.example .env
+          docker compose --env-file .env -f infra/docker-compose.yml config > "$RUNNER_TEMP/compose.yml"
+          cd apps/api && uv run python ../../scripts/check_compose.py "$RUNNER_TEMP/compose.yml"
+      - name: OpenAPI contract drift
+        run: |
+          cd apps/api && uv run python -c "import json; from app.main import app; print(json.dumps(app.openapi(), indent=2, sort_keys=True))" > /tmp/openapi.json
+          diff -u ../../docs/openapi.json /tmp/openapi.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: api-coverage, path: apps/api/coverage.xml }
+
+  web:
+    name: web (types, lint, build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: apps/web/package-lock.json }
+      - run: cd apps/web && npm ci
+      - run: cd apps/web && npx tsc --noEmit
+      - run: cd apps/web && npx eslint .
+      - run: cd apps/web && npm run build
+
+  e2e:
+    name: e2e (Playwright)
+    runs-on: ubuntu-latest
+    needs: [api, web]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env: { POSTGRES_USER: postgres, POSTGRES_PASSWORD: postgres }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      DATABASE_URL: postgresql+psycopg://quotepilot_app:quotepilot_app@localhost:5432/quotepilot_test
+      DATABASE_ADMIN_URL: postgresql+psycopg://quotepilot_owner:quotepilot_owner@localhost:5432/quotepilot_test
+      APP_ENV: test
+      SECRET_KEY: ci-only-secret-key-ci-only-secret-key-ci-only
+      DEMO_PASSWORD: E2E-Demo-Password-2026!
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: ./scripts/db_setup.sh
+      - run: cd apps/api && uv sync --all-extras && uv run alembic upgrade head && uv run python -m app.fixtures.seed
+      - run: cd apps/web && npm ci && npm run build
+      - run: cd tests/e2e && npm ci && npx playwright install --with-deps chromium
+      - run: cd tests/e2e && npx playwright test
+      - name: Print page snapshots of failed browser tests (I-3 post-mortem aid)
+        if: failure()
+        run: |
+          for f in $(find tests/e2e/test-results -name error-context.md | head -20); do
+            echo "::group::$f"; cat "$f"; echo; echo "::endgroup::"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: playwright-report, path: tests/e2e/playwright-report }
