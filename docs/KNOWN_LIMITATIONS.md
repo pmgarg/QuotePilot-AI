@@ -83,11 +83,38 @@
 - **RFQ text lines (round 9).** Lines longer than 1,000 characters (after collapsing blanks) are not searched for a
   quantity; they are kept as an item without quantity only if they name a SKU. Tokens longer than 64 characters are
   never treated as SKUs.
-- **Matching cost (SEC6-2, open).** Fuzzy matching scans every catalog description for each unmatched RFQ line, in
-  the API process. It is bounded, not solved: 200 characters per line and 2,000,000 comparisons per RFQ parse; beyond
-  that budget lines are matched by exact SKU only and flagged `match_skipped_budget`. With very large catalogs
-  (tens of thousands of products) a single parse can still occupy the API process for several seconds, and long RFQs
-  lose fuzzy suggestions for their later lines. Moving matching into the worker is the planned remedy.
+- **Matching cost (SEC6-2 / SEC7-1, mitigated in round 11).** Fuzzy matching compares every unmatched RFQ line with
+  every catalog description. Bounds: 200 characters per line and per catalog description, 2,000,000 comparisons per
+  RFQ parse, and a wall-clock deadline of `MATCH_TIMEOUT_SECONDS` (default 8) per parse. Jobs up to 50,000
+  comparisons (products x lines) run in the API process as before (worst case about 1-2 s of CPU); larger jobs run in
+  a resource-limited worker process (`app.services.match_worker`), at most two such processes per API process, so the
+  API keeps serving other requests while it waits. A line that was not matched because of the budget, the deadline, a
+  busy matcher or a worker failure is still matched by exact SKU and is otherwise left for a person (flag
+  `match_skipped_budget`, matching proceeds in line order so the skipped lines are the later ones). Measured with a
+  30,000-product x 300-character catalog and 450 adversarial lines: 11.6 s per request (about 3.6 s of that is loading
+  and storing), 51 lines matched, 399 flagged; other requests answered in at most 0.34 s meanwhile (the former
+  in-process matcher blocked them for 11 s at a smaller size). Still true: with very large catalogs a long RFQ loses
+  fuzzy suggestions for its later lines; a person can enter the exact SKU on such a line in the RFQ screen. One
+  parse can occupy a database transaction for the deadline. Matching still starts a Python process per large job
+  (about 0.1 s) and ships the catalog descriptions to it (about 200 bytes per product).
+- **Rate limits on expensive endpoints (SEC7-7).** Per user and in process memory (like the login limiter, so
+  per API replica and reset by a restart): 30 RFQ creations or re-parses and 10 catalog imports per 5 minutes
+  (`RFQ_PARSE_RATE_LIMIT_ATTEMPTS`, `CATALOG_IMPORT_RATE_LIMIT_ATTEMPTS`, `EXPENSIVE_RATE_LIMIT_WINDOW_SECONDS`). Beyond
+  that the API answers 429 with `Retry-After`. Refused requests are not audited (as with the login limiter). Other
+  expensive paths (quote generation, exports) are not limited. A shared limiter (Redis) is needed for several replicas.
+- **Large RFQs against large catalogs lose suggestions (RR5-2).** Matching for one request stops after 8 s: for
+  example about 100 lines against a 20,000-product catalog (2,000,000 comparisons) will not finish, so the later
+  lines carry `match_skipped_budget` and need an exact SKU or a manual choice. Each large job also pays roughly 0.1 s
+  to start the matcher process and ship the catalog descriptions to it.
+- **Matcher resource limits.** The matcher process applies CPU/memory/file limits when the platform allows it and
+  continues silently without them when it does not (the document parser reports that case; the matcher does not).
+- **Adding a single RFQ line (SEC8-2, open).** `POST /rfqs/{id}/items` builds a catalog index and matches in the API
+  process without a rate limit: about 1.4–2.1 s per call on a 30,000-product catalog. The bulk paths (create,
+  re-parse) are limited and use the bounded matcher.
+- **Matcher output reader (SEC8-1).** A pathologically nested line from the matcher process would raise instead of
+  being ignored; the matcher is our own code and only prints flat lines.
+- **Candidate order on equal scores (QA O1).** Suggestions with identical similarity scores may be listed in a
+  different order between runs; observed once, not reproduced.
 - **Zero-padded groups.** "01,234" is read as 1.234 and "012,345" as 12.345 (a group that starts with a zero is never
   a thousands group); a person might have meant 1,234. Such cells are unusual; the reading is pinned by tests.
 - **Demo seed.** `make demo` and the Compose `migrate` service need `DEMO_PASSWORD` (≥ 12 characters); the seed
