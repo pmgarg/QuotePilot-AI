@@ -22,7 +22,7 @@ Requires PostgreSQL 16, Python 3.12+, [uv](https://docs.astral.sh/uv/), Node 22.
 cp .env.example .env
 make db-up            # start PostgreSQL service + create roles/databases (uses sudo -u postgres when root)
 make api-install web-install
-make demo             # migrate + seed two synthetic organisations; prints LOCAL-ONLY credentials
+make demo             # migrate + seed synthetic demo data (set DEMO_PASSWORD in .env first; never prints a password)
 make api-run          # http://localhost:8000/api/v1/docs
 make web-run          # http://localhost:3000  (in another shell)
 ```

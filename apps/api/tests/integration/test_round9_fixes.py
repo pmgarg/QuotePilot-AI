@@ -33,3 +33,22 @@ def test_sec5_5_pasted_text_with_long_whitespace_runs_is_answered_quickly(app, t
     if r.status_code == 201:
         quantities = [it["quantity"] for it in r.json()["items"]]
         assert "10" in quantities or "10.000" in quantities, quantities
+
+
+def test_round10_negative_stock_is_left_unknown_with_a_warning(app) -> None:  # type: ignore[no-untyped-def]
+    from tests.conftest import make_tenant, upload
+
+    t = make_tenant("R10 Stock", with_catalog=False)
+    admin = login_as(app, t.users["admin"])
+    mapping = (
+        '{"sku":"SKU","description":"Description","unit":"Unit","currency":"Currency",'
+        '"list_price":"List Price","stock_qty":"Stock"}'
+    )
+    body = "SKU,Description,Unit,Currency,List Price,Stock\nN1,a,EA,AED,5,-5\nN2,b,EA,AED,5,– 5\nN3,c,EA,AED,5,7\n"
+    r = upload(admin, "/catalogs/import", "c.csv", body.encode(), {"mapping": mapping, "catalog_name": "Main"})
+    assert r.status_code == 201, r.text
+    report = r.json()["import_report"]
+    assert report["imported"] == 3 and len(report["warnings"]) == 2
+    items = {p["sku"]: p for p in admin.get(f"/catalogs/versions/{r.json()['id']}/products").json()["items"]}
+    assert items["N1"]["stock_qty"] is None and items["N2"]["stock_qty"] is None
+    assert items["N3"]["stock_qty"] is not None and float(items["N3"]["stock_qty"]) == 7.0

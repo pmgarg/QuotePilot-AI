@@ -640,7 +640,9 @@ def test_stored_out_of_range_quantity_in_db_is_treated_as_missing_by_generate_qu
 def _admin_url() -> str:
     import os
 
-    return os.environ["DATABASE_ADMIN_URL_TEST"]
+    # tests/conftest.py resolves DATABASE_ADMIN_URL_TEST (or its own default) into DATABASE_ADMIN_URL at import time,
+    # so this is the owner URL exactly as the suite uses it, whether or not the _TEST variable is exported (CI).
+    return os.environ["DATABASE_ADMIN_URL"]
 
 
 # ---------------------------------------------------------------------------------------------------------------
