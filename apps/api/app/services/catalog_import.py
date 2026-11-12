@@ -19,7 +19,7 @@ from app.core.errors import NotFoundError, PayloadTooLarge, StateError, Validati
 from app.models.catalog import Catalog, CatalogVersion, Product
 from app.models.files import UploadedFile
 from app.services import audit
-from app.services.money import is_supported_currency, parse_decimal
+from app.services.money import MAX_STORED_PRICE, is_supported_currency, parse_decimal
 from app.services.parsing.limits import check_size, check_xlsx_zip, sniff_kind
 from app.services.parsing.sandbox import ParseFailure, run_parser
 from app.services.storage import get_storage, make_key
@@ -30,6 +30,13 @@ REQUIRED_FIELDS = ("sku", "description", "list_price")
 OPTIONAL_FIELDS = ("unit", "currency", "cost_price", "stock_qty", "valid_from", "valid_to")
 ALL_FIELDS = REQUIRED_FIELDS + OPTIONAL_FIELDS
 MAX_REPORT_ENTRIES = 500
+_PRICE_Q = Decimal("0.000001")
+_STOCK_Q = Decimal("0.001")
+
+
+def _too_large(value: Decimal, quantum: Decimal) -> bool:
+    """True when the value, rounded as it will be stored, does not fit the NUMERIC(18, n) column (SEC4-2)."""
+    return abs(value) >= MAX_STORED_PRICE or abs(value.quantize(quantum)) >= MAX_STORED_PRICE
 
 
 @dataclass
@@ -166,6 +173,9 @@ def build_products(
         if price < 0:
             report.error(ridx, "list price is negative")
             continue
+        if _too_large(price, _PRICE_Q):
+            report.error(ridx, "list price is too large")
+            continue
         currency_raw = cell("currency")
         currency = str(currency_raw).strip().upper() if currency_raw not in (None, "") else default_currency
         if not is_supported_currency(currency):
@@ -177,9 +187,14 @@ def build_products(
             if cost is None or cost < 0:
                 report.error(ridx, "cost price is not a valid non-negative number")
                 continue
+            if _too_large(cost, _PRICE_Q):
+                report.error(ridx, "cost price is too large")
+                continue
         stock = None
         if cell("stock_qty") not in (None, ""):
             stock = parse_decimal(cell("stock_qty"))
+            if stock is not None and _too_large(stock, _STOCK_Q):
+                stock = None
             if stock is None:
                 report.warn(ridx, "stock quantity unreadable; left unknown")
         unit_raw = cell("unit")
@@ -207,9 +222,9 @@ def build_products(
                 description=description[:2000],
                 unit=unit,
                 currency=currency,
-                list_price=price.quantize(Decimal("0.000001")),
-                cost_price=cost.quantize(Decimal("0.000001")) if cost is not None else None,
-                stock_qty=stock.quantize(Decimal("0.001")) if stock is not None else None,
+                list_price=price.quantize(_PRICE_Q),
+                cost_price=cost.quantize(_PRICE_Q) if cost is not None else None,
+                stock_qty=stock.quantize(_STOCK_Q) if stock is not None else None,
                 valid_from=vf,
                 valid_to=vt,
                 flags=flags,

@@ -56,13 +56,29 @@
   The list filter `status=withdrawn` shows only fully withdrawn quotes. A pending version made obsolete by a
   withdrawal is `superseded` and can still be previewed as a PDF labelled "WITHDRAWN" (O2-3; not an approved document).
 - **Platform-wide session revocation audit (NEW-15).** `scripts/revoke_sessions.py --user-email/--all` writes one
-  `ops.sessions_revoked` audit row per affected organisation (tenant-readable); the platform total is in each row's
-  `summary.total` and on stdout. There is no platform-scope audit table.
-- **CI e2e flake (I-3).** One PR-triggered `ci` run on 58976f3 failed in the browser job with symptoms of the web
-  server returning errors mid-suite (404/409 after successful creates, `ERR_ABORTED` navigations) while the push run of
-  the same commit was green. The trace artifact could not be downloaded from the development container (host blocked);
-  the specs now assert every intermediate API call with its response body so a recurrence is diagnosable. Both the
-  push- and the PR-triggered runs must be green on the gated HEAD.
+  `ops.sessions_revoked` audit row per affected organisation with that organisation's own count (tenant-readable); the
+  platform-wide total is printed to stdout only (R4-1). There is no platform-scope audit table.
+- **CI e2e flake (I-3).** Three pull_request-triggered `ci` runs (on 58976f3, 597f4b0 and e090089) failed in the
+  browser job while the push runs of the same commits were green: logins landed back on `/login`, submit clicks left the
+  version in `draft`, some API calls returned 404/409 after successful creates. No product rule failed. Since d0aac67
+  (API request log enabled in CI) both events have been green on every commit. The trace artifacts
+  could not be downloaded from the development container (host blocked), so the failed runs themselves were never
+  inspected. **Probable cause found in fix round 8 (D5):** the database dependency committed *after* the response had
+  been sent, so a client that immediately issued its next request could read the state from before the commit — a
+  session row not yet visible (back to `/login`), a version still `draft` after a successful submit, a 404 right after
+  a 201. All three recorded symptoms match, and the race was reproduced locally (3 of 400 immediate reads after a
+  create returned 404; a deterministic test now pins the order). This is an inference: it cannot be proven for the
+  three historical runs. Diagnostics stay enabled; every gated HEAD needs both events green, and CI retries (1) mean
+  flaky counts must be read from the job log, not from the conclusion.
+- **Numbers read from files (round 8).** The shared decimal parser accepts exactly one number per cell, optionally
+  wrapped in a currency code/symbol or unit, and returns nothing for anything else ("12 per 6", "1 e3", "Rs.500",
+  exponent notation mixed with text). Such cells become row errors (catalog import) or an empty, flagged quantity (RFQ
+  items) for a human to fix; they are never guessed. Two ambiguities remain by design and are documented in the code:
+  "1,234" is read as 1234 (thousands) and "12,5" as 12.5. Thousands written with dots only ("1.234.567") are rejected.
+- **Value ranges.** RFQ quantities read from files are stored only up to 10,000,000 with three decimals (the same cap
+  as manual entry); larger values are left empty with the flag `quantity_out_of_range`. Catalog list and cost prices
+  must be below 10^12 (the column capacity). The quote editor accepts manual unit prices up to 10,000,000 only, so a
+  catalog-priced line above that amount can be quoted at the catalog price but not manually re-priced.
 
 
 ## Stage 2 (implemented on `claude/stage2-followup-assistant`, gate pending)
@@ -72,6 +88,28 @@
 - Quiet hours / weekend skipping use the organisation policy time zone, not each contact's time zone.
 - The background worker is a single process; the `app.worker` RLS scope is a trusted-code boundary (see ADR-012).
 - Draft bodies are plain text; HTML templates and attachments (e.g. the quote PDF) are not sent yet.
+- Fix round 1 (2026-11-10) behaviour worth knowing:
+  - Suppression is keyed on the e-mail address inside the tenant. An unsubscribe reply from an address that has **no
+    contact row** is recorded as an unlinked event only; the address itself is not stored as a suppression (events do
+    not keep raw addresses), so a contact created later for that address is not opted out automatically.
+  - "No follow-ups" (`preferred_channel=none`) blocks manual drafts/sends as well as automation for that address; a
+    user who wants to write to such a person must change the preference first.
+  - When automation consent is withdrawn after schedules were planned, a due follow-up degrades to the default
+    draft-only behaviour: a draft is prepared for a human, nothing is sent, the schedule becomes `drafted` with
+    `mode = draft_only`, and `followup.degraded_to_draft` is audited (QA D-13, fix round 2). Restoring consent later
+    does not auto-send that draft.
+  - The edited draft is stored without the opt-out footer; it is appended when the message is sent. Placeholders are
+    resolved when an edit is saved (a customer name that itself contains a placeholder-like token is therefore
+    expanded once at edit time if the user changes the body).
+  - A quote number in an inbound message links it to the quote only when the sender is a contact of the quote's
+    customer or the message answers one of our own messages for that quote; otherwise it stays an unlinked event.
+  - Per-tenant SMTP credentials are stored encrypted but **not used for sending** (S2-SEC-06, accepted): every tenant
+    sends through the process-wide `SMTP_*` account. Using the stored secret needs per-tenant host/user configuration
+    and is a Stage 2 follow-up; the strict-xfail test for it remains.
+  - The hourly send limit is serialised per organisation by a row lock on the policy; the provider call happens
+    inside that lock, so sends of one organisation are sequential.
+  - Provider acknowledgement followed by a database failure before commit can still produce a duplicate on retry
+    (no provider-side idempotency key); the window is small and unchanged.
 
 ## Stage 3 (implemented on `claude/stage3-customer-order-intelligence`, gate pending)
 - Connectors are **push-model stubs** (`erp_stub`, `csv`): an operator or an external system posts records to the sync

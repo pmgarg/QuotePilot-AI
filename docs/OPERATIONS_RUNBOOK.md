@@ -3,8 +3,8 @@
 ## Local demo (Docker Compose)
 ```bash
 cp .env.example .env            # placeholders are fine for local demo
-docker compose -f infra/docker-compose.yml up --build
-# web: http://localhost:3000   api: http://localhost:8000/api/v1/health   docs: http://localhost:8000/api/v1/docs
+docker compose --env-file .env -f infra/docker-compose.yml up --build   # --env-file: Compose otherwise reads infra/.env
+# web: http://localhost:3000 (the API is not published; it is reached through the web proxy at /api/v1/*)
 ```
 The `migrate` service runs `alembic upgrade head` and `python -m app.fixtures.seed` (synthetic data; credentials printed
 to the container log only, never committed). Default demo password is read from `DEMO_PASSWORD` in `.env`.

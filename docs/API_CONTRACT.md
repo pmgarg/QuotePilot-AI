@@ -5,6 +5,8 @@ The machine-readable schema is served at `/api/v1/openapi.json` (FastAPI) and ex
 
 Auth: cookie `qp_session` (HttpOnly). Unsafe methods require header `X-CSRF-Token` matching cookie `qp_csrf`.
 Tenant-miss → 404. Role denial → 403. State/concurrency → 409. Validation → 422. Too large → 413. Unsupported → 415.
+Durability: the transaction of a request (data change and its audit row) is committed before the response is sent; a
+2xx answer therefore means the change is visible to the next request, and a failed commit is answered with an error.
 
 | Method | Path | Roles | Purpose |
 |---|---|---|---|
@@ -21,10 +23,11 @@ Tenant-miss → 404. Role denial → 403. State/concurrency → 409. Validation 
 | GET/POST | /customers | any / sales+ | list/create |
 | GET/PATCH | /customers/{id} | any / sales+ | detail/update |
 | GET | /catalogs | any | catalogs with versions summary |
-| POST | /catalogs/import | owner, admin | multipart `file` + `mapping` (JSON string) + `catalog_name?` → version + report |
+| GET | /catalogs/active-version | any | `{version_id}` of the catalog version new ad-hoc quote lines price from (null without an active catalog); used by the editor's "Use active catalog" re-link |
+| POST | /catalogs/import | owner, admin | multipart `file` + `mapping` (JSON string) + `catalog_name?` → version + report. A price cell must hold exactly one number (optional currency code/symbol); anything else, a negative price or a price ≥ 10^12 is a row error (`list price is not a number` / `is negative` / `is too large`), never a guessed value |
 | POST | /catalogs/versions/{id}/activate | owner, admin | activate version |
 | GET | /catalogs/versions/{id}/products?q=&page= | any | products (cost hidden for sales/readonly) |
-| POST | /rfqs | sales+ | multipart `file` (+`customer_id`, `reference`) or JSON `{text, customer_id, reference}` → RFQ (parsed or failed) |
+| POST | /rfqs | sales+ | multipart `file` (+`customer_id`, `reference`) or JSON `{text, customer_id, reference}` → RFQ (parsed or failed). Item quantities are stored only when 0 < q ≤ 10,000,000 (three decimals); otherwise `quantity` is null with flag `quantity_unreadable`, `quantity_not_positive` or `quantity_out_of_range`, which blocks quote generation until a person enters one |
 | GET | /rfqs?status=&q= | any | list |
 | GET | /rfqs/{id} | any | detail with items + candidates |
 | POST | /rfqs/{id}/reparse | sales+ | re-run parser |
@@ -91,16 +94,30 @@ HTTP 409
 
 ## Stage 2–4 endpoints (designed)
 - Stage 2 (implemented): `GET/POST /customers/{id}/contacts`, `PATCH /contacts/{id}`, `POST /contacts/{id}/opt-out`
-  (opt-in is owner/admin only); `GET/PATCH /follow-up/policy` (automation consent owner/admin, audited);
+  (opt-out and opt-in act on the **e-mail address**: every contact row of the tenant with that address (case-insensitive)
+  changes together; a new or re-addressed contact with an opted-out address starts opted out; opt-in is owner/admin
+  only); `GET/PATCH /follow-up/policy` (automation consent owner/admin, audited; `sender_name` rejects control
+  characters with 422; the response carries `dev_endpoints_enabled` for the UI);
   `GET /follow-up/templates`, `PATCH /follow-up/templates/{id}` (whitelisted placeholders, plain text);
   `POST /quotes/{id}/transition` `{expected_lock_version,to_status,evidence?,occurred_at?}` (evidence mandatory for
   acknowledged/won/lost); `GET /quotes/{id}/lifecycle` (status, allowed transitions, events, recommendation with reasons,
-  contacts, drafts, schedules, timeline); `POST /quotes/{id}/drafts`, `GET /drafts`, `GET/PATCH /drafts/{id}`,
-  `POST /drafts/{id}/send` (explicit, CSRF, sales+; 403 `opt_out`, 429 hourly limit, 400/503 provider errors),
-  `POST /drafts/{id}/cancel`; `GET /follow-up/schedules?status=`, `POST …/{id}/cancel`, `POST …/{id}/reschedule`,
-  `POST /quotes/{id}/follow-up/plan`; `GET /communication-events`; `GET /jobs`, `POST /jobs/{id}/retry`,
-  `POST /jobs/run-once` (non-production); `GET/POST /integrations`, `POST /integrations/{id}/revoke`,
-  `POST /integrations/sync-inbound`, `POST /integrations/simulator/inbound` (non-production).
+  contacts, drafts, schedules, timeline); `POST /quotes/{id}/drafts`, `GET /drafts`, `GET/PATCH /drafts/{id}`
+  (placeholders in an edit are resolved when it is saved, unknown ones give 422; `to_email` must be the draft's own
+  contact, else 422), `POST /drafts/{id}/send` (explicit, CSRF, sales+; the opt-out instruction is always present in
+  what is delivered; concurrent clicks deliver once; 403 `opt_out` or `no_follow_ups` (per address), 429 hourly limit,
+  400/503 provider errors), `POST /drafts/{id}/cancel`; `GET /follow-up/schedules?status=` (statuses include `failed`
+  with the reason in `last_error`), `POST …/{id}/cancel`, `POST …/{id}/reschedule`, `POST /quotes/{id}/follow-up/plan`
+  (schedule keys include the quote version; a system send of an approved quote plans follow-ups too);
+  `GET /communication-events`; `GET /jobs`, `POST /jobs/{id}/retry` (re-arms a `failed` schedule);
+  `POST /jobs/run-once` (development/test only, i.e. `APP_ENV` is `development` or `test`; processes only the
+  caller's tenant, at most 25 jobs per call, audited as `worker.run_once`; 403 `worker` otherwise);
+  `GET/POST /integrations`, `POST /integrations/{id}/revoke`, `POST /integrations/sync-inbound` (audited;
+  a provider error is stored on the connection and audited as `integration.sync_failed`),
+  `POST /integrations/simulator/inbound` (development/test only; `from_email` is validated).
+  Job outcomes: a due schedule whose automation consent was withdrawn becomes a draft (`drafted`, `draft_only`); a
+  refusal by our own rules on the send path (no consent for a queued automated send, opt-out, wrong state)
+  dead-letters at once with the schedule marked `failed`; transient provider errors and the hourly limit are retried
+  with capped backoff.
 - Stage 3 (implemented): **Orders** `GET /orders?status&customer_id`, `GET /orders/{id}` (events + lines; `cost_price`
   only with `view_costs`), `POST /quotes/{id}/orders` `{version_no?, notes?}` (sales+; approved version only; 409 if an
   open order exists) → `proposed`; `POST /orders/{id}/confirm` (approve_order: owner/admin/approver; proposer may not

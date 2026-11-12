@@ -33,7 +33,7 @@ printed by `make demo` (or `DEMO_PASSWORD` from `.env`). Sample RFQs: `tests/fix
 ## Quick start (Docker Compose)
 ```bash
 cp .env.example .env
-docker compose -f infra/docker-compose.yml up --build
+docker compose --env-file .env -f infra/docker-compose.yml up --build   # --env-file: Compose otherwise reads infra/.env
 ```
 > The development container used to build this repository had no Docker daemon, so the compose topology is
 > written and reviewed but was not executed there. See `docs/KNOWN_LIMITATIONS.md`.

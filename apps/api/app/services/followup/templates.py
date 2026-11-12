@@ -112,5 +112,10 @@ def render(text: str, ctx: TemplateContext) -> str:
 
 def ensure_opt_out(body: str, ctx: TemplateContext) -> str:
     """Every outbound follow-up carries the opt-out instruction, even if a template dropped it."""
-    opt = OPT_OUT_TEXT.format(org_name=ctx.org_name)
+    return ensure_opt_out_for(body, ctx.org_name)
+
+
+def ensure_opt_out_for(body: str, org_name: str) -> str:
+    """Append the mandatory opt-out instruction unless it is already present (idempotent)."""
+    opt = OPT_OUT_TEXT.format(org_name=org_name)
     return body if opt in body else body.rstrip() + "\n\n" + opt

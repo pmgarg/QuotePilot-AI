@@ -6,7 +6,18 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -32,7 +43,10 @@ JOB_STATUSES = ("queued", "running", "succeeded", "failed", "dead")
 
 class Contact(UUIDPrimaryKeyMixin, TenantMixin, TimestampMixin, Base):
     __tablename__ = "contacts"
-    __table_args__ = (Index("ix_contacts_org_customer", "organization_id", "customer_id"),)
+    __table_args__ = (
+        Index("ix_contacts_org_customer", "organization_id", "customer_id"),
+        Index("ix_contacts_org_lower_email", "organization_id", text("lower(email)")),
+    )
 
     customer_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("customers.id", ondelete="CASCADE"), nullable=False

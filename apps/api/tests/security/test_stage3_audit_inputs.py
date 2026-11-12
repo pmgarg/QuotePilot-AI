@@ -168,7 +168,6 @@ def test_sec3_04_csv_customer_import_rejects_bad_rows_without_losing_the_run(
     assert r.json()["applied"] >= 1, (label, r.json())
 
 
-@pytest.mark.xfail(strict=True, reason=SEC3_11)
 def test_sec3_11_scientific_notation_is_not_silently_misparsed() -> None:
     """Shared by Stage 1 catalog import, Stage 3 CSV import and connector push. ``1e3`` must be 1000 or rejected,
     never 13."""
@@ -176,7 +175,6 @@ def test_sec3_11_scientific_notation_is_not_silently_misparsed() -> None:
     assert all(v is None or v == Decimal(s) for s, v in bad.items()), bad
 
 
-@pytest.mark.xfail(strict=True, reason=SEC3_11)
 def test_sec3_11_scientific_notation_price_on_import_is_not_invented(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
     admin = login_as(app, tenant_a.users["admin"])
     r = upload(

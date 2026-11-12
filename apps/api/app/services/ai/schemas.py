@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 
 class ProposedLine(BaseModel):
     description: str = Field(min_length=1, max_length=500)
-    quantity: Decimal | None = Field(default=None, gt=0, le=Decimal("1000000000"))
+    quantity: Decimal | None = Field(default=None, gt=0, le=Decimal("10000000"))
     unit: str | None = Field(default=None, max_length=32)
     sku_hint: str | None = Field(default=None, max_length=100)
     source_excerpt: str = Field(default="", max_length=500)

@@ -5,7 +5,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, SerializeAsAny
+from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, SerializeAsAny, field_validator
 
 
 def _dec(v: Decimal) -> str:
@@ -434,6 +434,7 @@ class PolicyOut(ORMModel):
     hourly_send_limit: int
     sender_name: str | None
     reply_to_email: str | None
+    dev_endpoints_enabled: bool = False
 
 
 class PolicyUpdate(BaseModel):
@@ -447,6 +448,13 @@ class PolicyUpdate(BaseModel):
     hourly_send_limit: int | None = Field(default=None, ge=1, le=1000)
     sender_name: str | None = Field(default=None, max_length=200)
     reply_to_email: str | None = Field(default=None, max_length=320)
+
+    @field_validator("sender_name")
+    @classmethod
+    def _no_control_chars(cls, v: str | None) -> str | None:
+        if v is not None and any(ord(ch) < 32 or ord(ch) == 127 for ch in v):
+            raise ValueError("sender_name must not contain control characters (CR/LF)")
+        return v
 
 
 class TemplateOut(ORMModel):

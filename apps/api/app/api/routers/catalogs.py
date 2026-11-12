@@ -30,6 +30,15 @@ async def read_upload(file: UploadFile, max_bytes: int) -> bytes:
     return b"".join(chunks)
 
 
+@router.get("/active-version")
+def active_version(principal: PrincipalDep, db: DB) -> dict[str, str | None]:
+    """The catalog version new ad-hoc quote lines price from (the most recently activated catalog wins)."""
+    from app.services.catalog_import import active_version_for_org
+
+    v = active_version_for_org(db, principal.org_id)
+    return {"version_id": str(v.id) if v else None}
+
+
 @router.get("", response_model=list[CatalogOut])
 def list_catalogs(principal: PrincipalDep, db: DB) -> list[CatalogOut]:
     rows = db.scalars(
