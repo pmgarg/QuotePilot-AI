@@ -48,13 +48,14 @@ export default function CustomersPage() {
     <>
       <PageHeader title="Customers" subtitle="Accounts you quote to. Contacts and preferences arrive with Stage 2." />
       <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2" title="Directory">
+        <Card className="min-w-0 lg:col-span-2" title="Directory">
           <form className="mb-3 flex gap-2" onSubmit={(e) => { e.preventDefault(); void load(); }}>
             <input aria-label="Search customers" className={inputClass} placeholder="Search by name or reference" value={q} onChange={(e) => setQ(e.target.value)} />
             <Button type="submit" variant="secondary">Search</Button>
           </form>
           {error && <Alert kind="error">{error}</Alert>}
           {!customers ? <Loading /> : customers.length === 0 ? <Empty title="No customers yet">Create one on the right to attach RFQs and quotes.</Empty> : (
+            <div className="overflow-x-auto" data-testid="customer-table-scroll">
             <table className="data w-full" data-testid="customer-table">
               <thead><tr><th>Name</th><th>Reference</th><th>Email</th><th>Currency</th><th></th></tr></thead>
               <tbody>
@@ -66,6 +67,7 @@ export default function CustomersPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
           {expanded && <ContactsPanel key={expanded} customerId={expanded} />}
         </Card>

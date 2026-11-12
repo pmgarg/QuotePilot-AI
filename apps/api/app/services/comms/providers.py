@@ -19,8 +19,12 @@ from typing import Protocol
 
 from app.db.base import utcnow
 
-EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-']+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
-_ADDRESS_IN_TEXT = re.compile(r"[A-Za-z0-9._%+\-']+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+# Bounded repetitions (RFC 5321 sizes) and one label at a time: the previous patterns had an unbounded local part and
+# a domain class that overlapped its own separator, which is polynomial on hostile input (CodeQL py/polynomial-redos).
+_LOCAL = r"[A-Za-z0-9._%+\-']{1,64}"
+_DOMAIN = r"[A-Za-z0-9\-]{1,63}(?:\.[A-Za-z0-9\-]{1,63}){0,8}\.[A-Za-z]{2,24}"
+EMAIL_RE = re.compile(_LOCAL + "@" + _DOMAIN)
+_ADDRESS_IN_TEXT = re.compile(_LOCAL + "@" + _DOMAIN)
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 
 
@@ -85,7 +89,7 @@ class MailProvider(Protocol):
 
 def valid_email(address: str | None) -> bool:
     # fullmatch: `$` would also accept a trailing newline (S2-SEC-09)
-    return bool(address) and bool(EMAIL_RE.fullmatch(address or "")) and len(address or "") <= 320
+    return bool(address) and len(address or "") <= 320 and bool(EMAIL_RE.fullmatch(address or ""))
 
 
 class SimulatorProvider:
