@@ -90,3 +90,29 @@ def test_no_float_in_decimal_pipeline() -> None:
     r = compute_line(LineInput(D("0.1"), D("0.2")), "USD")
     assert isinstance(r.line_total, D)
     assert r.line_total == D("0.02")
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("1e3", D("1000")),
+        ("1E+3", D("1000")),
+        ("8.5E2", D("850")),
+        ("2.5e2", D("250")),
+        ("1e-2", D("0.01")),
+        ("-1.5e1", D("-15")),
+    ],
+)
+def test_parse_decimal_scientific_notation_is_exact(raw: str, expected: D) -> None:
+    """SEC3-11: an exponent must never be dropped ('1e3' used to parse as 13)."""
+    assert parse_decimal(raw) == expected
+
+
+@pytest.mark.parametrize("raw", ["1e3 AED", "USD 2.5e2", "1e9999999999", "1e-999", "NaN", "Infinity", "1e3e4"])
+def test_parse_decimal_rejects_ambiguous_or_non_finite_exponent_forms(raw: str) -> None:
+    assert parse_decimal(raw) is None
+
+
+def test_parse_decimal_currency_codes_containing_e_still_parse() -> None:
+    assert parse_decimal("12.50 AED") == D("12.50")
+    assert parse_decimal("EUR 1.234,56") == D("1234.56")

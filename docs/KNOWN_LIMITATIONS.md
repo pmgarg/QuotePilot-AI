@@ -56,13 +56,15 @@
   The list filter `status=withdrawn` shows only fully withdrawn quotes. A pending version made obsolete by a
   withdrawal is `superseded` and can still be previewed as a PDF labelled "WITHDRAWN" (O2-3; not an approved document).
 - **Platform-wide session revocation audit (NEW-15).** `scripts/revoke_sessions.py --user-email/--all` writes one
-  `ops.sessions_revoked` audit row per affected organisation (tenant-readable); the platform total is in each row's
-  `summary.total` and on stdout. There is no platform-scope audit table.
-- **CI e2e flake (I-3).** One PR-triggered `ci` run on 58976f3 failed in the browser job with symptoms of the web
-  server returning errors mid-suite (404/409 after successful creates, `ERR_ABORTED` navigations) while the push run of
-  the same commit was green. The trace artifact could not be downloaded from the development container (host blocked);
-  the specs now assert every intermediate API call with its response body so a recurrence is diagnosable. Both the
-  push- and the PR-triggered runs must be green on the gated HEAD.
+  `ops.sessions_revoked` audit row per affected organisation with that organisation's own count (tenant-readable); the
+  platform-wide total is printed to stdout only (R4-1). There is no platform-scope audit table.
+- **CI e2e flake (I-3).** Three pull_request-triggered `ci` runs (on 58976f3, 597f4b0 and e090089) failed in the
+  browser job while the push runs of the same commits were green: logins landed back on `/login`, submit clicks left the
+  version in `draft`, some API calls returned 404/409 after successful creates. No product rule failed. Since d0aac67
+  (API request log enabled in CI) both events have been green on every commit. **Not root-caused.** The trace artifacts
+  could not be downloaded from the development container (host blocked). One untested lead: pull_request runs test the
+  merge ref, not the branch commit. Diagnostics stay enabled; every gated HEAD needs both events green, and CI retries
+  (1) mean flaky counts must be read from the job log, not from the conclusion.
 
 
 ## Stage 2–4

@@ -358,7 +358,6 @@ def test_new15_malicious_org_argument_is_parameterised_and_revokes_nothing(app, 
     assert c.get("/auth/me").status_code == 200  # nothing was revoked by the injection attempt
 
 
-@pytest.mark.xfail(strict=True, reason="R4-1 (Info): platform-wide `total` is written into every tenant's audit row")
 def test_r4_1_tenant_audit_row_does_not_disclose_platform_wide_session_totals(
     app, tenant_a: Tenant, tenant_b: Tenant
 ) -> None:  # type: ignore[no-untyped-def]
@@ -431,12 +430,10 @@ def test_new16_check_script_detects_env_file_owner_password_and_owner_dsn(tmp_pa
         assert _check(tmp_path, d).returncode == 1, d
 
 
-@pytest.mark.xfail(
-    strict=True, reason="R4-2 (Info): check_compose.py passes vacuously when api/web are renamed or missing"
-)
 def test_r4_2_check_script_fails_when_the_api_service_is_missing_from_the_rendered_file(tmp_path: Path) -> None:
+    """R4-2 fixed in round 7 (strict xfail removed): a renamed or missing api/web service fails the check."""
     renamed = {"services": {"backend": {"env_file": ["../.env"], "environment": {"QP_OWNER_PASSWORD": "x"}}}}
-    assert _check(tmp_path, renamed).returncode != 0  # currently prints "compose check: OK" and exits 0
+    assert _check(tmp_path, renamed).returncode != 0
 
 
 # ---------------------------------------------------------------------------------------------------

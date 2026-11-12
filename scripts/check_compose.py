@@ -16,8 +16,12 @@ FORBIDDEN_KEYS = {"QP_OWNER_PASSWORD", "POSTGRES_PASSWORD"}
 def main(path: str) -> int:
     rendered = yaml.safe_load(open(path, encoding="utf-8"))  # noqa: SIM115 - short script
     problems: list[str] = []
-    for name in ("api", "web", "worker"):
-        svc = rendered.get("services", {}).get(name)
+    services = rendered.get("services") or {}
+    for required in ("api", "web"):
+        if required not in services:
+            problems.append(f"{required}: service missing from the rendered topology (renamed or removed?)")
+    for name in ("api", "web", "worker"):  # worker exists from Stage 2 on
+        svc = services.get(name)
         if svc is None:
             continue
         env = svc.get("environment") or {}

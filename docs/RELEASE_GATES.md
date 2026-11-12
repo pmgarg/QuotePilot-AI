@@ -104,14 +104,31 @@ review (4) are required before PASS.
 | security | push | 42861093454 | success |
 | security | pull_request | 42861108774 | success |
 
+## Review 4 — Stage 1 @287d09e (2026-11-10, resumed 2026-11-12) — verdict INCOMPLETE / BLOCKED
+Full report: `docs/evidence/release-review-4-stage1-2026-11-10.md` (project `release-reviewer` agent, Read/Glob/Grep only).
+No Critical, High or Medium defect in the round-6 code; R3-1, R3-3, R3-4, R3-6, R3-7, R3-10 closed. Blocked on:
+- **RR4-1 (Medium, gate)** no recorded CI run with counts on the gated HEAD; I-3 not root-caused.
+- **RR4-2 (Low)** traceability, API contract and limitation wording behind the evidence.
+- RR4-3 (Low) editor paired rows by array index; RR4-4..RR4-6 Info.
+Human decisions listed by the reviewer are under "Human actions required" below.
+
+### Fix round 7 (Stage 1)
+`docs/evidence/implementer-fixes7-stage1-2026-11-12.md`: RR4-2 docs; RR4-3 (pair by id, reset `is_custom`); editor
+locked during saves; R4-2 compose check no longer vacuous; SEC3-11 (scientific notation in the shared decimal parser,
+reported by the Stage 3 security audit). Product code changed, so independent QA and security re-verification 4 and a
+review 5 are required before PASS.
+
 ## Human actions required
 - Enable branch protection on `main` requiring checks `api`, `web`, `e2e`, `security` and one review (repository settings → Branches).
 - Sign any risk acceptance in this file with name, date and rationale. Documented Lows awaiting acknowledgement:
   L-2 (member-create e-mail existence), L-6 (parser has no OS-level isolation), NEW-11/12 (secret heuristic, limiter
   lockout primitive, parser concurrency wait), SEC-12 (GET renders/audits PDF), SEC-14 (CSP `unsafe-inline`), SEC-21
   (per-process limiter), L2-3 (blocker reveals cost ratio). None is Critical or High.
-- Acknowledge the catalog pinning rules (O2-1) and R3-6 behaviour (a pending ad-hoc quote whose catalog moved on must be
-  rejected and re-versioned) together with the other documented Lows.
+- Acknowledge the catalog pinning rules (O2-1) and R3-6 behaviour together with the other documented Lows: a pending
+  ad-hoc quote whose catalog moved on must be rejected (which returns the same version to draft), re-linked with "Use
+  active catalog" and re-submitted; a SKU dropped from the new catalog can only be removed or replaced by a custom line
+  that an owner/admin confirms.
+- Decide whether Stage 1 may ship with S1-F21 (AI extraction adapter present, disabled, not wired) partial.
 - Decide whether a manual screen-reader audit (X-08) is required for Stage 1.
 - Decide whether running the Docker Compose topology (never executed in the development container) is required before
   calling Stage 1 released.

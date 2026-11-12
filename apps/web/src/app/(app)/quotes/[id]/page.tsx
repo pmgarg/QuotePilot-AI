@@ -115,7 +115,7 @@ export default function QuotePage() {
       const page = await api<{ items: Product[] }>(`/catalogs/versions/${active}/products?q=${encodeURIComponent(sku)}`);
       const match = page.items.find((p) => p.sku.toUpperCase() === sku.toUpperCase());
       if (!match) throw new Error(`SKU ${sku} is not in the active catalog; mark the line custom or remove it.`);
-      updateLine(i, { product_id: match.id, price_source: "catalog", price_touched: false, unit_price: match.list_price });
+      updateLine(i, { product_id: match.id, price_source: "catalog", price_touched: false, unit_price: match.list_price, is_custom: false });
       setNotice(`Line ${i + 1} re-linked to the active catalog; save the draft to re-price it.`);
     } catch (e) {
       setError(describeError(e));
@@ -157,6 +157,9 @@ export default function QuotePage() {
 
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2" title="Lines">
+          {/* inputs are locked while a save is in flight: the response replaces the editor state, so anything typed
+              meanwhile would be silently lost */}
+          <fieldset disabled={busy} className="m-0 min-w-0 border-0 p-0" data-testid="quote-editor">
           <div className="overflow-x-auto">
             <table className="data w-full" data-testid="quote-lines">
               <thead>
@@ -164,7 +167,7 @@ export default function QuotePage() {
               </thead>
               <tbody>
                 {lines.map((l, i) => {
-                  const saved = version.lines[i];
+                  const saved = l.id ? version.lines.find((s) => s.id === l.id) : undefined; // by id, never by index (RR4-3)
                   const stale = canEdit && saved && (blockers ?? quote.blockers).some((b) => b.code === "catalog_version_mismatch" && b.line_no === saved.line_no);
                   return (
                     <tr key={l.id ?? `new-${i}`} data-testid={`quote-line-${i + 1}`}>
@@ -197,6 +200,7 @@ export default function QuotePage() {
             <Field label="Notes (printed)" htmlFor="notes"><textarea id="notes" rows={2} className={inputClass} value={notes} onChange={(e) => { setNotes(e.target.value); setDirty(true); }} disabled={!canEdit} /></Field>
             <Field label="Terms (printed)" htmlFor="terms"><textarea id="terms" rows={2} className={inputClass} value={terms} onChange={(e) => { setTerms(e.target.value); setDirty(true); }} disabled={!canEdit} /></Field>
           </div>
+          </fieldset>
         </Card>
 
         <div className="flex flex-col gap-6">

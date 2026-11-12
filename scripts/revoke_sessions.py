@@ -55,7 +55,7 @@ def main() -> int:
             scope = "all"
         # NEW-15: audit rows are tenant-scoped (RLS hides organization_id IS NULL from every product role), so a
         # user- or platform-wide revocation writes one row per affected organisation; the platform-scope total
-        # is also logged to stdout for the operator's incident record.
+        # goes to stdout only (the operator's incident record), never into a tenant's row (R4-1).
         if args.org:
             affected = [(args.org, res.rowcount)]
         else:
@@ -75,7 +75,7 @@ def main() -> int:
                     "INSERT INTO audit_events (organization_id, actor_user_id, action, entity_type, summary) "
                     "VALUES (:o, NULL, 'ops.sessions_revoked', 'session', CAST(:s AS jsonb))"
                 ),
-                {"o": org_id, "s": json.dumps({"scope": scope, "count": n, "total": res.rowcount})},
+                {"o": org_id, "s": json.dumps({"scope": scope, "count": n})},  # per-tenant count only (R4-1)
             )
     print(f"revoked {res.rowcount} session(s)")
     return 0
