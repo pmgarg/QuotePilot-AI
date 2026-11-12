@@ -92,3 +92,8 @@ the Stage 1 gate has been reviewed; CI on this branch can be red for the Stage 1
   `test_qa_stage4_command_center_assistant.py`, `test_stage4_audit.py`, `test_stage2_audit.py`): 185 passed, 1 xfailed
   (S2-SEC-06). A sanity subset on the merged tree before this change: 254 passed.
 - CI results for this commit are recorded in the Stage 4 gate log when available.
+
+## CI on the head with the merge and the assistant pattern fix (PR #4, queried 2026-11-12): all 15 checks green
+`api` success: pytest `1879 passed, 5 skipped, 3 xfailed, 1 xpassed`; `e2e` success: Playwright `75 passed`, `1 skipped`,
+no flaky or failed line; `web`, `security` jobs and the CodeQL check success (all three `py/polynomial-redos` alerts
+are gone). Independent re-verification and the release review are still owed.
