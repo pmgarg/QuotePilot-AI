@@ -195,6 +195,7 @@ def _redact_copies(db: Session, org: Organization, customer: Customer, short: st
     counts = {
         "conflicts_redacted": 0,
         "import_rows_redacted": 0,
+        "sync_rejections_redacted": 0,
         "documents_pseudonymised": 0,
         "communication_events_redacted": 0,
     }
@@ -245,6 +246,20 @@ def _redact_copies(db: Session, org: Organization, customer: Customer, short: st
                 rows.append(failed)
             if changed:
                 report["failed_rows"] = rows
+                run.report = report
+        # S3-RR1-3: connector run reports keep rejection reasons, which can quote a pushed value
+        for run in db.scalars(select(SyncRun).where(SyncRun.organization_id == org.id, SyncRun.kind == "connector")):
+            report = dict(run.report or {})
+            rejected = []
+            changed = False
+            for entry in report.get("rejected") or []:
+                if any(n in str(entry.get("reason", "")).lower() for n in needles):
+                    entry = {**entry, "reason": "redacted: customer erased"}
+                    changed = True
+                    counts["sync_rejections_redacted"] += 1
+                rejected.append(entry)
+            if changed:
+                report["rejected"] = rejected
                 run.report = report
     storage = get_storage()
     for version in db.scalars(

@@ -199,7 +199,7 @@
   cross-sell proposals are not implemented. Prices come from the active catalog or, explicitly labelled, the last order.
 - Deletion requests cover customers (with their contacts, drafts and RFQ text). Quotes and orders are kept with a
   pseudonymised customer for commercial record-keeping. The purge also redacts the subject in the connector conflict
-  queue and in import-run failed rows, pseudonymises the customer block of stored quote document snapshots, blanks subject, body
+  queue, in import-run failed rows and in connector run rejection reasons, pseudonymises the customer block of stored quote document snapshots, blanks subject, body
   snippet and provider headers of `communication_events` linked to the customer's quotes or contacts (rows kept for
   timeline integrity) and deletes the stored PDFs (they are re-rendered from the pseudonymised snapshot, so the PDF hash of an erased customer's
   document changes — erasure takes precedence over byte identity for that one field). **Not covered yet**: uploaded
@@ -207,8 +207,12 @@
   free-text fields that mention the customer elsewhere (quote notes, audit
   summaries, order notes), and backups.
 - A purge job that keeps failing is re-queued up to 10 times and then marked `purge_stalled` for an operator; there
-  is no alerting on that state. A purge job left `running` by a crashed worker is not reclaimed on this branch
-  until the Stage 2 job-queue visibility timeout is merged (SEC3-14, test still xfail).
+  is no alerting on that state. A purge job left `running` by a crashed worker is reclaimed after the job
+  visibility timeout (`queue.reclaim_abandoned`, called from `retention.enqueue_due_purges`; SEC3-14 fixed, test passes).
+- Purge redaction of copies matches the subject's reference, e-mail and name by substring in CSV import failed rows and
+  in connector run rejection reasons; it can over-redact, and a copy that spells the subject differently is not found.
+  Orders keep their `customer_id`, `external_ref` and notes after erasure (commercial record; human decision pending,
+  release review 1 condition C1).
 - Order numbers are per tenant (`SO-YYYY-NNNNN`); there is no year roll-over reset of the sequence.
 
 ## Stage 4

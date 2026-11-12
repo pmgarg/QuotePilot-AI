@@ -439,9 +439,10 @@ for the Stage 2 tables including migration 0006b, an opt-out-versus-in-flight-se
 then re-invoke the reviewer.
 ---
 
-# Stage 3 gate log (branch `claude/stage3-customer-order-intelligence`, PR #3) — status: re-verified, fix round 2 applied, release review requested
+# Stage 3 gate log (branch `claude/stage3-customer-order-intelligence`, PR #3) — status: release review 1 = PASS WITH CONDITIONS (conditions open; not VERIFIED)
 
-Stage 3 has its own gate. Nothing in this section is a PASS; the release reviewer has not been invoked for Stage 3.
+Stage 3 has its own gate. Release review 1 (2026-11-12) returned PASS WITH CONDITIONS — see the end of this section.
+The earlier entries are kept as written at the time.
 
 ## Independent verification of the first implementation (2026-11-02 / 2026-11-10)
 - **QA** (`docs/evidence/qa-stage3-2026-11-02.md`; 46 API + 5 browser tests derived from the PRD): S3-A02, A04, A05,
@@ -500,11 +501,41 @@ green head had one flaky browser test (the accessibility scan, passed on retry; 
 | The erased-customer 404 was not exercised in the web UI; the real worker loop was driven in-process only | — | not tested |
 | No real ERP/CRM pull adapter exists (push-model stubs only) | — | limitation |
 
-## Still required before any Stage 3 verdict
-1. A green full API and browser run on the merged tree (recorded in the fixes1 evidence file when available).
-2. Independent QA re-verification (must judge the declared test edits and re-run the full browser suite, which QA
-   did not re-run after its last spec change).
-3. Independent security re-verification of SEC3-01..11 and of the new validation/idempotency/erasure code.
-4. CI on the gated HEAD for both events with job-level results, counts and the CodeQL code-scanning check.
-5. Release review by the read-only `release-reviewer` with a fresh context; findings recorded here verbatim.
-Stage 3 depends on Stages 1 and 2 being VERIFIED; both gates are still open.
+## Still required before any Stage 3 verdict (list as written before review 1 — superseded)
+Items 1–5 of the earlier list (green run on the merged tree, QA and security re-verification, CI on the gated head,
+release review) have all happened and are recorded above and below. What is open now is the condition list of review 1.
+
+## Release review 1 (2026-11-12) — verdict: PASS WITH CONDITIONS
+Invoked by the orchestrator as the read-only `release-reviewer` subagent with a fresh context on HEAD 9f63da8 (gated
+code head e2e6c3f). The report is saved verbatim in `docs/evidence/release-review-1-stage3-2026-11-12.md`. The
+reviewer ran no tests; it read the evidence and the source. No Critical and no High finding. Stage 3 stays
+IMPLEMENTED, **not VERIFIED**.
+
+| Condition | Owner | State |
+|---|---|---|
+| C1 named decision on the erasure scope the purge does not cover (`rfq_items.raw_text`, uploaded RFQ files, audit summaries, order and quote notes, backups; also order `external_ref`/notes — S3-RR1-1, S3-RR1-3) | human | **open** |
+| C2 ratify two product decisions taken by an agent: replayed idempotency key with a different payload → 409; customer pending erasure → 404 for roles without `manage_retention` | human | **open** |
+| C3 targeted verifier re-check of fix round 2 at the final head, with a fresh full API + browser run and a scan with counts for that head | QA + security verifiers | see "After review 1" below |
+| C4 correct the stale documents (S3-RR1-5..7) | implementing side | done in this commit (KNOWN_LIMITATIONS, LLD, ROADMAP, traceability rewritten from the reviewer's table) — not yet looked at by the reviewer |
+| C5 Stage 1 and Stage 2 conditions closed (Stage 3 cannot be VERIFIED before they are) | human | **open** |
+
+Findings (full text in the report): S3-RR1-1 Medium privacy (purge scope → C1); S3-RR1-2 Medium process (fix round 2
+not verifier-checked → C3); S3-RR1-3 Medium data (connector run reports / order refs not covered by a purge test);
+S3-RR1-4 Low (CSV same-key race); S3-RR1-5..7 Low docs; S3-RR1-8 Low (CI ran on the PR merge commit, scan counts not
+read, one flaky a11y spec on an earlier head not investigated); S3-RR1-9 Low (single-round race test); S3-RR1-10
+Low/observations (backlog).
+
+Decisions the reviewer lists as made by an agent and needing human ratification: the 409 and 404 rules (C2), the
+re-queue cap of 10 for purge jobs, name/notes truncation on customer import, and the judgement that SEC3-13/14/15/17
+were not blocking.
+
+### After review 1 — fix round 3 (implementing side; small, each with a regression test)
+| Finding | Change | Test |
+|---|---|---|
+| S3-RR1-4 | `data_io._start_run` inserts the run inside a savepoint; a lost same-key race raises `ReplayedRun` and the endpoint answers exactly as a sequential replay (same payload → the winner's run, different payload → 409) | `test_stage3_fixes2.py::test_csv_import_replayed_concurrently_is_applied_once_without_a_500` (8 rounds) |
+| S3-RR1-3 (part) | `_redact_copies` also redacts connector run rejection reasons that quote the subject's reference, e-mail or name; counted as `sync_rejections_redacted` in the request summary and audit row | `test_stage3_fixes2.py::test_purge_redacts_connector_rejection_reasons_that_quote_the_subject` |
+| S3-RR1-9 | the implementing side's confirm-race test now runs 6 rounds (the auditor's own SEC3-16/17 tests in `tests/security/test_stage3_confirm.py` already ran 8 rounds each) | `test_concurrent_confirm_loser_gets_409_with_one_event_and_one_audit_row` |
+| S3-RR1-5..7 | documents corrected | — |
+Not changed: order `external_ref` and notes are kept after erasure (part of C1, a human decision); S3-RR1-10 items
+stay in the backlog. Commands, exit codes and counts: `docs/evidence/implementer-fixes1-stage3-2026-11-12.md`
+("Fix round 3"). These changes are **not** independently verified until the C3 re-check is recorded.

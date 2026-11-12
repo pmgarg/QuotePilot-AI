@@ -84,23 +84,108 @@ def test_concurrent_confirm_loser_gets_409_with_one_event_and_one_audit_row(app:
     admin = login_as(app, tenant_a.users["admin"])
     approver = login_as(app, tenant_a.users["approver"])
     owner = login_as(app, tenant_a.users["owner"])
+    for attempt in range(6):  # S3-RR1-9: one clean round can be luck
+        r = upload(
+            admin,
+            f"/data/import/orders?idempotency_key=fx2-{attempt}",
+            "o.csv",
+            f"order_ref,sku,quantity,unit_price\r\nR{attempt},A,1,1\r\n".encode(),
+        )
+        assert r.status_code == 201
+        oid = next(o["id"] for o in admin.get("/orders").json() if o["status"] == "proposed")
+        res = _race(
+            lambda oid=oid: approver.post(f"/orders/{oid}/confirm", json={}).status_code,
+            lambda oid=oid: owner.post(f"/orders/{oid}/confirm", json={}).status_code,
+        )
+        assert sorted(res) == [200, 409], (attempt, res)
+        with get_sessionmaker()() as db:
+            set_tenant(db, tenant_a.org_id, None)
+            n_events = db.scalar(
+                text("SELECT count(*) FROM order_events WHERE order_id = :o AND kind = 'confirmed'"), {"o": oid}
+            )
+            n_audit = db.scalar(
+                text("SELECT count(*) FROM audit_events WHERE action = 'order.confirmed' AND entity_id = :o"),
+                {"o": oid},
+            )
+            db.rollback()
+        assert (n_events, n_audit) == (1, 1), attempt
+
+
+def test_csv_import_replayed_concurrently_is_applied_once_without_a_500(app: Any, tenant_a: Tenant) -> None:
+    """S3-RR1-4: the same idempotency key uploaded twice at once — the loser answers as a sequential replay."""
+    from tests.conftest import upload
+
+    admin = login_as(app, tenant_a.users["admin"])
+    owner = login_as(app, tenant_a.users["owner"])
+    bad: list[Any] = []
+    for attempt in range(8):
+        body = f"order_ref,sku,quantity,unit_price\r\nCSVRACE-{attempt},A,1,1\r\n".encode()
+        url = f"/data/import/orders?idempotency_key=csvrace-{attempt}"
+        res = _race(
+            lambda url=url, body=body: upload(admin, url, "o.csv", body).status_code,
+            lambda url=url, body=body: upload(owner, url, "o.csv", body).status_code,
+        )
+        bad += [r for r in res if r != 201]
+        with get_sessionmaker()() as db:
+            set_tenant(db, tenant_a.org_id, None)
+            n = db.scalar(text("SELECT count(*) FROM orders WHERE external_ref = :r"), {"r": f"CSVRACE-{attempt}"})
+            runs = db.scalar(
+                text("SELECT count(*) FROM sync_runs WHERE idempotency_key = :k"), {"k": f"csvrace-{attempt}"}
+            )
+            db.rollback()
+        assert (n, runs) == (1, 1), (attempt, res, n, runs)
+    assert bad == [], bad
+    # same key, different payload, after the fact: still a 409 and nothing applied
     r = upload(
-        admin, "/data/import/orders?idempotency_key=fx2", "o.csv", b"order_ref,sku,quantity,unit_price\r\nR,A,1,1\r\n"
+        admin,
+        "/data/import/orders?idempotency_key=csvrace-0",
+        "o.csv",
+        b"order_ref,sku,quantity,unit_price\r\nOTHER,A,1,1\r\n",
     )
-    assert r.status_code == 201
-    oid = next(o["id"] for o in admin.get("/orders").json() if o["status"] == "proposed")
-    res = _race(
-        lambda: approver.post(f"/orders/{oid}/confirm", json={}).status_code,
-        lambda: owner.post(f"/orders/{oid}/confirm", json={}).status_code,
-    )
-    assert sorted(res) == [200, 409], res
+    assert r.status_code == 409
+
+
+def test_purge_redacts_connector_rejection_reasons_that_quote_the_subject(app: Any, tenant_a: Tenant) -> None:
+    """S3-RR1-3: a connector run report that quotes the subject's reference/e-mail/name is redacted, others kept."""
+    from app.models.customer import Customer
+    from app.models.intelligence import SyncRun
+
     with get_sessionmaker()() as db:
         set_tenant(db, tenant_a.org_id, None)
-        n_events = db.scalar(
-            text("SELECT count(*) FROM order_events WHERE order_id = :o AND kind = 'confirmed'"), {"o": oid}
+        customer = db.get(Customer, tenant_a.customer_id)
+        assert customer is not None
+        customer.reference = "CUST-ERASE-9"
+        run = SyncRun(
+            organization_id=tenant_a.org_id,
+            connection_id=None,
+            kind="connector",
+            scope_key="connector:test:customers",
+            request_hash="0" * 64,
+            idempotency_key="rr1-3",
+            entity="customers",
+            status="partial",
+            received=2,
+            report={
+                "rejected": [
+                    {"index": 0, "reason": f"reference CUST-ERASE-9 for {customer.name} is not valid"},
+                    {"index": 1, "reason": "unknown customer_reference"},
+                ]
+            },
         )
-        n_audit = db.scalar(
-            text("SELECT count(*) FROM audit_events WHERE action = 'order.confirmed' AND entity_id = :o"), {"o": oid}
-        )
+        db.add(run)
+        db.commit()
+        run_id = run.id
+    rid = _approve_erasure(app, tenant_a)
+    _make_due(tenant_a, rid)
+    with get_sessionmaker()() as db:
+        assert retention.enqueue_due_purges(db) == 1 and queue.run_once(db, "w") == 1
+        set_tenant(db, tenant_a.org_id, None)
+        report = db.get(SyncRun, run_id).report  # type: ignore[union-attr]
+        req = db.get(DeletionRequest, uuid.UUID(rid))
+        redacted = req.summary["sync_rejections_redacted"] if req is not None else None
         db.rollback()
-    assert (n_events, n_audit) == (1, 1)
+    assert report["rejected"] == [
+        {"index": 0, "reason": "redacted: customer erased"},
+        {"index": 1, "reason": "unknown customer_reference"},
+    ]
+    assert redacted == 1
