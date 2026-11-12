@@ -69,6 +69,7 @@ class Settings(BaseSettings):
     smtp_use_tls: bool = True
     smtp_from_email: str | None = None
     followup_worker_id: str = "worker-1"
+    job_visibility_timeout_seconds: int = Field(default=900, ge=1)  # a job `running` longer than this is abandoned
 
     @field_validator("cors_origins", mode="before")
     @classmethod

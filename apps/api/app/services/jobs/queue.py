@@ -144,6 +144,62 @@ def enqueue_due_schedules(
     return enqueued
 
 
+def reclaim_abandoned(db: Session, org_id: uuid.UUID | None = None) -> int:
+    """Visibility timeout: a job `running` for longer than `job_visibility_timeout_seconds` belongs to a worker that
+    died. It goes back to `queued` (attempt count preserved, so the cap still bounds retries) or, when its attempts
+    are exhausted, to `dead` through the same terminal path as a failed run (`_fail_schedule`, so a schedule becomes
+    `failed` and an admin retry re-arms it). Each transition is one conditional UPDATE ... RETURNING: two concurrent
+    reclaimers cannot both win a row (the second re-evaluates the predicate after the first commits). `org_id`
+    restricts the work to one tenant under the normal tenant scope; the worker scope is bound only here.
+    State changes of jobs are recorded as structured log lines (no actor exists to audit), like `run_job` does."""
+    timeout = get_settings().job_visibility_timeout_seconds
+    params = {"org": org_id, "t": timeout}
+    reclaimed = 0
+    if org_id is None:
+        set_worker_scope(db)
+    else:
+        set_tenant(db, org_id, None)
+    requeued = db.execute(
+        text(
+            "UPDATE job_runs SET status = 'queued', next_run_at = now(), locked_at = NULL, locked_by = NULL, "
+            "last_error = 'abandoned: worker lost the job (visibility timeout)' "
+            "WHERE status = 'running' AND locked_at < now() - make_interval(secs => :t) "
+            "AND (CAST(:org AS uuid) IS NULL OR organization_id = CAST(:org AS uuid)) "
+            "AND attempts < max_attempts RETURNING id, kind"
+        ),
+        params,
+    ).all()
+    dead = db.execute(
+        text(
+            "UPDATE job_runs SET status = 'dead', finished_at = now(), "
+            "last_error = 'abandoned: worker lost the job and attempts are exhausted' "
+            "WHERE status = 'running' AND locked_at < now() - make_interval(secs => :t) "
+            "AND (CAST(:org AS uuid) IS NULL OR organization_id = CAST(:org AS uuid)) "
+            "AND attempts >= max_attempts RETURNING id, organization_id"
+        ),
+        params,
+    ).all()
+    db.commit()
+    for job_id, kind in requeued:
+        reclaimed += 1
+        logger.warning(
+            "job reclaimed",
+            extra={"extra": {"job_id": str(job_id), "kind": kind, "status": "queued", "timeout_s": timeout}},
+        )
+    for job_id, job_org in dead:
+        reclaimed += 1
+        set_tenant(db, job_org, None)
+        job = db.get(JobRun, job_id)
+        if job is not None:
+            _fail_schedule(db, job)
+            db.commit()
+            logger.warning(
+                "job reclaimed",
+                extra={"extra": {"job_id": str(job_id), "kind": job.kind, "status": "dead", "attempts": job.attempts}},
+            )
+    return reclaimed
+
+
 def claim_next(db: Session, worker_id: str, org_id: uuid.UUID | None = None) -> JobRun | None:
     """Claim one due job (SKIP LOCKED). `org_id` restricts the claim to one tenant under the normal tenant scope."""
 
@@ -235,9 +291,10 @@ def _fail_schedule(db: Session, job: JobRun) -> None:
 def run_once(
     db: Session, worker_id: str | None = None, *, org_id: uuid.UUID | None = None, max_jobs: int | None = None
 ) -> int:
-    """Process claimable jobs once (tests and `python -m app.workers.runner --once`). With `org_id` only that
+    """Reclaim abandoned jobs, then process claimable jobs once (tests and the worker tick). With `org_id` only that
     tenant's jobs are claimed, under the normal tenant scope; `max_jobs` bounds the work done in one call."""
     wid = worker_id or get_settings().followup_worker_id
+    reclaim_abandoned(db, org_id)
     processed = 0
     while max_jobs is None or processed < max_jobs:
         job = claim_next(db, wid, org_id)
