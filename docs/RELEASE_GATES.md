@@ -515,7 +515,7 @@ IMPLEMENTED, **not VERIFIED**.
 |---|---|---|
 | C1 named decision on the erasure scope the purge does not cover (`rfq_items.raw_text`, uploaded RFQ files, audit summaries, order and quote notes, backups; also order `external_ref`/notes — S3-RR1-1, S3-RR1-3) | human | **open** |
 | C2 ratify two product decisions taken by an agent: replayed idempotency key with a different payload → 409; customer pending erasure → 404 for roles without `manage_retention` | human | **open** |
-| C3 targeted verifier re-check of fix round 2 at the final head, with a fresh full API + browser run and a scan with counts for that head | QA + security verifiers | see "After review 1" below |
+| C3 targeted verifier re-check of fix round 2 at the final head, with a fresh full API + browser run and a scan with counts for that head | QA + security verifiers | re-checks recorded below ("C3 re-check"); green CI on the final head still to be recorded; not yet seen by the reviewer |
 | C4 correct the stale documents (S3-RR1-5..7) | implementing side | done in this commit (KNOWN_LIMITATIONS, LLD, ROADMAP, traceability rewritten from the reviewer's table) — not yet looked at by the reviewer |
 | C5 Stage 1 and Stage 2 conditions closed (Stage 3 cannot be VERIFIED before they are) | human | **open** |
 
@@ -540,9 +540,42 @@ Not changed: order `external_ref` and notes are kept after erasure (part of C1, 
 stay in the backlog. Commands, exit codes and counts: `docs/evidence/implementer-fixes1-stage3-2026-11-12.md`
 ("Fix round 3"). These changes are **not** independently verified until the C3 re-check is recorded.
 
+### C3 re-check by fresh verifier agents (2026-11-12, at 096d9d4)
+- **Security** (`docs/evidence/security-stage3-c3-2026-11-12.md`, tests `tests/security/test_stage3_c3.py`):
+  SEC3-12..17 MITIGATED (file `12 passed`, three times; git shows only xfail decorators were removed and the reordered
+  audit test keeps every assertion). Purge reclaim: a stale job is re-queued once and executed once, a rerun on an
+  executed request is quiet, an unrelated follow-up job is untouched, legal hold still blocks. Cross-tenant: tenant B
+  cannot move tenant A's jobs. Fix round 3: CSV same-key race (8 rounds, three racers) all 201 and applied once,
+  different payloads → one 201 and one 409, a non-replay integrity error is not swallowed; connector and CSV run
+  reports carry no identifier after a purge. 17 GET routes checked for a customer pending erasure: no name or e-mail for
+  roles without `manage_retention`. **New finding SEC3-C3-1 (Low, privacy):** the PDF of an approved quote still
+  prints the name until the purge runs — kept as a strict-xfail test, documented in KNOWN_LIMITATIONS, not fixed
+  (belongs to the human decision C1). Scan at this head (`make security-scan`, exit 0, `scan-20261112-221628.md`):
+  pip-audit 0, bandit (medium and above) 0, ruff S rules pass, `npm audit --omit=dev` 0, full `npm audit` 8 moderate
+  dev-only; gitleaks and semgrep not available locally (they run in CI).
+- **QA** (`docs/evidence/qa-stage3-c3-2026-11-12.md`, tests `tests/qa/test_qa_stage3_c3.py`,
+  `tests/e2e/specs/qa-stage3-c3.spec.ts`): declared edits CONFIRMED legitimate (the audit-test reordering was judged
+  from the diff); D6 fixed; Stage 3 set `158 passed`; new tests `5 passed` — order refusal per role, name visibility per
+  role in quote list/search/detail, 6-round concurrent confirm, 6-round CSV replay; browser path for a sales user and a
+  customer pending erasure passes. Full API run: exit 0, `1703 passed, 2 skipped, 6 xfailed` (the sixth expected
+  failure is SEC3-C3-1). Full browser run: exit 1, `1 failed, 1 skipped, 62 passed` — the failure was QA's own new
+  spec (it expected search-as-you-type; the page searches on submit), corrected by QA and green in isolation
+  (`1 passed`). **No complete browser run has been green locally after that correction**; CI on the pushed head is the
+  remaining evidence for that (see the CI entry when recorded).
+- Observations for the human decision C1, measured after a purge on synthetic data: `orders.external_ref`,
+  `rfq_items.raw_text` and `quote_versions.notes` keep the identifiers they contained; redaction of copies is by
+  substring, so spelling variants are missed; `/customers` hides a customer pending erasure from every role, owner and
+  admin included (they reach it through the retention screens and the quote list).
+- Not checked by either verifier: the real worker loop, the real LLM/SMTP/storage adapters, backups, audit summaries
+  of `customer.create`, the legal-hold race (no row lock, unchanged), the flaky accessibility spec noted in S3-RR1-8
+  (it did not fail in this run).
+
+State of C3: both re-checks are recorded; what remains is a green CI run (API + browser + scans) on the pushed head.
+The reviewer asked to be re-invoked after the human decisions C1 and C2 — not before.
+
 ---
 
-# Stage 4 gate log (branch `claude/stage4-governed-platform`, PR #4) — status: OPEN, not reviewed
+# Stage 4 gate log (branch `claude/stage4-governed-platform`, PR #4) — status: re-verified, fix round 2 applied, release review requested
 
 Stage 4 has its own gate. Nothing in this section is a PASS; the release reviewer has not been invoked for Stage 4.
 Scope note: the onboarding wizard, in-app help pages and a demo-reset action (parts of S4-F06) are **not built**.
@@ -596,9 +629,45 @@ S4-SEC-08, 09 and 10 fixed; the verifier's three strict-xfail tests now pass wit
 `docs/evidence/implementer-fixes1-stage4-2026-11-12.md`, "Fix round 2", with commands, exit codes and counts). These
 three fixes have **not** been re-checked by a verifier agent; the evidence is the verifier's own pre-written tests.
 
+## Independent QA re-verification of fix rounds 1–2 (2026-11-12, at da27047)
+Fresh `qa-engineer` agent, fixed checklist (`docs/evidence/qa-stage4-reverify-2026-11-12.md`, tests
+`tests/qa/test_qa_stage4_reverify.py`, 10 tests):
+- D-QA4-01..05 CONFIRMED fixed. Both orchestrator decisions judged acceptable against the PRD (only workflow dry runs
+  exempt from the kill switch; `quote.won` not an accepted trigger — such a definition can still be saved as an
+  inactive draft, validation reports it and activation is refused).
+- Declared edits to QA's tests CONFIRMED: line wrapping, one unused import, one f-prefix; no assertion changed.
+- Stage 4 QA and integration files: `153 passed` (exit code of that detached run not captured; no failure in the
+  summary line).
+- S4-F01, F02, F03, F05, F07 and S4-A01..A09: tested and passing. S4-F04: passing with gaps (runtime
+  `budget_exceeded`, retry cap and per-step timeout are not reachable through the API). **S4-F06 partial as declared**:
+  plans, seats, limits, support export, usage metrics and the `/platform` page exist; onboarding wizard, help pages and
+  demo reset are not built.
+- Fix round 2 behaviour CONFIRMED by QA's own tests (support export without rejection or kill-switch reason; audit
+  rows for a new session and a plain chat turn, no text). Approval-required tool: executed only after approval by a
+  different permitted user, exactly once. Plan limits: 429 without side effects.
+- Full runs, one attempt each: API exit 0, `1953 passed, 2 skipped, 5 xfailed` (the five expected failures are Stage 1
+  and 2 items); browser exit 0, `75 passed`, `1 skipped`, no flaky or failed line.
+- No new defect. Observations: dry runs under the kill switch still write run, invocation and audit rows (no business
+  data); an invalid-trigger draft is accepted with 201.
+- Not checked: hosted planner, runtime budget/timeout paths, compensation after a failed approved step, mobile and
+  accessibility checks on the Stage 4 pages, `mypy`, the race tests for flakiness beyond the single full run.
+
+### Open for Stage 4 (single list for the reviewer)
+| Item | Severity | State |
+|---|---|---|
+| S4-F06: onboarding wizard, in-app help pages and demo reset are not built | scope gap | declared; needs a human decision (build, or accept the reduced scope) |
+| Fix round 2 (S4-SEC-08/09/10) not re-checked by a security verifier; evidence is the verifier's pre-written tests, plus QA's tests for 09 and 10 | process | open |
+| Compensation does not run when an approved step fails at approval time; a propose-path failure of a non-approval tool reaching the HTTP layer leaves no failure record | Low | documented limitation (rated by the security verifier) |
+| S4-F04 runtime `budget_exceeded`, retry cap, per-step timeout have no API-level test | — | not tested |
+| S4-SEC-03 / S4-SEC-07 race tests are timing-dependent (green runs do not prove absence) | Low | noted |
+| Hosted planner path exercised only with a fake client; no real model, e-mail/SMS/S3 provider was called (no paid resources) | — | by design; not tested |
+| Billing is test-mode only; no payment provider integration exists | — | limitation |
+| Browser-level checks (CSP, XSS, mobile, accessibility) on the Stage 4 pages | — | not checked |
+| Stages 1–3 are PASS WITH CONDITIONS with human conditions open; none is VERIFIED | dependency | open |
+
 ## Still required before any Stage 4 verdict
-1. A green full API and browser run on the merged tree (Stages 1–3 fix rounds included) — pending (QA re-verification, CI).
-2. Independent QA re-verification of fix round 1 — pending. (Security re-verification: done, see above.)
+1. A green full API and browser run on the merged tree (Stages 1–3 fix rounds included) — done locally by QA (above); CI pending.
+2. Independent QA and security re-verification of fix round 1 — done (above).
 3. CI on the gated HEAD for both events with job-level results, counts and the CodeQL code-scanning check.
 4. Release review by the read-only `release-reviewer` with a fresh context; findings recorded here verbatim.
 Stage 4 depends on Stages 1–3 being VERIFIED; all three gates are still open.
