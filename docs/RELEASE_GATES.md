@@ -461,6 +461,38 @@ tests are declared there: removed xfail markers, and four QA tests whose expecta
 (idempotency replay with a different payload → 409; a customer pending erasure is readable only with
 `manage_retention`). Migration `0007b` added; `0007` now follows Stage 2's `0006b`.
 
+## Independent re-verification of fix round 1 (2026-11-12, at ee865da)
+Two fresh verifier agents with fixed checklists; QA additionally made one full independent API and browser run, the
+security verifier a time-boxed adversarial pass of 12 probes.
+- QA (`docs/evidence/qa-stage3-reverify-2026-11-12.md`): D1–D5 CONFIRMED fixed; the five edits to QA's own tests
+  judged legitimate (the property QA cared about is still asserted in each; both decisions — 409 for a replayed key
+  with a different payload, 404 for sales on a customer pending erasure — acceptable and documented); S3-A01..A09
+  PASS; order totals equal the approved document for AED, JPY, KWD, BHD; retention confirmed. Full runs: API exit 1
+  with `1646 passed, 1 failed, 2 skipped, 3 xfailed, 1 xpassed` (the failure is its new defect test), browser exit 0
+  with `62 passed, 1 skipped`, 0 flaky. **New: D6 (Low)** — an import error text kept an erased customer's reference.
+- Security (`docs/evidence/security-stage3-reverify-2026-11-12.md`): SEC3-04, 06, 07, 08, 09, 10 CLOSED, tenant
+  isolation and role gates CLOSED, SEC3-01/02/03 MITIGATED, test edits ACCEPTED. **New:** SEC3-12 (Medium: an existing
+  approved quote or open proposal of a customer pending erasure could still become an order), SEC3-14 (Medium: a
+  purge job left `running` by a crashed worker stalls the erasure), SEC3-15 (Medium: the purge left message subject
+  and snippet in `communication_events`), SEC3-13, SEC3-16, SEC3-17 (Low). No Critical or High.
+
+## Fix round 2 (same day)
+All six security findings and D6 fixed (details, declared edits and runs in `implementer-fixes1-stage3-2026-11-12.md`,
+sections "Fix round 2" and the two orchestrator addenda). The verifiers' own reproduction tests — written before the
+fixes — now pass with their xfail decorators removed (151 passed across the Stage 3 QA and security files). One
+earlier security test was reordered (declared). These fixes have **not** been re-checked by a verifier agent; the
+evidence is the pre-written tests plus CI.
+
+### Open for Stage 3 (single list for the reviewer)
+| Item | Severity | State |
+|---|---|---|
+| Purge does not cover `rfq_items.raw_text`, uploaded RFQ files, audit summaries, order/quote notes, backups | Medium (privacy, documented) | limitation in KNOWN_LIMITATIONS / PRIVACY_AND_RETENTION |
+| CSV imports have the same concurrent-replay pattern that SEC3-16 fixed for connector syncs | Low | not changed (reported by the implementer) |
+| Control characters other than NUL are stored; purge/decide/conflict resolution take no row lock; failed-row redaction matches by substring and can over-redact | Low / observations | backlog |
+| A worker that dies after the provider accepted a message but before the draft is committed can redeliver on reclaim; the visibility timeout must exceed the longest handler run | Low (Stage 2 queue) | documented |
+| The erased-customer 404 was not exercised in the web UI; the real worker loop was driven in-process only | — | not tested |
+| No real ERP/CRM pull adapter exists (push-model stubs only) | — | limitation |
+
 ## Still required before any Stage 3 verdict
 1. A green full API and browser run on the merged tree (recorded in the fixes1 evidence file when available).
 2. Independent QA re-verification (must judge the declared test edits and re-run the full browser suite, which QA

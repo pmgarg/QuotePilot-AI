@@ -235,9 +235,11 @@ def _redact_copies(db: Session, org: Organization, customer: Customer, short: st
             rows = []
             changed = False
             for failed in report.get("failed_rows") or []:
-                blob = " ".join(str(v).lower() for v in (failed.get("values") or {}).values())
-                if any(n in blob for n in needles):
-                    failed = {**failed, "values": dict(REDACTED)}
+                values = " ".join(str(v).lower() for v in (failed.get("values") or {}).values())
+                errors = " ".join(str(e).lower() for e in (failed.get("errors") or []))
+                if any(n in values or n in errors for n in needles):
+                    # the error texts can quote the subject too ("reference CUST-1 already exists") — QA D6
+                    failed = {**failed, "values": dict(REDACTED), "errors": ["redacted: customer erased"]}
                     changed = True
                     counts["import_rows_redacted"] += 1
                 rows.append(failed)

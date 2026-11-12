@@ -140,3 +140,20 @@ The order is proposed before the approval instead (two lines moved, comment in t
 security re-verification's own evidence anticipated this. After the edit:
 `pytest tests/security/test_stage3_audit.py tests/security/test_stage3_confirm.py` → 30 passed, 1 xfailed (SEC3-14,
 which is fixed in the Stage 2 job queue and arrives by merge).
+
+### Orchestrator addendum — SEC3-14 and QA D6, after merging the Stage 2 queue fix (2026-11-12)
+- **SEC3-14** (purge job left `running` by a crashed worker): the Stage 2 job queue now has a visibility timeout
+  (`queue.reclaim_abandoned`, merged from the Stage 2 branch). `retention.enqueue_due_purges` calls it for purge jobs
+  first (`kind="purge_customer"`), so an abandoned purge job is put back in the queue (or, with attempts exhausted,
+  marked dead and re-queued by the existing logic). `reclaim_abandoned` got a `kind` filter and a `count_dead` flag.
+  The auditor's test passes; its strict-xfail decorator was removed (declared; assertion unchanged).
+- **QA D6** (Low; `test_qa_stage3_confirm.py::test_no_sync_run_report_keeps_the_erased_customers_identifiers`): the
+  purge now also replaces the *error texts* of failed import rows that mention the subject
+  (`retention.py::_redact_copies`), not only their values. QA's test passes unedited.
+- Merge conflicts with the Stage 2 branch (`.env.example`, `core/config.py`, `services/jobs/queue.py`,
+  `docs/RELEASE_GATES.md`) were resolved by keeping both sides.
+- Run after these changes: `.venv/bin/pytest -q -p no:cacheprovider tests/qa/test_qa_stage3_*.py
+  tests/security/test_stage3_confirm.py tests/security/test_stage3_audit.py tests/security/test_stage3_audit_inputs.py
+  tests/integration/test_stage3_fixes2.py tests/integration/test_stage3_intelligence.py` → exit 0, **151 passed**,
+  no xfail. `ruff check`, `ruff format --check`, `mypy app` clean. The full API and browser suites on this tree run
+  in CI (recorded in the gate log).
