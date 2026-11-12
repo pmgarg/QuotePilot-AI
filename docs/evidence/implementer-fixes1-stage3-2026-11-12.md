@@ -54,5 +54,27 @@ or where a fixed finding's `xfail` marker had to go. Each edit carries a comment
 Product messages were restored so that QA's other exact-string expectations hold unchanged
 (`tax_rate_pct must be between 0 and 100`, `unsupported currency <code>`, `unknown customer_reference <ref>`).
 
-## Runs
-See the runs table appended below after the merge with the Stage 2 branch (full API suite, lint, web build, browser suite).
+## Found while merging Stage 2 forward
+- `retention.enqueue_due_purges` bound the cross-tenant worker scope itself. Stage 2's security audit
+  (`tests/security/test_stage2_audit.py::test_worker_scope_has_no_caller_outside_the_queue_module`, S2-SEC-01) allows
+  that only inside `services/jobs/queue.py`. The cross-tenant scan now lives there (`queue.due_purge_requests`);
+  retention switches to the owning tenant's scope for everything else. The test was the single failure of the full
+  API suite on the merged tree (below) and passes after the change, unedited.
+- A fully red browser run on the first merged tree (every page "couldn't load") was a harness artifact — the web build
+  was replaced under a running server — fixed on the Stage 1 branch (build inside the web-server command) and merged.
+
+## Runs (2026-11-12; DB `quotepilot_s3fix` recreated empty so the migration chain 0006 → 0006b → 0007 → 0007b runs from scratch; ports 8081/3081)
+| Tree | Command (cwd) | Exit | Result |
+|---|---|---|---|
+| merge with Stage 2 @27b252f (before round 9) | full API suite | 1 | 1 failed, 856 passed, 2 skipped, 2 xfailed (failing test not named in that run's output; the `-r` flag hid it) |
+| same | full browser suite | 1 | harness artifact, see above — not a product result |
+| 869883a (Stage 2 @be754fd incl. Stage 1 round 9) | `ruff check` / `ruff format --check` / `mypy app` (`apps/api`) | 0 / 0 / 0 | clean; 139 files formatted; 85 source files |
+| same | `.venv/bin/pytest -q -p no:cacheprovider -rfEx` (full API suite) | 1 | **1 failed** (`test_worker_scope_has_no_caller_outside_the_queue_module`), **1281 passed**, 2 skipped, 1 xfailed in 1049 s |
+| same | `npx tsc --noEmit`, `npx eslint .` (`apps/web`) | 0 / 0 | clean |
+| same | `npx playwright test --reporter=list --trace off` (`tests/e2e`) | 0 | **60 passed, 1 skipped**, 0 failed, 0 flaky |
+| after the worker-scope change | `.venv/bin/pytest -q -p no:cacheprovider tests/security/test_stage2_audit.py tests/security/test_stage3_audit.py tests/integration/test_stage3_intelligence.py tests/qa/test_qa_stage3_repeat_retention.py tests/qa/test_qa_stage3_tenancy.py` | 0 | 75 passed, 1 xfailed (S2-SEC-06, accepted) |
+
+A full API run on the tree that contains the worker-scope change has **not** been made on this branch; it is made on
+the Stage 4 branch after the merge (recorded there) and is owed here by the independent re-verification.
+The Stage 1 CI issue noted in the Stage 2 evidence (five QA tests reading `DATABASE_ADMIN_URL_TEST` directly) applies
+to this branch's `api` job as well until the corrected file is merged.
