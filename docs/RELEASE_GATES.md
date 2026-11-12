@@ -515,7 +515,7 @@ IMPLEMENTED, **not VERIFIED**.
 |---|---|---|
 | C1 named decision on the erasure scope the purge does not cover (`rfq_items.raw_text`, uploaded RFQ files, audit summaries, order and quote notes, backups; also order `external_ref`/notes — S3-RR1-1, S3-RR1-3) | human | **open** |
 | C2 ratify two product decisions taken by an agent: replayed idempotency key with a different payload → 409; customer pending erasure → 404 for roles without `manage_retention` | human | **open** |
-| C3 targeted verifier re-check of fix round 2 at the final head, with a fresh full API + browser run and a scan with counts for that head | QA + security verifiers | re-checks recorded below ("C3 re-check"); green CI on the final head still to be recorded; not yet seen by the reviewer |
+| C3 targeted verifier re-check of fix round 2 at the final head, with a fresh full API + browser run and a scan with counts for that head | QA + security verifiers | re-checks and green CI on 30a226c recorded below; not yet seen by the reviewer |
 | C4 correct the stale documents (S3-RR1-5..7) | implementing side | done in this commit (KNOWN_LIMITATIONS, LLD, ROADMAP, traceability rewritten from the reviewer's table) — not yet looked at by the reviewer |
 | C5 Stage 1 and Stage 2 conditions closed (Stage 3 cannot be VERIFIED before they are) | human | **open** |
 
@@ -570,5 +570,16 @@ stay in the backlog. Commands, exit codes and counts: `docs/evidence/implementer
   of `customer.create`, the legal-hold race (no row lock, unchanged), the flaky accessibility spec noted in S3-RR1-8
   (it did not fail in this run).
 
-State of C3: both re-checks are recorded; what remains is a green CI run (API + browser + scans) on the pushed head.
+State of C3: both re-checks are recorded; what remained was a green CI run on the pushed head — see the next entry.
 The reviewer asked to be re-invoked after the human decisions C1 and C2 — not before.
+
+### CI evidence for 30a226c (final Stage 3 head with fix round 3 and the C3 tests)
+`docs/evidence/ci-stage3-30a226c-2026-11-12.md`: 8 check runs listed, all success (api, web, e2e, CodeQL python and
+javascript, gitleaks, dependency/static scans, code-scanning check). pytest `1700 passed, 5 skipped, 5 xfailed,
+1 xpassed`; Playwright `63 passed`, `1 skipped`, no flaky or failed line — the first complete browser run that is
+green after QA corrected its new spec. Earlier heads listed 15 check runs (two events); only one set is listed for
+this head and the reason was not investigated. Scan finding counts inside the CI job were not read (the local scan at
+096d9d4 has them).
+
+**C3 as the implementing side sees it: satisfied, pending the reviewer's own judgement at re-invocation.** Open
+conditions that only a human can close: C1, C2, C5.
