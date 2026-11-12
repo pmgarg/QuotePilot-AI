@@ -72,6 +72,28 @@
 - Quiet hours / weekend skipping use the organisation policy time zone, not each contact's time zone.
 - The background worker is a single process; the `app.worker` RLS scope is a trusted-code boundary (see ADR-012).
 - Draft bodies are plain text; HTML templates and attachments (e.g. the quote PDF) are not sent yet.
+- Fix round 1 (2026-11-10) behaviour worth knowing:
+  - Suppression is keyed on the e-mail address inside the tenant. An unsubscribe reply from an address that has **no
+    contact row** is recorded as an unlinked event only; the address itself is not stored as a suppression (events do
+    not keep raw addresses), so a contact created later for that address is not opted out automatically.
+  - "No follow-ups" (`preferred_channel=none`) blocks manual drafts/sends as well as automation for that address; a
+    user who wants to write to such a person must change the preference first.
+  - When automation consent is withdrawn after schedules were planned, the due follow-up is **not** converted into a
+    draft: the job is dead-lettered, the schedule becomes `failed` with the reason, and an admin retry re-arms it
+    once consent is restored (QA D-13 asked for a draft instead; that conflicts with the security regression tests
+    that require a dead-lettered job in this situation, see the fix-round evidence).
+  - The edited draft is stored without the opt-out footer; it is appended when the message is sent. Placeholders are
+    resolved when an edit is saved (a customer name that itself contains a placeholder-like token is therefore
+    expanded once at edit time if the user changes the body).
+  - A quote number in an inbound message links it to the quote only when the sender is a contact of the quote's
+    customer or the message answers one of our own messages for that quote; otherwise it stays an unlinked event.
+  - Per-tenant SMTP credentials are stored encrypted but **not used for sending** (S2-SEC-06, accepted): every tenant
+    sends through the process-wide `SMTP_*` account. Using the stored secret needs per-tenant host/user configuration
+    and is a Stage 2 follow-up; the strict-xfail test for it remains.
+  - The hourly send limit is serialised per organisation by a row lock on the policy; the provider call happens
+    inside that lock, so sends of one organisation are sequential.
+  - Provider acknowledgement followed by a database failure before commit can still produce a duplicate on retry
+    (no provider-side idempotency key); the window is small and unchanged.
 
 ## Stage 3–4
 Not implemented; designs and backlogs exist (ROADMAP.md, PRD.md, LLD.md).

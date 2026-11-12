@@ -4,7 +4,8 @@ Scope: tenant isolation / RLS of every Stage 2 table and the `app.worker` scope,
 send path (manual, scheduled, queued retry), secrets handling, template / SMTP header injection, inbound processing,
 the PostgreSQL job queue, RBAC / CSRF / audit coverage and the development-only endpoints.
 
-Findings keep a strict xfail carrying the finding id (S2-SEC-nn; see docs/evidence/security-stage2-2026-11-02.md).
+Findings were reproduced as strict xfails carrying the finding id (S2-SEC-nn; see docs/evidence/security-stage2-2026-11-02.md);
+after fix round 1 only S2-SEC-06 (accepted, documented) is still an xfail.
 Passing checks are plain tests. The auditor changed no product code.
 """
 
@@ -253,16 +254,14 @@ def test_worker_scope_has_no_caller_outside_the_queue_module() -> None:
         if re.search(r"set_worker_scope\(", p.read_text()) and p.name != "session.py"
     )
     assert callers == ["services/jobs/queue.py"]
-    # ...but the queue's cross-tenant entry points are reachable from a request handler (S2-SEC-01)
+    # S2-SEC-01 fixed: the request handler may only call the queue's tenant-scoped entry points (org_id=...), never
+    # the unscoped cross-tenant forms this test documented before the fix round
     router = (APP_DIR / "api" / "routers" / "followup.py").read_text()
-    assert "queue.enqueue_due_schedules(db)" in router and "queue.run_once(db)" in router
+    assert "queue.enqueue_due_schedules(db)" not in router and "queue.run_once(db)" not in router
+    assert "queue.enqueue_due_schedules(db, org_id=org_id" in router
+    assert "queue.run_once(db, org_id=org_id" in router
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="S2-SEC-01: POST /jobs/run-once binds the cross-tenant app.worker scope on the API request path; an admin of "
-    "one tenant processes (and sends) every tenant's due jobs and learns the cross-tenant job count",
-)
 def test_run_once_request_from_one_tenant_touches_only_that_tenants_queue(
     app, tenant_a: Tenant, tenant_b: Tenant
 ) -> None:  # type: ignore[no-untyped-def]
@@ -518,11 +517,6 @@ def test_every_stage2_mutation_writes_an_audit_row_in_the_same_transaction(app, 
     assert not any("@customer.example" in r[2] or "Dear " in r[2] for r in rows)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="S2-SEC-07: POST /integrations/sync-inbound (creates/updates the integration row and cursor) and "
-    "POST /jobs/run-once (claims and runs jobs) write no audit_events row",
-)
 def test_sync_inbound_and_run_once_write_audit_rows(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
     admin = login_as(app, tenant_a.users["admin"])
     before = len(audit_actions(tenant_a.org_id))
@@ -533,11 +527,6 @@ def test_sync_inbound_and_run_once_write_audit_rows(app, tenant_a: Tenant) -> No
 
 
 # ================================================================ 3. consent and suppression on every send path
-@pytest.mark.xfail(
-    strict=True,
-    reason="S2-SEC-02: suppression is bound to the contact row, not to the address — a sales user (who may not opt a "
-    "contact back in) re-creates the contact with the same e-mail and the system sends to it again",
-)
 def test_opt_out_follows_the_address_when_a_contact_is_recreated(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
     sales, admin, q, c = sent_quote_with_contact(app, tenant_a)
     r = admin.post(
@@ -553,11 +542,6 @@ def test_opt_out_follows_the_address_when_a_contact_is_recreated(app, tenant_a: 
     assert simulator_for(tenant_a.org_id).outbox == []
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="S2-SEC-02 (b): an UNSUBSCRIBE reply opts out only the first contact row matching the address; duplicate "
-    "rows for the same person stay eligible",
-)
 def test_unsubscribe_reply_opts_out_every_contact_row_with_that_address(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
     sales, admin, q, c = sent_quote_with_contact(app, tenant_a)
     add_contact(
@@ -574,11 +558,6 @@ def test_unsubscribe_reply_opts_out_every_contact_row_with_that_address(app, ten
     ]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="S2-SEC-04: the opt-out instruction is only guaranteed at generation time; an edited draft body is sent "
-    "verbatim, so the sender can strip it",
-)
 def test_every_sent_message_carries_the_opt_out_instruction(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
     sales, admin, q, c = sent_quote_with_contact(app, tenant_a)
     d = sales.post(f"/quotes/{q['id']}/drafts", json={"contact_id": c["id"]}).json()
@@ -695,12 +674,6 @@ def test_skip_locked_claim_hands_a_job_to_exactly_one_worker(app, tenant_a: Tena
         holder.close()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="S2-SEC-03: a schedule whose job dead-letters (e.g. consent revoked after auto-send schedules were planned, "
-    "or a tenant whose provider is misconfigured) stays 'pending' forever and occupies one of the 200 slots of the "
-    "cross-tenant scheduler tick (ORDER BY due_at LIMIT 200); 200 such rows in one tenant starve every tenant",
-)
 def test_dead_lettered_schedules_are_resolved_and_do_not_starve_other_tenants(
     app, tenant_a: Tenant, tenant_b: Tenant
 ) -> None:  # type: ignore[no-untyped-def]
@@ -775,11 +748,6 @@ def test_inbound_processing_cannot_reach_other_tenants_contacts_or_quotes(
     assert a_sales.get(f"/quotes/{qa['id']}/lifecycle").json()["status"] == "sent"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="S2-SEC-05: an inbound message from any address that merely mentions the quote number is linked to the "
-    "quote, moves it sent → acknowledged with synthetic evidence and suppresses the pending automated follow-ups",
-)
 def test_inbound_from_an_unknown_address_does_not_change_quote_status(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
     sales, admin, q, c = sent_quote_with_contact(app, tenant_a)
     r = admin.post(
@@ -1034,12 +1002,6 @@ def test_smtp_headers_resist_crlf_injection_from_customer_data(
     assert r.json()["provider"] == "smtp" and r.json()["provider_message_id"] == str(msg["Message-ID"])
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="S2-SEC-10: PolicyUpdate.sender_name accepts CR/LF; the SMTP provider's From header then raises ValueError, "
-    "which is neither a ProviderError nor an AppError → HTTP 500 on manual send (no audit row, draft left 'draft') "
-    "and a non-retryable 'failed' job on the automated path. No header is injected (EmailPolicy refuses the value)",
-)
 def test_crlf_in_admin_sender_name_cannot_inject_headers(
     app, tenant_a: Tenant, monkeypatch: pytest.MonkeyPatch
 ) -> None:  # type: ignore[no-untyped-def]
@@ -1060,11 +1022,6 @@ def test_crlf_in_admin_sender_name_cannot_inject_headers(
     assert r.status_code != 500, "S2-SEC-10: CRLF in the policy sender name must not crash the send path"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="S2-SEC-09: valid_email() anchors with `$`, which also matches before a trailing newline; "
-    "'a@b.example\\n' is accepted as a contact address and can never match an inbound unsubscribe",
-)
 def test_contact_addresses_with_a_trailing_newline_are_rejected(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
     sales = login_as(app, tenant_a.users["sales"])
     r = sales.post(
@@ -1093,11 +1050,6 @@ def test_dev_only_endpoints_are_disabled_in_production(tenant_a: Tenant, monkeyp
         config.get_settings.cache_clear()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="S2-SEC-11: the simulator injection and the in-request worker are gated on is_production only; both stay "
-    "enabled under APP_ENV=staging (and the web UI shows the 'Run worker once' button there)",
-)
 def test_dev_only_endpoints_are_disabled_in_staging(tenant_a: Tenant, monkeypatch: pytest.MonkeyPatch) -> None:
     app = _app_for_env(monkeypatch, "staging")
     try:

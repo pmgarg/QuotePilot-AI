@@ -10,8 +10,10 @@ from fastapi import APIRouter, Query
 from sqlalchemy import select
 
 from app.api.deps import DB, PrincipalDep, SettingsDep, clean_param
+from app.core.config import Settings
 from app.core.errors import ForbiddenError, NotFoundError, ValidationFailed
 from app.db.base import utcnow
+from app.db.session import set_tenant
 from app.models.customer import Customer
 from app.models.followup import (
     CommunicationDraft,
@@ -86,6 +88,8 @@ def create_contact(customer_id: uuid.UUID, payload: ContactIn, principal: Princi
     c = Contact(organization_id=principal.org_id, customer_id=customer_id, **payload.model_dump())
     db.add(c)
     db.flush()
+    fu.inherit_address_opt_out(db, c)  # an address that already opted out stays opted out
+    db.flush()
     audit.record(
         db,
         organization_id=principal.org_id,
@@ -94,7 +98,7 @@ def create_contact(customer_id: uuid.UUID, payload: ContactIn, principal: Princi
         entity_type="contact",
         entity_id=c.id,
         ip=principal.ip,
-        summary={"customer_id": str(customer_id)},
+        summary={"customer_id": str(customer_id), "inherited_opt_out": c.opted_out_at is not None},
     )
     return ContactOut.model_validate(c)
 
@@ -115,6 +119,8 @@ def update_contact(contact_id: uuid.UUID, payload: ContactIn, principal: Princip
     for k, v in payload.model_dump(exclude_unset=True).items():
         setattr(c, k, v)
     db.flush()
+    fu.inherit_address_opt_out(db, c)  # re-addressing a contact to an opted-out address cannot bypass the opt-out
+    db.flush()
     audit.record(
         db,
         organization_id=principal.org_id,
@@ -133,24 +139,13 @@ def set_opt_out(contact_id: uuid.UUID, payload: OptOutIn, principal: PrincipalDe
     principal.require(Permission.EDIT_QUOTES)
     c = _contact(db, principal, contact_id)
     if payload.opted_out:
-        c.opted_out_at = c.opted_out_at or utcnow()
-        c.opt_out_source = payload.source
-        for s in db.scalars(
-            select(FollowUpSchedule).where(
-                FollowUpSchedule.organization_id == principal.org_id,
-                FollowUpSchedule.contact_id == c.id,
-                FollowUpSchedule.status == "pending",
-            )
-        ):
-            s.status = "suppressed"
-            s.last_error = "contact opted out"
+        rows = fu.set_address_opt_out(db, contact=c, opted_out=True, source=payload.source)
     else:
         if not has_permission(principal.role, Permission.MANAGE_ORG):
             raise ForbiddenError(
                 "Only an owner/admin may re-enable messaging for an opted-out contact", action="opt_in"
             )
-        c.opted_out_at = None
-        c.opt_out_source = None
+        rows = fu.set_address_opt_out(db, contact=c, opted_out=False, source=None)
     db.flush()
     audit.record(
         db,
@@ -160,19 +155,25 @@ def set_opt_out(contact_id: uuid.UUID, payload: OptOutIn, principal: PrincipalDe
         entity_type="contact",
         entity_id=c.id,
         ip=principal.ip,
-        summary={"source": payload.source},
+        summary={"source": payload.source, "rows": len(rows)},
     )
     return ContactOut.model_validate(c)
 
 
 # ---------------------------------------------------------------- policy & templates
+def _policy_out(pol: object, settings: Settings) -> PolicyOut:
+    out = PolicyOut.model_validate(pol)
+    out.dev_endpoints_enabled = settings.dev_endpoints_enabled
+    return out
+
+
 @router.get("/follow-up/policy", response_model=PolicyOut)
-def get_policy(principal: PrincipalDep, db: DB) -> PolicyOut:
-    return PolicyOut.model_validate(fu.ensure_policy(db, principal.org_id))
+def get_policy(principal: PrincipalDep, db: DB, settings: SettingsDep) -> PolicyOut:
+    return _policy_out(fu.ensure_policy(db, principal.org_id), settings)
 
 
 @router.patch("/follow-up/policy", response_model=PolicyOut)
-def update_policy(payload: PolicyUpdate, principal: PrincipalDep, db: DB) -> PolicyOut:
+def update_policy(payload: PolicyUpdate, principal: PrincipalDep, db: DB, settings: SettingsDep) -> PolicyOut:
     principal.require(Permission.MANAGE_ORG)
     pol = fu.ensure_policy(db, principal.org_id)
     data = payload.model_dump(exclude_unset=True)
@@ -202,7 +203,7 @@ def update_policy(payload: PolicyUpdate, principal: PrincipalDep, db: DB) -> Pol
         ip=principal.ip,
         summary={"fields": sorted(data.keys()), "automation_enabled": pol.automation_enabled},
     )
-    return PolicyOut.model_validate(pol)
+    return _policy_out(pol, settings)
 
 
 @router.get("/follow-up/templates", response_model=list[TemplateOut])
@@ -480,6 +481,20 @@ def retry_job(job_id: uuid.UUID, principal: PrincipalDep, db: DB) -> JobOut:
     j.status = "queued"
     j.next_run_at = utcnow()
     j.attempts = 0
+    j.finished_at = None
+    if j.kind == "schedule_followup":  # the schedule was marked failed when the job gave up; re-arm it
+        try:
+            sched = db.scalar(
+                select(FollowUpSchedule).where(
+                    FollowUpSchedule.id == uuid.UUID(str(j.payload.get("schedule_id"))),
+                    FollowUpSchedule.organization_id == principal.org_id,
+                )
+            )
+        except ValueError:
+            sched = None
+        if sched is not None and sched.status == "failed":
+            sched.status = "pending"
+            sched.last_error = None
     db.flush()
     audit.record(
         db,
@@ -510,6 +525,8 @@ def create_integration(
 ) -> IntegrationOut:
     """Connect a provider. Secrets are envelope-encrypted and never returned; gmail/msgraph are documented only."""
     principal.require(Permission.MANAGE_ORG)
+    if payload.account_email and not valid_email(payload.account_email):
+        raise ValidationFailed("Invalid account e-mail address", field="account_email")
     if payload.provider in ("gmail", "msgraph"):
         raise ValidationFailed(
             f"{payload.provider} is documented but not shipped in this release; use simulator or smtp", field="provider"
@@ -589,8 +606,10 @@ def simulate_inbound(
 ) -> dict[str, object]:
     """Development/demo helper: inject a synthetic inbound e-mail and process it immediately (never in production)."""
     principal.require(Permission.MANAGE_ORG)
-    if settings.is_production:
-        raise ForbiddenError("Simulator inbound injection is disabled in production", action="simulator")
+    if not settings.dev_endpoints_enabled:
+        raise ForbiddenError("Simulator inbound injection is only available in development/test", action="simulator")
+    if not valid_email(payload.from_email):
+        raise ValidationFailed("Invalid sender address", field="from_email")
     msg = InboundMessage(
         provider="simulator",
         provider_message_id=f"sim-in-{uuid.uuid4()}",
@@ -611,16 +630,33 @@ def simulate_inbound(
 @router.post("/integrations/sync-inbound")
 def sync_now(principal: PrincipalDep, db: DB) -> dict[str, int]:
     principal.require(Permission.MANAGE_ORG)
-    n = fu.sync_inbound(db, org=principal.organization)
+    n = fu.sync_inbound(db, org=principal.organization, actor=principal.user, ip=principal.ip)
     return {"processed": n}
+
+
+RUN_ONCE_MAX_JOBS = 25
 
 
 @router.post("/jobs/run-once")
 def run_jobs_once(principal: PrincipalDep, db: DB, settings: SettingsDep) -> dict[str, int]:
-    """Development helper: run the worker loop once for this process (disabled in production)."""
+    """Development helper: process the CALLER'S tenant queue once (bounded; disabled outside development/test).
+    It runs under the normal tenant scope — the cross-tenant worker scope belongs to the worker process only."""
     principal.require(Permission.MANAGE_ORG)
-    if settings.is_production:
-        raise ForbiddenError("Use the worker process in production", action="worker")
+    if not settings.dev_endpoints_enabled:
+        raise ForbiddenError("Use the worker process outside development/test", action="worker")
+    org_id, user_id, ip = principal.org_id, principal.user.id, principal.ip  # run_job expires the session objects
     db.commit()
-    queue.enqueue_due_schedules(db)
-    return {"processed": queue.run_once(db)}
+    enqueued = queue.enqueue_due_schedules(db, org_id=org_id, limit=RUN_ONCE_MAX_JOBS)
+    processed = queue.run_once(db, org_id=org_id, max_jobs=RUN_ONCE_MAX_JOBS)
+    set_tenant(db, org_id, user_id)
+    audit.record(
+        db,
+        organization_id=org_id,
+        actor_user_id=user_id,
+        action="worker.run_once",
+        entity_type="organization",
+        entity_id=org_id,
+        ip=ip,
+        summary={"enqueued": enqueued, "processed": processed},
+    )
+    return {"processed": processed}

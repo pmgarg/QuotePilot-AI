@@ -1816,6 +1816,11 @@
             "title": "Automation Enabled",
             "type": "boolean"
           },
+          "dev_endpoints_enabled": {
+            "default": false,
+            "title": "Dev Endpoints Enabled",
+            "type": "boolean"
+          },
           "hourly_send_limit": {
             "title": "Hourly Send Limit",
             "type": "integer"
@@ -5300,7 +5305,7 @@
     },
     "/api/v1/jobs/run-once": {
       "post": {
-        "description": "Development helper: run the worker loop once for this process (disabled in production).",
+        "description": "Development helper: process the CALLER'S tenant queue once (bounded; disabled outside development/test).\nIt runs under the normal tenant scope \u2014 the cross-tenant worker scope belongs to the worker process only.",
         "operationId": "run_jobs_once_api_v1_jobs_run_once_post",
         "responses": {
           "200": {
