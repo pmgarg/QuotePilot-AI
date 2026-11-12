@@ -1,6 +1,6 @@
 """index for address-level suppression lookups (lower(email) within a tenant)
 
-Revision ID: 0007
+Revision ID: 0006b
 Revises: 0006
 Create Date: 2026-11-10 09:00:00.000000
 """
@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from alembic import op
 
-revision = '0007'
+revision = '0006b'
 down_revision = '0006'
 branch_labels = None
 depends_on = None
