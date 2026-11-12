@@ -244,8 +244,9 @@ def test_sec6_1_catalog_import_with_hostile_sku_cells_is_not_a_cpu_dos(app) -> N
 
 @pytest.mark.xfail(
     strict=True,
-    reason="SEC6-2 (Medium): fuzzy matching is unbounded in query length and catalog size and holds the GIL "
-    "(2,000 long items against a 50,000-product catalog measured at about 290 s)",
+    reason="SEC6-2 residual (Medium/High, design): round 10 caps the query at 200 chars and one index at 2,000,000 "
+    "comparisons, but cost per comparison grows with description length, so one request still costs 40-420 s "
+    "(see SEC7-1 in test_audit_followups8.py); matching still runs in the API process and holds the GIL",
 )
 def test_sec6_2_matching_a_long_description_against_a_large_catalog_is_bounded() -> None:
     products = [

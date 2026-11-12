@@ -221,6 +221,105 @@ head was **not green in CI** and has no CI browser evidence. QA corrected its he
 **SEC6-2 mitigated only** (query cap and per-request comparison budget) and listed under human actions below.
 Independent re-verification 7 and a release review are required before PASS.
 
+### Fix round 11 (Stage 1)
+`docs/evidence/implementer-fixes11-stage1-2026-11-12.md`: fuzzy matching of large jobs now runs in a resource-limited
+worker process with an 8 s deadline (at most two per API process), so the API stays responsive; lines that were not
+matched are flagged `match_skipped_budget` (SEC7-1 / SEC6-2 mitigated, not closed: the auditor's per-call latency
+assertions for `index.match` cannot be met by design and stay xfail); per-user rate limits on RFQ create/re-parse and
+catalog import (SEC7-7); parser SEC7-2, SEC7-3, SEC7-5, SEC7-6; seed reads only `DEMO_PASSWORD` (SEC7-4, QA J7-3); QA J7-2
+and J7-4. Nothing is marked VERIFIED. (What followed was a narrowed confirmation of round 11 and release review 5 — see below — not a full re-verification 8.)
+
+### CI on the round-10 and round-11 commits (GitHub Actions, queried 2026-11-12)
+| commit | `ci` | `security` workflow | CodeQL check |
+|---|---|---|---|
+| 8258112 (round 10) | web success; **api failure** on both events: `1 failed, 1160 passed, 3 skipped, 1 xfailed` — the security verifier's timing test `test_per_character_scans_are_bounded_by_the_pre_normalisation_cap` (12–16 ms on the runner vs a 10 ms threshold; real per-cell cost, reduced in round 11); e2e skipped | success; SARIF python 0, javascript 0 | success |
+| 8cfcff2 (round 11) | web success; **api failure** on both events: `2 failed, 1347 passed, 3 skipped, 1 xfailed, 1 xpassed` — two QA tests that run `git show` on history CI does not check out; e2e skipped | success except **gitleaks on the pull_request run** (a dummy `SECRET_KEY=tiny-secret-visible` string in a security test) | success |
+
+Both round-11 failures are verifier-test portability problems, fixed in 23c1eb3 (history-based QA tests skip without
+history; the two synthetic markers are allowlisted). CI for the head that contains these confirmations is recorded in
+the next entry of this file.
+
+## Independent confirmation of fix round 11 — Stage 1 @23c1eb3 (2026-11-12)
+Process change (requested by the project owner: the fix → re-verify loop was consuming disproportionate effort):
+this round was confirmed by two **fresh** verifier agents against a **fixed checklist limited to the round-11 diff**,
+without re-running the full suites and without exploratory campaigns. New findings below High are logged as backlog
+instead of triggering another fix round. This is a narrower verification than rounds 4–7 and is stated as such.
+- QA (`qa-stage1-confirm-round11-2026-11-12.md`): 7 of 7 checklist items CONFIRMED (ordinary matching unchanged;
+  worker path gives the same results as the in-process path; rate limits; parser cells; seed precedence; the exact-SKU
+  control and the new message in the browser; declared test edits). No defect. Observation O1 (Low, not reproduced in
+  18 reruns): once, one candidate list differed between worker and in-process path at position 2 — possibly tie order.
+- Security (`security-stage1-confirm-round11-2026-11-12.md`): parser findings SEC7-2/3/5/6 and seed SEC7-4 CLOSED;
+  tenant isolation of the worker path CLOSED; declared edits legitimate. **SEC7-1 / SEC6-2 MITIGATED, not closed**:
+  the 389.9 s worst case (30,000 products × 300 characters, 450 adversarial lines) now takes 11.4–11.6 s, with health
+  checks answered throughout (max 0.42 s); 47–52 lines matched, about 400 flagged for a person. Residual: jobs up to
+  50,000 comparisons still run in the API process (≈ 0.14 s per line at 30,000 products), the database transaction is
+  held while waiting, two matcher processes per API process. **New, backlog:** SEC8-2 (Medium) `POST /rfqs/{id}/items`
+  is neither rate-limited nor routed through the bounded matcher (1.4–2.1 s per call on a 30,000-product catalog);
+  SEC8-1 (Low) the reader of the worker's output does not catch a `RecursionError`. The auditor's statement: no
+  Critical or High finding it considers release-blocking is open, **subject to accepting the matching residual**.
+
+CI on 5195ee0 (the commit that added the two confirmation test files; runs 43206479891 push, 43206491750
+pull_request): `web` success, `security` workflow success on both events (gitleaks green again; SARIF python 0,
+javascript 0), CodeQL check success, **`api` failure at the lint step on both events** — `ruff check` found four
+errors in the confirmation agents' new test files (two unused imports, two unsorted import blocks), so pytest did not
+run and e2e was skipped. The orchestrator had committed those files without linting them. Fixed mechanically
+(`ruff check --fix`, `ruff format`; no assertion changed; both files re-run locally: 14 passed, 1 xfailed).
+
+CI on 58b1023 (lint fix; runs 43209371016 and 43209377707): `web` success; `security` workflow success on both
+events (SARIF python 0, javascript 0; gitleaks success); CodeQL check success; **`api` failure**:
+`1 failed, 1360 passed, 5 skipped, 2 xfailed, 1 xpassed` (coverage TOTAL 92 %) on both events — the single failure is
+the security confirmation test `test_item1_worst_case_end_to_end_and_add_item_cost`, which wrote its measurements to a
+path that exists only on the development machine (`FileNotFoundError`); its assertions had passed. e2e skipped.
+Fixed by writing the dump to the system temp directory (declared edit, no assertion changed).
+
+### CI evidence for 96e28ab — the gated head of fix round 11 (GitHub Actions, queried 2026-11-12): all 15 checks green
+| workflow | runs (both events) | job results | counts read from the job logs |
+|---|---|---|---|
+| ci | 43212316572, 43212324076 (the latter tested the pull-request merge commit of 96e28ab) | api success, web success, e2e success on both | pytest `1361 passed, 5 skipped, 2 xfailed, 1 xpassed in 728.18s` / `… in 779.34s`, coverage TOTAL 92 %; Playwright `42 passed (1.8m)` / `42 passed (1.7m)`, `1 skipped`, no flaky line, no failed line, no `retry #` |
+| security | 43212316545, 43212324258 | CodeQL python, CodeQL javascript-typescript, gitleaks, pip-audit/npm audit/bandit/semgrep: success on both | SARIF python 0 results, javascript 0 results |
+| CodeQL code-scanning check | 131163225529 | success | — |
+
+Skips in CI (5): two QA history-based differentials and one security history-based test (CI checks out without git
+history), two compose-render tests (no repo-root `.env`). Expected failures (2): the per-call matching latency test
+(SEC6-2 residual) and SEC8-1. One non-strict xfail passed on the runner (SEC7-1 per-call latency). Local runs of the
+same product code: API 1350 passed / 2 skipped / 2 xfailed at 8cfcff2 (before the 14 confirmation tests were added),
+browser 42 passed / 1 skipped — consistent with CI.
+
+### Open for Stage 1 after round 11 (single list for the reviewer)
+| ID | Severity | State |
+|---|---|---|
+| SEC7-1 / SEC6-2 matching cost | High → Medium residual | mitigated (deadline, worker process, budget); needs a human decision |
+| SEC8-2 add-item path unlimited / in-process | Medium | open, backlog |
+| SEC7-7 rate limits | Medium (design) | RFQ parse and catalog import limited per user and process; quote generation and exports not limited |
+| post-sandbox parsing has no wall-clock timeout | Medium (design) | open; matching part now has a deadline |
+| SEC8-1 worker-output reader | Low | open, backlog |
+| QA O1 candidate tie order | Low | unreproduced observation |
+| SEC6-6, SEC5-4 | Info | accepted / documented |
+| documented Lows from earlier rounds | Low | listed under "Human actions required" |
+
+## Review 5 — Stage 1 @96e28ab (2026-11-12) — verdict PASS WITH CONDITIONS
+Full report, verbatim: `docs/evidence/release-review-5-stage1-2026-11-12.md` (project `release-reviewer` agent, fresh
+context, Read/Glob/Grep only; it ran no tests and could not query GitHub — CI figures are the orchestrator's record).
+No Critical or High finding is open on the evidence it read. **Stage 1 is "implemented, reviewed with conditions" —
+not VERIFIED and not released until the conditions are met.**
+
+| Condition | Who | State |
+|---|---|---|
+| **C1** Sign here (name, date, rationale) the acceptance of: (a) SEC7-1/SEC6-2 residual — matching up to 50,000 comparisons in the API process, 8 s deadline, 2 matchers per process, DB transaction held while matching, later lines of very large jobs left flagged; (b) SEC8-2 — add-item path unlimited and in-process; (c) rate limits per process and in memory, quote generation and exports unlimited; (d) parsing after the sandbox without a wall-clock timeout — **or** require fixes | Human owner | **OPEN** |
+| **C2** Bring the traceability matrix up to date with rounds 8–11 | Orchestrator | done in this commit (no row is VERIFIED) |
+| **C3** Record that `git diff 23c1eb3..96e28ab` touches no product code | Orchestrator | done: the diff contains only `apps/api/tests/qa/test_qa_confirm_round11.py` and `apps/api/tests/security/test_confirm_round11.py` (new test files) plus `docs/` |
+| **C4** Make the human decisions listed below (branch protection, S1-F21, X-08, Compose never executed, documented Lows) | Human owner | **OPEN** |
+
+Reviewer's findings: RR5-1 (Medium, stale traceability → C2), RR5-2 (Medium, matching residual → C1), RR5-3 (Medium,
+SEC8-2 — **fix strongly recommended** before release; a fix needs a targeted check of the add-item path and a CI
+rerun), RR5-4 (Medium, design residuals → C1), RR5-5 (Low: two per-call latency tests encode limits the design cannot
+meet and one was made non-strict — replace with tests of the real properties), RR5-6 (Low: what the narrowed round-11
+confirmation did not cover — parallel large parses, refused resource limits, QA O1, SEC8-1), RR5-7 (Low: locale
+heuristics for `1,234` / `12,5` on catalog prices), RR5-8 (Low: gitleaks path allowlist too broad), RR5-9 (Low: seed
+still builds settings from the working-directory `.env`), RR5-10/11 (Info), RR5-12 (Info: no "100 % secure" claim).
+Review-4 findings: RR4-1 closed for 96e28ab; RR4-2 reopened as RR5-1 and addressed by C2; RR4-3 closed.
+Required retest per the reviewer: none for the conditions as written; a targeted check if SEC8-2 is fixed.
+
 ## Human actions required
 - Enable branch protection on `main` requiring checks `api`, `web`, `e2e`, `security` and one review (repository settings → Branches).
 - Sign any risk acceptance in this file with name, date and rationale. Documented Lows awaiting acknowledgement:
@@ -231,9 +330,11 @@ Independent re-verification 7 and a release review are required before PASS.
   ad-hoc quote whose catalog moved on must be rejected (which returns the same version to draft), re-linked with "Use
   active catalog" and re-submitted; a SKU dropped from the new catalog can only be removed or replaced by a custom line
   that an owner/admin confirms.
-- **Decide on SEC6-2** (Medium, open): fuzzy matching runs in the API process and scans the whole catalog per line.
-  It is bounded by a per-request budget (see KNOWN_LIMITATIONS "Matching cost"); either accept that for Stage 1 with a
-  signature here, or require matching to move into the worker before release.
+- **Decide on SEC6-2 / SEC7-1** (High/Medium, mitigated in round 11, not independently re-verified): fuzzy matching of
+  large jobs runs in a worker process with a deadline, at most two per API process, and per-user rate limits apply
+  (see KNOWN_LIMITATIONS "Matching cost" and "Rate limits"). Remaining: limits are per process, a parse can hold a
+  database transaction for the 8 s deadline, and long RFQs against very large catalogs lose suggestions for later
+  lines. Either accept that for Stage 1 with a signature here (condition C1 of review 5), or require more.
 - Decide whether Stage 1 may ship with S1-F21 (AI extraction adapter present, disabled, not wired) partial.
 - Decide whether a manual screen-reader audit (X-08) is required for Stage 1.
 - Decide whether running the Docker Compose topology (never executed in the development container) is required before

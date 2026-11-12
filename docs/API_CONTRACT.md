@@ -24,13 +24,13 @@ Durability: the transaction of a request (data change and its audit row) is comm
 | GET/PATCH | /customers/{id} | any / sales+ | detail/update |
 | GET | /catalogs | any | catalogs with versions summary |
 | GET | /catalogs/active-version | any | `{version_id}` of the catalog version new ad-hoc quote lines price from (null without an active catalog); used by the editor's "Use active catalog" re-link |
-| POST | /catalogs/import | owner, admin | multipart `file` + `mapping` (JSON string) + `catalog_name?` → version + report. A price cell must hold exactly one number (optional currency code/symbol); anything else, a negative price or a price ≥ 10^12 is a row error (`list price is not a number` / `is negative` / `is too large`), never a guessed value |
+| POST | /catalogs/import | owner, admin | multipart `file` + `mapping` (JSON string) + `catalog_name?` → version + report. A price cell must hold exactly one number (optional currency code/symbol); anything else, a negative price or a price ≥ 10^12 is a row error (`list price is not a number` / `is negative` / `is too large`), never a guessed value. Per-user limit: 10 imports per 5 minutes, else 429 with `Retry-After` |
 | POST | /catalogs/versions/{id}/activate | owner, admin | activate version |
 | GET | /catalogs/versions/{id}/products?q=&page= | any | products (cost hidden for sales/readonly) |
-| POST | /rfqs | sales+ | multipart `file` (+`customer_id`, `reference`) or JSON `{text, customer_id, reference}` → RFQ (parsed or failed). Item quantities are stored only when 0 < q ≤ 10,000,000 (three decimals); otherwise `quantity` is null with flag `quantity_unreadable`, `quantity_not_positive` or `quantity_out_of_range`, which blocks quote generation until a person enters one |
+| POST | /rfqs | sales+ | multipart `file` (+`customer_id`, `reference`) or JSON `{text, customer_id, reference}` → RFQ (parsed or failed). Item quantities are stored only when 0 < q ≤ 10,000,000 (three decimals); otherwise `quantity` is null with flag `quantity_unreadable`, `quantity_not_positive` or `quantity_out_of_range`, which blocks quote generation until a person enters one. A line whose fuzzy matching was not run (comparison budget of 2,000,000 per parse, the 8 s matching deadline, two concurrent matcher processes per API process, or a matcher failure) has `match_status` `unmatched`, no candidates and the flag `match_skipped_budget`; exact-SKU matches are never skipped, and choosing a product clears the flag. Per-user limit: 30 RFQ creations/re-parses per 5 minutes, else 429 with `Retry-After` |
 | GET | /rfqs?status=&q= | any | list |
 | GET | /rfqs/{id} | any | detail with items + candidates |
-| POST | /rfqs/{id}/reparse | sales+ | re-run parser |
+| POST | /rfqs/{id}/reparse | sales+ | re-run parser (same per-user limit as RFQ creation: 429 + `Retry-After`) |
 | POST | /rfqs/{id}/items | sales+ | add manual item |
 | PATCH | /rfqs/{id}/items/{item_id} | sales+ | `{selected_product_id|null, quantity, unit, description, unit_confirmed, is_custom}` |
 | DELETE | /rfqs/{id}/items/{item_id} | sales+ | remove item |

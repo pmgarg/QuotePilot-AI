@@ -17,7 +17,6 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import Settings, get_settings
 from app.core.security import hash_password
 from app.db.session import get_sessionmaker, set_auth_scope, set_tenant
 from app.models.customer import Customer
@@ -76,14 +75,47 @@ DEMO_ORGS: list[dict[str, Any]] = [
 _REPO_ROOT_ENV = Path(__file__).resolve().parents[4] / ".env"
 
 
+def _read_demo_password(path: Path) -> str | None:
+    """Only ``DEMO_PASSWORD`` is read from a `.env` file, by a deliberately tiny reader: the file is not validated as
+    `Settings` (an unrelated invalid value must not crash the seed or be echoed, SEC7-4). A missing, unreadable,
+    undecodable or malformed file counts as absent. Understands ``KEY=value``, ``export KEY=value`` and a value in
+    matching single or double quotes (like python-dotenv); a later assignment wins; comments and other keys are
+    ignored."""
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeError, ValueError):
+        return None
+    value: str | None = None
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].lstrip()
+        key, sep, rest = line.partition("=")
+        if not sep or key.strip() != "DEMO_PASSWORD":
+            continue
+        rest = rest.strip()
+        if len(rest) >= 2 and rest[0] == rest[-1] and rest[0] in "\"'":
+            quote, inner = rest[0], rest[1:-1]
+            value = inner.replace('\\"', '"').replace("\\\\", "\\") if quote == '"' else inner
+        else:
+            value = rest.split(" #", 1)[0].rstrip()
+    return value or None
+
+
 def _password() -> str | None:
     """The demo password is chosen by the person running the seed (DEMO_PASSWORD in the environment or `.env`).
     The seed never generates one and never prints one: a credential, even a synthetic one, does not belong in a
-    console or container log."""
-    chosen = os.environ.get("DEMO_PASSWORD") or get_settings().demo_password
-    if not chosen and _REPO_ROOT_ENV.is_file():
-        # `make demo` runs from apps/api while the documented quick start creates `.env` at the repository root
-        chosen = Settings(_env_file=str(_REPO_ROOT_ENV)).demo_password
+    console or container log. Precedence: a non-empty environment variable, then `.env` in the working directory,
+    then `.env` at the repository root (`make demo` runs from apps/api while the documented quick start creates the
+    file at the root). An empty value never masks a later source."""
+    chosen = os.environ.get("DEMO_PASSWORD")
+    if not chosen:
+        for path in (Path.cwd() / ".env", _REPO_ROOT_ENV):
+            chosen = _read_demo_password(path)
+            if chosen:
+                break
     return chosen or None
 
 

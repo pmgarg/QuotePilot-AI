@@ -91,10 +91,10 @@ def test_sku_tokens_equals_the_whole_text_search_on_ordinary_text_and_skips_over
     assert sku_tokens("A1-" * MAX_SKU_RUN) == []
 
 
-def test_seed_never_prints_or_generates_a_password(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
+def test_seed_never_prints_or_generates_a_password(monkeypatch, capsys, tmp_path) -> None:  # type: ignore[no-untyped-def]
     """CodeQL py/clear-text-logging-sensitive-data on fixtures/seed.py: the demo password was printed."""
     monkeypatch.delenv("DEMO_PASSWORD", raising=False)
-    monkeypatch.setattr(seed_module, "get_settings", lambda: type("S", (), {"demo_password": None})())
+    monkeypatch.chdir(tmp_path)  # round 11: the seed reads only DEMO_PASSWORD from `.env` in the working directory
     monkeypatch.setattr(seed_module, "_REPO_ROOT_ENV", seed_module.Path("/nonexistent/.env"))
     assert seed_module.main() == 2  # refuses to seed without a chosen password; touches no database
     out = capsys.readouterr()

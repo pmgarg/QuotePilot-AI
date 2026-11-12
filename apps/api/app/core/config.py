@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     login_rate_limit_attempts: int = 10
     login_rate_limit_window_seconds: int = 300
     min_password_length: int = 12
+    # per-user, in-process (see KNOWN_LIMITATIONS): RFQ creation/re-parse and catalog imports are expensive
+    rfq_parse_rate_limit_attempts: int = Field(default=30, ge=1)
+    catalog_import_rate_limit_attempts: int = Field(default=10, ge=1)
+    expensive_rate_limit_window_seconds: int = Field(default=300, ge=1)
 
     storage_backend: Literal["local", "s3"] = "local"
     storage_dir: str = "./var/storage"
@@ -43,6 +47,7 @@ class Settings(BaseSettings):
     max_pdf_pages: int = 50
     parse_timeout_seconds: int = 20
     parser_memory_limit_bytes: int = 768 * 1024 * 1024
+    match_timeout_seconds: float = Field(default=8.0, gt=0, le=120)  # wall clock for one batch of fuzzy matching
     xlsx_max_uncompressed_bytes: int = 60 * 1024 * 1024
     xlsx_max_compression_ratio: int = 200
 

@@ -13,6 +13,38 @@ function ItemRow({ rfq, item, editable, onChanged, onError }: { rfq: RFQ; item: 
   const [qtyValue, setQtyValue] = useState(item.quantity ?? "");
   const [unit, setUnit] = useState(item.unit_raw ?? "");
   const [busy, setBusy] = useState(false);
+  const [skuQuery, setSkuQuery] = useState("");
+  const matchingSkipped = item.flags.includes("match_skipped_budget");
+
+  // A line without suggestions (nothing similar in the catalog, or automatic matching was not run because the
+  // request is very large) can still be linked to a catalog product by its exact SKU; the server checks that the
+  // product belongs to the catalog version this request is priced against.
+  async function selectBySku() {
+    const wanted = skuQuery.trim();
+    if (!wanted) return;
+    setBusy(true);
+    onError(null);
+    try {
+      const versionId = rfq.catalog_version_id ?? (await api<{ version_id: string | null }>("/catalogs/active-version")).version_id;
+      if (!versionId) {
+        onError("No catalog is active, so a product cannot be selected.");
+        return;
+      }
+      const found = await api<{ items: { id: string; sku: string }[] }>(`/catalogs/versions/${versionId}/products?q=${encodeURIComponent(wanted)}&page_size=50`);
+      const exact = found.items.filter((p) => p.sku.trim().toLowerCase() === wanted.toLowerCase());
+      if (exact.length !== 1) {
+        onError(exact.length === 0 ? `No product with SKU "${wanted}" in the catalog used for this request.` : `SKU "${wanted}" is not unique in this catalog.`);
+        return;
+      }
+      await api(`/rfqs/${rfq.id}/items/${item.id}`, { method: "PATCH", json: { selected_product_id: exact[0].id } });
+      setSkuQuery("");
+      await onChanged();
+    } catch (e) {
+      onError(describeError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function patch(body: Record<string, unknown>) {
     setBusy(true);
@@ -69,7 +101,27 @@ function ItemRow({ rfq, item, editable, onChanged, onError }: { rfq: RFQ; item: 
             ))}
           </select>
         )}
-        {item.candidates.length === 0 && !item.is_custom && <p className="text-xs text-slate-500">No catalog candidate. Mark as custom line or remove.</p>}
+        {item.candidates.length === 0 && !item.is_custom && item.selected_product_id && (
+          <p className="text-xs text-slate-600" data-testid={`sku-selected-${item.line_no}`}>
+            Catalog product selected by SKU.{" "}
+            {editable && <button type="button" className="underline" onClick={() => void patch({ selected_product_id: null })} disabled={busy}>Clear</button>}
+          </p>
+        )}
+        {item.candidates.length === 0 && !item.is_custom && !item.selected_product_id && (
+          <div className="mt-1">
+            <p className="text-xs text-slate-600" data-testid={`no-candidate-${item.line_no}`}>
+              {matchingSkipped
+                ? "Automatic matching was not run for this line because the request is very large. Enter the exact SKU, mark it as a custom line, or remove it."
+                : "No catalog suggestion. Enter the exact SKU, mark it as a custom line, or remove it."}
+            </p>
+            {editable && (
+              <div className="mt-1 flex gap-1">
+                <input aria-label={`Exact SKU for line ${item.line_no}`} className={`${inputClass} w-40`} value={skuQuery} onChange={(e) => setSkuQuery(e.target.value)} maxLength={100} placeholder="Exact SKU" data-testid={`sku-input-${item.line_no}`} />
+                <Button variant="secondary" onClick={() => void selectBySku()} disabled={busy || !skuQuery.trim()} testId={`sku-use-${item.line_no}`}>Use SKU</Button>
+              </div>
+            )}
+          </div>
+        )}
         {item.is_custom && <p className="text-xs text-indigo-800">Custom line — price must be entered on the quote.</p>}
       </td>
       <td className="whitespace-nowrap">
