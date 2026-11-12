@@ -47,5 +47,23 @@ tests that failed at 6b3c452 (D5-1, D5-2) pass unedited.
 - `apps/api/tests/integration/test_round9_fixes.py`: seed output lists the accounts but never the password; pasted RFQ
   text with five 20,000-blank lines is answered in < 2 s and the ordinary line in the same text is still read.
 
-## Runs
-See the table appended below.
+## Test-harness fix found while merging forward (not product code)
+Playwright starts the `webServer` entries **before** `globalSetup`. The setup used to run `npm run build` while
+`next start` was already serving the previous build; when the source had changed since that build, every page showed
+"This page couldn't load" (script chunks 404). This is what produced a fully red browser run on the Stage 3 worktree
+after a merge (18 of 18 started tests failed; the API was healthy). It could not hide a stale build silently — changed
+chunks fail loudly — and CI was not affected (CI builds before Playwright, the rebuild is identical). The build now
+runs inside the web-server command (`npm run build && npx next start`), `tests/e2e/global-setup.ts` only migrates and
+seeds. Proof: browser suite run after deleting `apps/web/.next` (last row below).
+
+## Runs (2026-11-12, commit eeaa8f4 + the harness change, DB `quotepilot_s1`, ports 8051/3051)
+| Command (cwd) | Exit | Result |
+|---|---|---|
+| `.venv/bin/ruff check app tests -q`, `ruff format --check app tests`, `mypy app` (`apps/api`) | 0 / 0 / 0 | clean; 94 files formatted; 58 source files |
+| `.venv/bin/pytest -q -p no:cacheprovider -rxs` (full API suite) | 0 | **1008 passed, 2 skipped**, 0 xfailed in 536 s |
+| `npx tsc --noEmit`, `npx eslint .` (`apps/web`) | 0 / 0 | clean |
+| `npx playwright test --reporter=list --trace off` (`tests/e2e`) | 0 | **40 passed, 1 skipped**, 0 failed, 0 flaky |
+| same, after `rm -rf apps/web/.next` and with the harness change | 0 | **40 passed, 1 skipped** (1.9 min) |
+
+Skips: the two compose-render tests that need a repo-root `.env`; Playwright `screenshots.spec.ts` (by design).
+The 1008 include every verifier test of rounds 4 and 5 (QA: 71 + 270; security: 87 + 114) with no expected failure left.

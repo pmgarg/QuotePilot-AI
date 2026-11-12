@@ -1,7 +1,9 @@
 import { execSync } from "node:child_process";
 import path from "node:path";
 
-// Migrates and seeds the synthetic demo organisations before the servers start (idempotent).
+// Migrates and seeds the synthetic demo organisations (idempotent). Playwright starts the `webServer` entries
+// BEFORE this function runs, so nothing here may change what a running server serves: the web build therefore
+// happens in the web server command itself (see playwright.config.ts), not here.
 export default async function globalSetup() {
   const ROOT = path.resolve(__dirname, "../..");
   const API_DIR = path.join(ROOT, "apps/api");
@@ -16,7 +18,4 @@ export default async function globalSetup() {
   };
   execSync("uv run alembic upgrade head", { cwd: API_DIR, env, stdio: "inherit" });
   execSync("uv run python -m app.fixtures.seed", { cwd: API_DIR, env, stdio: "pipe" });
-  if (!process.env.E2E_SKIP_WEB_BUILD) {
-    execSync("npm run build", { cwd: path.join(ROOT, "apps/web"), env: process.env, stdio: "pipe" });
-  }
 }
