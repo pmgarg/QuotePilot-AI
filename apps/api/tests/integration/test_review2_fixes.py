@@ -168,3 +168,29 @@ def test_l2_4_session_and_user_identity_columns_are_immutable_even_for_the_owner
             == 2
         )
         db.rollback()
+
+
+def test_r3_10_pending_ad_hoc_quote_with_a_stale_catalog_line_cannot_be_approved(app, tenant_a: Tenant) -> None:  # type: ignore[no-untyped-def]
+    """Release review 3 (R3-10): a catalog line that left the pricing version blocks approval too, not only submit."""
+    admin = login_as(app, tenant_a.users["admin"])
+    sales = login_as(app, tenant_a.users["sales"])
+    approver = login_as(app, tenant_a.users["approver"])
+    old = sales.get(f"/catalogs/versions/{tenant_a.catalog_version_id}/products?q=SKU-1001").json()["items"][0]
+    q = sales.post("/quotes", json={"customer_id": str(tenant_a.customer_id)}).json()
+    q = sales.patch(
+        f"/quotes/{q['id']}",
+        json={"expected_lock_version": q["lock_version"], "lines": [{"quantity": "1", "product_id": old["id"]}]},
+    ).json()
+    s = sales.post(f"/quotes/{q['id']}/submit", json={"expected_lock_version": q["lock_version"]})
+    assert s.status_code == 200, s.text
+    csv_bytes = b"SKU,Description,Unit,Currency,List Price\nSKU-1001,Hex bolt M8x40 zinc plated,EA,AED,0.90\n"
+    mapping = '{"sku":"SKU","description":"Description","unit":"Unit","currency":"Currency","list_price":"List Price"}'
+    up = admin.post(
+        "/catalogs/import",
+        files={"file": ("c2.csv", csv_bytes, "text/csv")},
+        data={"mapping": mapping, "catalog_name": "Main"},
+    )
+    assert up.status_code == 201, up.text
+    assert admin.post(f"/catalogs/versions/{up.json()['id']}/activate").status_code == 200
+    r = approver.post(f"/quotes/{q['id']}/approve", json={"expected_lock_version": s.json()["lock_version"]})
+    assert r.status_code == 409 and "catalog_version_mismatch" in r.text

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 
@@ -45,6 +46,7 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def request_context(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+        started = time.perf_counter()
         incoming = request.headers.get("x-request-id", "")
         rid = incoming if _SAFE_REQUEST_ID.match(incoming) else uuid.uuid4().hex
         request.state.request_id = rid
@@ -70,6 +72,8 @@ def create_app() -> FastAPI:
             method=request.method,
             path=request.url.path,
             status=response.status_code,
+            request_id=rid,
+            ms=round((time.perf_counter() - started) * 1000, 1),
         )
         return response
 
