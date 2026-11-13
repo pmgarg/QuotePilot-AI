@@ -437,6 +437,22 @@ inbound adapter ships), S2-RR1-11 (Low, process: the orchestrator wrote fix roun
 tests and chose the narrow verification). Required retest per the reviewer: the C4 items, an RLS/cross-tenant re-run
 for the Stage 2 tables including migration 0006b, an opt-out-versus-in-flight-send race, a scan on the gated head;
 then re-invoke the reviewer.
+
+### After review 1 — fix round 3 (2026-11-12): S2-RR1-2 and S2-RR1-4
+`docs/evidence/implementer-fixes2-stage2-2026-11-12.md`, section "Fix round 3" (implementer agent): the job queue has
+a visibility timeout (`queue.reclaim_abandoned`, default 900 s, setting `JOB_VISIBILITY_TIMEOUT_SECONDS`) — a job left
+`running` by a dead worker is re-queued with its attempt count preserved or, with attempts exhausted, marked `dead`
+through the normal terminal path; ten new tests (`tests/integration/test_stage2_fixes3.py`) cover a terminally failed
+schedule job, the admin retry re-arming it exactly once, and the reclaim cases including no second delivery for a
+reclaimed send job. Targeted runs by the implementer: 10 passed (new file); 170 passed, 2 xfailed (Stage 2 security,
+QA and integration set); lint and types clean. Not independently re-verified. Documented residual: a worker that dies
+after the provider accepted a message but before the draft is committed `sent` can redeliver on reclaim.
+Condition C4 state: the two findings are addressed by the implementing side; the independent full run on the final
+head and the adversarial session are still owed.
+CI on 7d5cf4a: push event — api, web, e2e success (`53 passed`, `1 skipped` in the browser job); pull_request event —
+the api job failed in the `setup-uv` step with a GitHub "Server Error" before any test ran (infrastructure, not code),
+so its e2e job was skipped. The next push re-runs both.
+
 ---
 
 # Stage 3 gate log (branch `claude/stage3-customer-order-intelligence`, PR #3) — status: release review 1 = PASS WITH CONDITIONS (conditions open; not VERIFIED)
@@ -515,7 +531,7 @@ IMPLEMENTED, **not VERIFIED**.
 |---|---|---|
 | C1 named decision on the erasure scope the purge does not cover (`rfq_items.raw_text`, uploaded RFQ files, audit summaries, order and quote notes, backups; also order `external_ref`/notes — S3-RR1-1, S3-RR1-3) | human | **open** |
 | C2 ratify two product decisions taken by an agent: replayed idempotency key with a different payload → 409; customer pending erasure → 404 for roles without `manage_retention` | human | **open** |
-| C3 targeted verifier re-check of fix round 2 at the final head, with a fresh full API + browser run and a scan with counts for that head | QA + security verifiers | re-checks recorded below ("C3 re-check"); green CI on the final head still to be recorded; not yet seen by the reviewer |
+| C3 targeted verifier re-check of fix round 2 at the final head, with a fresh full API + browser run and a scan with counts for that head | QA + security verifiers | re-checks and green CI on 30a226c recorded below; not yet seen by the reviewer |
 | C4 correct the stale documents (S3-RR1-5..7) | implementing side | done in this commit (KNOWN_LIMITATIONS, LLD, ROADMAP, traceability rewritten from the reviewer's table) — not yet looked at by the reviewer |
 | C5 Stage 1 and Stage 2 conditions closed (Stage 3 cannot be VERIFIED before they are) | human | **open** |
 
@@ -570,8 +586,25 @@ stay in the backlog. Commands, exit codes and counts: `docs/evidence/implementer
   of `customer.create`, the legal-hold race (no row lock, unchanged), the flaky accessibility spec noted in S3-RR1-8
   (it did not fail in this run).
 
-State of C3: both re-checks are recorded; what remains is a green CI run (API + browser + scans) on the pushed head.
+State of C3: both re-checks are recorded; what remained was a green CI run on the pushed head — see the next entry.
 The reviewer asked to be re-invoked after the human decisions C1 and C2 — not before.
+
+### CI evidence for 30a226c (final Stage 3 head with fix round 3 and the C3 tests)
+`docs/evidence/ci-stage3-30a226c-2026-11-12.md`: 8 check runs listed, all success (api, web, e2e, CodeQL python and
+javascript, gitleaks, dependency/static scans, code-scanning check). pytest `1700 passed, 5 skipped, 5 xfailed,
+1 xpassed`; Playwright `63 passed`, `1 skipped`, no flaky or failed line — the first complete browser run that is
+green after QA corrected its new spec. Earlier heads listed 15 check runs (two events); only one set is listed for
+this head and the reason was not investigated. Scan finding counts inside the CI job were not read (the local scan at
+096d9d4 has them).
+
+**C3 as the implementing side sees it: satisfied, pending the reviewer's own judgement at re-invocation.** Open
+conditions that only a human can close: C1, C2, C5.
+
+Note on the 8 check runs (added 2026-11-13): the pull request was in a conflicted state against its base branch
+(Stage 2 had received a gate-log commit, 0ce6524, that this branch did not contain), and GitHub creates no
+`pull_request`-event runs for a pull request it cannot merge — the likely reason only the `push`-event set was listed.
+Stage 2's head is merged into this branch in the commit that adds this note (documents only: the Stage 2 gate-log
+entry "After review 1 — fix round 3"). CI on that merge commit is not recorded here.
 
 ---
 
@@ -688,7 +721,7 @@ Stage 4 stays IMPLEMENTED (S4-F06 PARTIAL), **not VERIFIED**. The reviewer does 
 | C1 decide the S4-F06 scope: build the onboarding wizard, help pages and demo reset, or accept the reduced scope in writing | human | **open** |
 | C2 decide separation of duties for tool/workflow approvals (S4-RR1-1): enforce proposer ≠ approver honouring `allow_self_approval`, or sign an explicit risk acceptance | human | **open** — see the note below |
 | C3 fresh security re-check of S4-SEC-08/09/10 plus the probes listed in the report (provider exception, falsy `args`, support-export canary through a service error, kill-switch race with an in-flight approval, browser-level checks of the four Stage 4 pages) | security verifier | **open** (not run; see "After review 1") |
-| C4 record the second e2e and api jobs of 5c8c992, identify the `xpassed` test, reconcile skip counts | orchestrator | **open** — superseded by the CI run of the head that contains fix round 3 (to be recorded) |
+| C4 record the second e2e and api jobs of 5c8c992, identify the `xpassed` test, reconcile skip counts | orchestrator | recorded for the superseding head 7ee64c4 (see "CI evidence for 7ee64c4"): all listed checks green, skips/xfails/xpass named; the two unread jobs of 5c8c992 stay unread; not yet seen by the reviewer |
 | C5 fix or document S4-RR1-4..8, correct the stale documents (S4-RR1-9), rewrite the traceability rows | implementing side, then QA | fix round 3 and document corrections done in this commit; QA has not looked at them |
 | C6 conditions of the Stage 1, 2 and 3 reviews | human | **open** |
 
@@ -725,3 +758,15 @@ Not done: S4-RR1-1 (C2, human), S4-RR1-2 (C1, human), the C3 security re-check, 
 retest list (unit tests for runtime budget/retry/timeout/compensation; mobile and accessibility checks of the Stage 4
 pages). Fix round 3 is **not** independently verified. Commands, exit codes and counts:
 `docs/evidence/implementer-fixes1-stage4-2026-11-12.md` ("Fix round 3").
+
+### CI evidence for 7ee64c4 (Stage 4 head with fix round 3) — condition C4
+`docs/evidence/ci-stage4-7ee64c4-2026-11-13.md`: 8 check runs listed, all success (api, web, e2e, CodeQL python and
+javascript, gitleaks, dependency/static scans, code-scanning check). pytest `1982 passed, 5 skipped, 5 xfailed,
+1 xpassed`; Playwright `76 passed`, `1 skipped`, no flaky or failed line. The skips, expected failures and the
+unexpected pass are identified by name in the evidence file: none is a Stage 4 test; the unexpected pass is the
+non-strict Stage 1 timing test SEC7-1. Only the `push`-event set of jobs exists for this head because the pull request
+was in conflict with its base at the time (Stage 3 had received a later gate-log commit); the commit that adds this
+entry merges the Stage 3 head (documents only) to clear that. The second e2e and api jobs of the previous head 5c8c992
+were not read afterwards; that head is superseded.
+
+State of C4: recorded for 7ee64c4. CI on the documents-only merge commit that follows is not recorded in this file.
