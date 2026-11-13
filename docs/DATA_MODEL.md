@@ -61,13 +61,27 @@ erDiagram
 - `sessions`: INDEX `(token_hash)`, `(expires_at)`.
 - `audit_events`: INDEX `(organization_id, created_at DESC)`, `(organization_id, entity_type, entity_id)`.
 
-## Stage 2 tables (migration 0005, all RLS-forced; `follow_up_schedules`/`job_runs` also readable under the worker scope)
+## Stage 2 tables (migration 0006, all RLS-forced; `follow_up_schedules`/`job_runs` also readable under the worker scope)
 `contacts`, `follow_up_policies` (one per org; automation consent fields), `message_templates`, `quote_status_events`
 (recorded lifecycle facts with source/evidence), `follow_up_schedules` (idempotency key per quote+attempt; statuses
 pending/drafted/sent/cancelled/suppressed/superseded), `communication_drafts` (send idempotency key, provider message id),
 `communication_events` (sent/reply_received/opt_out; bounded snippets, never full bodies), `integration_connections`
 (AES-GCM envelope-encrypted secret, non-secret config, cursor), `job_runs` (queue: idempotency key, attempts, backoff,
 dead letters). Column-level grants from migration 0004 are preserved (0005 grants only on the new tables).
+
+## Stage 3 tables (migration 0007, all RLS-forced; `deletion_requests` also readable under the worker scope)
+`orders` (number `SO-YYYY-NNNNN` from `organizations.order_seq`; customer, source quote/version, currency, status
+`proposed|confirmed|fulfilled|cancelled`, source `quote|repeat|import|connector`, `external_ref` idempotency for
+imports/connectors, totals, confirmed_by/at, created_by), `order_lines` (copied prices — never recomputed —, cost
+copied for margin reporting), `order_events` (append-only trail: proposed/confirmed/fulfilled/cancelled, actor,
+source), `order_proposals` (repeat-order proposals: JSON lines + human-readable evidence, decision, resulting order),
+`stock_snapshots` (product, source connector kind, quantity, `observed_at` from the source, `recorded_at`),
+`fx_rates` (per-tenant reporting rates `base/quote/as_of`, UK per pair+date), `connector_connections` (kind
+`erp_stub|csv`, declared scopes, status), `sync_runs` (connector syncs **and** CSV imports: idempotency key UK,
+counters, report with rejected rows/indices), `sync_conflicts` (entity, key, local vs remote values, differing
+fields, status `open|resolved_local|resolved_remote|dismissed`), `deletion_requests` (subject, reason, status
+`requested|approved|rejected|executed`, `purge_after`, `legal_hold`, summary). `customers.deleted_at` marks the
+soft-deleted state. Grants only on the new tables (column-level grants from 0004 preserved).
 
 ## Designed for later stages (not created yet)
 | Stage | Table | Purpose / key columns |
@@ -80,11 +94,6 @@ dead letters). Column-level grants from migration 0004 are preserved (0005 grant
 | 2 | integration_connections | provider (simulator, smtp, gmail, msgraph), scopes, encrypted_tokens (envelope encryption), status (active, revoked, error), last_error |
 | 2 | job_runs / job_dead_letters | job type, idempotency_key UK, attempt, next_run_at, last_error, payload (no bodies) |
 | 2 | templates | org email templates with placeholders (whitelisted variables) |
-| 3 | orders / order_lines / order_events | from quote_version; status (draft, confirmed, fulfilled, cancelled); external_ref; approval_decision_id |
-| 3 | stock_snapshots | product_id, source connection, qty, observed_at (staleness computed) |
-| 3 | sync_staging / sync_conflicts | connector payloads awaiting merge; conflict fields, resolution, resolved_by |
-| 3 | fx_rates | base, quote, rate, as_of, source (manual entry) for reporting currency |
-| 3 | deletion_requests | subject (customer/contact), requested_by, status, purge_after, executed_at |
 | 4 | plans / plan_entitlements / subscriptions | plan limits (rfqs_per_month, seats, ai_tokens, connectors), billing adapter test mode |
 | 4 | workflow_definitions / workflow_versions | JSON definition validated against schema; status; dry_run results |
 | 4 | workflow_runs / workflow_steps | state machine, depth, budget used, compensation status |

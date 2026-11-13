@@ -118,7 +118,48 @@ HTTP 409
   refusal by our own rules on the send path (no consent for a queued automated send, opt-out, wrong state)
   dead-letters at once with the schedule marked `failed`; transient provider errors and the hourly limit are retried
   with capped backoff.
-- Stage 3: `/orders{,/{id}/events}`, `/kpis?from&to&currency`, `/imports`, `/exports` (role-aware), `/connectors`,
-  `/sync/conflicts{,/{id}/resolve}`, `/stock/{product_id}`, `/deletion-requests`.
+- Stage 3 (implemented): **Orders** `GET /orders?status&customer_id`, `GET /orders/{id}` (events + lines; `cost_price`
+  only with `view_costs`), `POST /quotes/{id}/orders` `{version_no?, notes?}` (sales+; approved version only; 409 if an
+  open order exists) → `proposed`; `POST /orders/{id}/confirm` (approve_order: owner/admin/approver; proposer may not
+  confirm own proposal unless `allow_self_approval`), `/fulfil` (sales+, confirmed only), `/cancel` `{reason}` (approve_order).
+  **Repeat orders** `POST /customers/{id}/order-proposals` → proposal or `null` (nothing to propose), `GET /order-proposals?status`,
+  `POST /order-proposals/{id}/approve|reject` `{reason?}` (approve_order; approval creates a *proposed* order priced from
+  the active catalog or, labelled, the last paid price). **KPIs** `GET /kpis?date_from&date_to` → metrics with
+  `definitions`, `reporting_currency`, `unconverted{currency: amount}`; `GET/POST /fx-rates` (POST manage_connectors).
+  **Data** `GET /data/export/{customers|orders|products}` (export_data = owner/admin/approver; sales/readonly 403 **and**
+  audited `export.denied`; formula-safe CSV; cost columns only with view_costs), `POST /data/import/{customers|orders}?idempotency_key=`
+  multipart CSV (import_data = owner/admin; per-row validation, partial apply, `report.failed_rows`),
+  `GET /data/runs`, `GET /data/runs/{id}/failed.csv` (fix-and-re-upload file). **Connectors** `GET/POST /connectors`
+  `{kind: erp_stub|csv, name, scopes ⊆ read:products|read:stock|read:orders|read:customers}`, `POST /connectors/{id}/sync`
+  `{entity, idempotency_key, records[]}` (push model, no outbound network; same key → same run; scope missing → 403),
+  `POST /connectors/{id}/disable`, `GET /sync-conflicts?status`, `POST /sync-conflicts/{id}/resolve`
+  `{resolution: keep_local|apply_remote|dismiss, note?}` (a `new` SKU cannot be applied — import a catalog version).
+  **Stock** `GET /stock?q` → per active-catalog product `{status: fresh|stale|unknown, quantity, observed_at, source, age_hours}`.
+  **Profiles** `GET /customers/{id}/profile` (contacts, quotes, orders, open proposals, stats; `avg_margin_pct` only with
+  view_costs). **Retention** `POST /retention/requests` `{customer_id, reason}` (sales+), `GET /retention/requests`,
+  `POST /retention/requests/{id}/approve|reject|legal-hold` (manage_retention = owner/admin; requester ≠ approver;
+  approval soft-deletes immediately — hidden from lists, follow-ups cancelled, contacts opted out — and the worker
+  purges after `RETENTION_GRACE_DAYS`).
+  **Stage 3 hardening (fix round 1)**: `POST /connectors/{id}/enable` (manage_connectors; 409 when another active
+  connector of the same kind exists — one *active* connector per kind). Idempotency keys for imports and syncs are
+  namespaced per `(kind, connector, entity)` inside the tenant and stored with a hash of the request: same key + same
+  payload returns the earlier run and applies nothing; same key + different payload → **409** (never a silent no-op).
+  Import and sync records are validated per row/record (lengths, control characters, quantity/price bounds, currency,
+  timestamps): an invalid record is rejected with a reason and never aborts the others or returns 500.
+  Orders are created only from the *current* approved version of a quote and copy its totals verbatim.
+  A soft-deleted customer (approved deletion) returns **404** on every route that would start new processing (RFQ,
+  quote, contact creation, order proposal) for all roles, and on read routes for roles without `manage_retention`;
+  owner/admin can still read the customer, its contacts and profile with `deleted_at` set.
+  **Fix round 2**: `POST /quotes/{id}/orders` and `POST /order-proposals/{id}/approve` also return **404** for a
+  customer pending erasure (rejecting a proposal stays possible). `GET /quotes` returns `customer_name: null` for
+  quotes of such a customer, and a `q=` name search does not match it, unless the role has `manage_retention`.
+  `POST /orders/{id}/confirm|fulfil|cancel` lock the order row: of two concurrent requests the loser gets **409**
+  (one event, one audit row). A connector sync replayed concurrently under one key answers the loser like a
+  sequential replay (same payload → the existing run, different payload → **409**), never 500. The purge summary
+  and the `retention.purged` audit row carry `communication_events_redacted`.
+  `GET /quotes/{id}` may report the blocker `catalog_price_changed` (a draft/pending catalog-priced line whose product
+  price was changed in place by an applied connector conflict); it blocks submit/approve until the line is re-priced
+  or explicitly overridden. `pending_value` counts approved quotes in lifecycle `approved`, `sent`, `acknowledged`
+  and `awaiting_customer` (not won/lost/withdrawn/expired).
 - Stage 4: `/assistant/sessions{,/{id}/messages}`, `/tools` (allowed list), `/workflows{,/{id}/versions,/{id}/dry-run,/{id}/runs}`,
   `/admin/kill-switch`, `/billing/plan`, `/admin/usage`.

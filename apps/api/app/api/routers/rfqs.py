@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from app.api.deps import DB, PrincipalDep, SettingsDep, clean_param
 from app.api.routers.catalogs import read_upload
-from app.core.errors import NotFoundError, UnsupportedMedia, ValidationFailed
+from app.core.errors import UnsupportedMedia, ValidationFailed
 from app.models.catalog import Product
 from app.models.customer import Customer
 from app.models.rfq import RFQ, RFQItem
@@ -114,10 +114,9 @@ def _rfq_out(db: DB, rfq: RFQ) -> RFQOut:
 def _resolve_customer(db: DB, org_id: uuid.UUID, customer_id: uuid.UUID | None) -> Customer | None:
     if customer_id is None:
         return None
-    customer = db.scalar(select(Customer).where(Customer.id == customer_id, Customer.organization_id == org_id))
-    if customer is None:
-        raise NotFoundError("Customer not found")
-    return customer
+    from app.services.customers import get_active_customer
+
+    return get_active_customer(db, org_id, customer_id)
 
 
 def _currency(explicit: str | None, customer: Customer | None, default: str) -> str:

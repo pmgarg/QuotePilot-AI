@@ -5,10 +5,10 @@ independent reviewer PASS) / BLOCKED.
 
 | Stage | Status | Gate record | Notes |
 |---|---|---|---|
-| 1 RFQ-to-Quotation | IMPLEMENTED — release review 2 pending/recorded in RELEASE_GATES.md | RELEASE_GATES.md § Stage 1 | QA + security re-verified; CI green on 60adb00 |
-| 2 Follow-up Assistant | IMPLEMENTED (branch `claude/stage2-followup-assistant`) — QA/security/review gate not yet run | RELEASE_GATES.md § Stage 2 | separate PR and gate |
-| 3 Customer & Order Intelligence | NOT STARTED (designed) | — | depends on Stage 2 lifecycle |
-| 4 Governed AI Sales Ops | NOT STARTED (designed) | — | depends on Stages 1–3 |
+| 1 RFQ-to-Quotation | IMPLEMENTED — release review 5: PASS WITH CONDITIONS (human conditions open); not VERIFIED | RELEASE_GATES.md § Stage 1 | PR #1 |
+| 2 Follow-up Assistant | IMPLEMENTED — release review 1: PASS WITH CONDITIONS; not VERIFIED | RELEASE_GATES.md § Stage 2 | PR #2 (`claude/stage2-followup-assistant`) |
+| 3 Customer & Order Intelligence | IMPLEMENTED — release review 1: PASS WITH CONDITIONS; not VERIFIED | RELEASE_GATES.md § Stage 3 | PR #3 (`claude/stage3-customer-order-intelligence`) |
+| 4 Governed AI Sales Ops | Not on this branch (implemented on `claude/stage4-governed-platform`, gate open) | — | PR #4 |
 
 ## Stage 1 milestone plan (vertical slices)
 | # | Slice | Exact verification |
@@ -31,6 +31,10 @@ independent reviewer PASS) / BLOCKED.
 ## Stage 3 plan
 3.1 customer profiles/contacts; 3.2 orders + conversion; 3.3 KPI service + dashboard; 3.4 CSV import/export;
 3.5 connector framework + conflict queue; 3.6 stock sources; 3.7 retention/deletion; 3.8 security + gate.
+
+Status: 3.1–3.7 implemented on `claude/stage3-customer-order-intelligence` (API, worker purge job, UI, 13 integration
+tests + 4 browser tests); 3.8: independent QA, security audit, two fix rounds, re-verification and release review 1
+(PASS WITH CONDITIONS, 2026-11-12) are recorded in RELEASE_GATES.md. Stage 3 is not VERIFIED.
 
 ## Stage 4 plan
 4.1 policy engine + entitlements; 4.2 tool registry + bounded assistant; 4.3 workflow definitions/runner/dry-run;

@@ -93,8 +93,27 @@ evidence abbreviations: QA1/QA2 = the two QA files, SEC1/SEC2 = the two security
 | S2-A07 user sees and cancels a pending follow-up | PRD S2 acceptance | `followup.py:391-435` | QA A07; browser | PASS | none | PASS | none  | IMPLEMENTED (not VERIFIED) |
 | S2-A08 logs hold no bodies or addresses | PRD S2 acceptance | `logging.py`; `scrub_error` | QA A08 (2 tests) | PASS; partial for over-long addresses | redaction is pattern-based | PASS WITH CONDITIONS | S2-SEC-12  | IMPLEMENTED (not VERIFIED) |
 
-## Stage 3 (designed)
-| S3-F01..F08, S3-A01..A09 | PRD §Stage 3, LLD §Stage 3 | NOT STARTED |
+## Stage 3 (implemented on `claude/stage3-customer-order-intelligence`; release review 1: PASS WITH CONDITIONS)
+Status 2026-11-12: independent QA and security audit (2026-11-02), fix round 1, independent re-verification
+(`qa-stage3-reverify-2026-11-12.md`, `security-stage3-reverify-2026-11-12.md`), fix round 2, CI on the gated head
+(`ci-stage3-e2e6c3f-2026-11-12.md`) and release review 1 (`release-review-1-stage3-2026-11-12.md`) are recorded.
+The rows below are the reviewer's per-requirement table, copied from that report; its conditions C1–C5 are open
+(see RELEASE_GATES.md § Stage 3). **Nothing below is VERIFIED.**
+Abbreviations: QA = `apps/api/tests/qa/test_qa_stage3_*.py`; SEC = `tests/security/test_stage3_*.py`; INT =
+`tests/integration/test_stage3_*.py`; UI = `tests/e2e/specs/{stage3-intelligence,qa-stage3-ui}.spec.ts`; QA-RV / SEC-RV =
+the two re-verification evidence files; CI = the CI evidence file.
+| requirement_id | design_reference | code_reference | test_id | test_result/evidence | security_check | reviewer_verdict | open_issue | status |
+|---|---|---|---|---|---|---|---|---|
+| S3-F01 profiles, role-aware cost | PRD 88 | `routers/intelligence.py::customer_profile` | QA orders/data_io cost tests; SEC costs-hidden test; UI 1-2 | QA-RV: S3-A02 PASS; API full run 1646 passed + D6 failure (D6 fixed afterwards); CI 1682 passed | cost and margin absent without `view_costs` in API and exports (SEC-RV item 8) | PASS (implemented, not VERIFIED) | none beyond C5 | IMPLEMENTED (not VERIFIED) |
+| S3-F02 quote to order with approval | PRD 89 | `orders.py:86-173, 238-272` (current approved version only, totals copied, row lock) | INT `test_quote_to_order_requires_separate_confirmation`, QA D1 tests (AED/JPY/KWD/BHD), SEC-12/17 tests | D1 confirmed fixed (QA-RV); SEC-12/17 reproductions pass after fix 2, not re-run by a verifier | proposer cannot confirm own order; 403/409 matrix; superseded version 409 | PASS WITH CONDITIONS | S3-RR1-2 (fix round 2 not verifier-checked) | IMPLEMENTED (not VERIFIED) |
+| S3-F03 / S3-A08 repeat-order assistant | PRD 90 | `repeat_orders.py` | QA repeat_retention; INT audit-trail test; UI 2 | QA-RV A08 PASS | proposals only, own history, approval, audit trail complete | PASS | none | IMPLEMENTED (not VERIFIED) |
+| S3-F04 / S3-A01 / S3-A03 KPIs, FX | PRD 91 | `kpis.py:31-177`, `fx.py` | QA kpis (fixture, boundaries, FX latest-on-or-before, inverse); INT kpis | QA-RV A01 and A03 PASS; D2 confirmed fixed | definitions in `DEFINITIONS`; unconverted bucket with no guessed rate (`kpis.py:174`); FX bounds 1e-8..1e6 | PASS | none; the written definitions are mine to read only, QA hand-computed the fixture | IMPLEMENTED (not VERIFIED) |
+| S3-F05 / S3-A06 / S3-A07 import/export | PRD 92 | `data_io.py`, `inputs.py`, `routers/intelligence.py:296-328` | QA data_io (403 plus audit, partial recovery, oversized); SEC audit_inputs (67 tests, 21 hostile params) | QA-RV and SEC-RV PASS; D3 and SEC3-04 closed | formula neutralisation tested; `export.denied` audit row (`:301-311`); per-row savepoint | PASS WITH CONDITIONS | S3-RR1-4 (CSV replay race), S3-RR1-10 | IMPLEMENTED (not VERIFIED) |
+| S3-F06 / S3-A04 connectors, conflicts | PRD 93 | `connectors.py` (conflict queue `:196-217`, products and customers never overwritten except by explicit resolution) | QA connectors_stock; INT sync-conflicts test; UI S3-F06; SEC-16 test | QA-RV A04 PASS; SEC3-06/07 closed; SEC3-16 passes after fix 2 | scope to 403; idempotency per (kind, connector, entity) plus request hash; push-model stubs only | PASS WITH CONDITIONS | no real adapter (limitation); S3-RR1-2 (savepoint replay not verifier-checked) | IMPLEMENTED (not VERIFIED) |
+| S3-F07 / S3-A05 stock labels | PRD 94 | `stock.py:33-45`; `connectors.py:292-339` | QA `test_stock_labels_follow_source_timestamps_not_sync_order`; UI S3-F07 | QA-RV A05 PASS | label from `observed_at` only; naive and future timestamps rejected; none means "unknown" | PASS | stock snapshot growth unbounded (limitation) | IMPLEMENTED (not VERIFIED) |
+| S3-F08 retention workflow | PRD 95 | `retention.py` (request, other-person approval, soft delete, purge, legal hold, re-queue cap, reclaim) | QA repeat_retention; SEC confirm 12-17; INT fixes2; UI S3-F08 | SEC-RV SEC3-01/02/03 MITIGATED; fix-2 tests pass; D4 and D6 closed | requester not approver; hold blocks; every step audited; `get_active_customer` 404 | PASS WITH CONDITIONS | S3-RR1-1, S3-RR1-3 (scope), S3-RR1-2 | IMPLEMENTED (not VERIFIED) |
+| S3-A02 cost/margin hidden | PRD 96 | see S3-F01 | see S3-F01 | PASS | see S3-F01 | PASS | none | IMPLEMENTED (not VERIFIED) |
+| S3-A09 cross-tenant regression | PRD 96, X-01 | migration `0007` (10 tables ENABLE + FORCE RLS + `tenant_isolation`, `:227-231`); `0007b` | QA tenancy (18 id routes to 404, raw RLS on all Stage 3 tables); SEC route matrix (19 routes plus enable/disable) | QA-RV and SEC-RV PASS | non-owner role; WITH CHECK insert refused; `set_worker_scope` only in `queue.py` | PASS (tested; not a penetration test) | none | IMPLEMENTED (not VERIFIED) |
 
 ## Stage 4 (designed)
 | S4-F01..F07, S4-A01..A09 | PRD §Stage 4, LLD §Stage 4, ADR-013 | NOT STARTED |

@@ -87,7 +87,17 @@ def _handle_sync_inbound(db: Session, org: Organization, payload: dict[str, Any]
     sync_inbound(db, org=org)
 
 
+def _handle_purge(db: Session, org: Organization, payload: dict[str, Any]) -> None:
+    from app.services.intelligence import retention
+
+    req = retention.get_request(db, org.id, uuid.UUID(payload["request_id"]))
+    if req.status == "executed":
+        return
+    retention.purge(db, org, req)
+
+
 HANDLERS: dict[str, Handler] = {
+    "purge_customer": _handle_purge,
     "send_draft": _handle_send_draft,
     "schedule_followup": _handle_schedule,
     "sync_inbound": _handle_sync_inbound,
@@ -144,16 +154,35 @@ def enqueue_due_schedules(
     return enqueued
 
 
-def reclaim_abandoned(db: Session, org_id: uuid.UUID | None = None) -> int:
+def due_purge_requests(db: Session, limit: int = 200) -> list[tuple[uuid.UUID, uuid.UUID]]:
+    """(request id, organisation id) of approved deletion requests whose grace period is over and that are not on
+    legal hold — across tenants. Worker process only: this module is the single place that binds the cross-tenant
+    worker scope (S2-SEC-01); callers switch to the owning tenant's scope before touching anything else."""
+    set_worker_scope(db)
+    rows = db.execute(
+        text(
+            "SELECT id, organization_id FROM deletion_requests WHERE status = 'approved' AND legal_hold = false "
+            "AND purge_after <= now() ORDER BY purge_after LIMIT :limit"
+        ),
+        {"limit": limit},
+    ).all()
+    return [(rid, org_id) for rid, org_id in rows]
+
+
+def reclaim_abandoned(
+    db: Session, org_id: uuid.UUID | None = None, *, kind: str | None = None, count_dead: bool = True
+) -> int:
     """Visibility timeout: a job `running` for longer than `job_visibility_timeout_seconds` belongs to a worker that
     died. It goes back to `queued` (attempt count preserved, so the cap still bounds retries) or, when its attempts
     are exhausted, to `dead` through the same terminal path as a failed run (`_fail_schedule`, so a schedule becomes
     `failed` and an admin retry re-arms it). Each transition is one conditional UPDATE ... RETURNING: two concurrent
     reclaimers cannot both win a row (the second re-evaluates the predicate after the first commits). `org_id`
     restricts the work to one tenant under the normal tenant scope; the worker scope is bound only here.
-    State changes of jobs are recorded as structured log lines (no actor exists to audit), like `run_job` does."""
+    State changes of jobs are recorded as structured log lines (no actor exists to audit), like `run_job` does.
+    `kind` restricts the reclaim to one job kind; `count_dead=False` makes the return value the number of jobs put
+    back to `queued` only (used by the purge scheduler, which re-queues dead purge jobs itself)."""
     timeout = get_settings().job_visibility_timeout_seconds
-    params = {"org": org_id, "t": timeout}
+    params = {"org": org_id, "t": timeout, "kind": kind}
     reclaimed = 0
     if org_id is None:
         set_worker_scope(db)
@@ -165,6 +194,7 @@ def reclaim_abandoned(db: Session, org_id: uuid.UUID | None = None) -> int:
             "last_error = 'abandoned: worker lost the job (visibility timeout)' "
             "WHERE status = 'running' AND locked_at < now() - make_interval(secs => :t) "
             "AND (CAST(:org AS uuid) IS NULL OR organization_id = CAST(:org AS uuid)) "
+            "AND (CAST(:kind AS text) IS NULL OR kind = CAST(:kind AS text)) "
             "AND attempts < max_attempts RETURNING id, kind"
         ),
         params,
@@ -175,6 +205,7 @@ def reclaim_abandoned(db: Session, org_id: uuid.UUID | None = None) -> int:
             "last_error = 'abandoned: worker lost the job and attempts are exhausted' "
             "WHERE status = 'running' AND locked_at < now() - make_interval(secs => :t) "
             "AND (CAST(:org AS uuid) IS NULL OR organization_id = CAST(:org AS uuid)) "
+            "AND (CAST(:kind AS text) IS NULL OR kind = CAST(:kind AS text)) "
             "AND attempts >= max_attempts RETURNING id, organization_id"
         ),
         params,
@@ -187,7 +218,7 @@ def reclaim_abandoned(db: Session, org_id: uuid.UUID | None = None) -> int:
             extra={"extra": {"job_id": str(job_id), "kind": kind, "status": "queued", "timeout_s": timeout}},
         )
     for job_id, job_org in dead:
-        reclaimed += 1
+        reclaimed += 1 if count_dead else 0
         set_tenant(db, job_org, None)
         job = db.get(JobRun, job_id)
         if job is not None:

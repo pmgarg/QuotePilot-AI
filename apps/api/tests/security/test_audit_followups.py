@@ -236,6 +236,17 @@ def test_rls_enabled_and_forced_on_every_tenant_table() -> None:
         "communication_events",
         "integration_connections",
         "job_runs",
+        # Stage 3 (migration 0007): customer & order intelligence tables
+        "orders",
+        "order_lines",
+        "order_events",
+        "order_proposals",
+        "stock_snapshots",
+        "fx_rates",
+        "connector_connections",
+        "sync_runs",
+        "sync_conflicts",
+        "deletion_requests",
     }
     with get_sessionmaker()() as db:
         rows = db.execute(

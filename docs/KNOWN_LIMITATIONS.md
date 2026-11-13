@@ -174,5 +174,50 @@
   - Provider acknowledgement followed by a database failure before commit can still produce a duplicate on retry
     (no provider-side idempotency key); the window is small and unchanged.
 
-## Stage 3–4
+## Stage 3 (implemented on `claude/stage3-customer-order-intelligence`, gate pending)
+- Connectors are **push-model stubs** (`erp_stub`, `csv`): an operator or an external system posts records to the sync
+  endpoint. No pull adapters, schedulers or outbound network calls ship (no paid or third-party services). Real
+  ERP/CRM adapters implement the same scope/idempotency/conflict contract.
+- A remote product that does not exist locally is staged as a conflict (`fields: ["new"]`) and cannot be applied from
+  the queue; new SKUs enter through a catalog version import so pricing history stays versioned.
+- Applying a remote value to a product edits the *active* catalog version in place (audited); historical quote lines
+  keep their copied prices. There is no "create a new catalog version from the ERP" automation. Open (draft/pending)
+  quotes with a catalog-priced line for that product get the blocker `catalog_price_changed` and cannot be submitted
+  or approved until re-priced or overridden; already approved versions are not changed.
+- Only one *active* connector per kind and tenant; a disabled connector can be re-enabled through the API
+  (`POST /connectors/{id}/enable`), the data page has no button for it yet.
+- Import/sync idempotency: the stored request hash covers the raw CSV bytes or the canonical JSON of the records, so a
+  byte-different but semantically equal re-upload under the same key is refused with 409 (use a new key).
+- Stock snapshots are append-only and unbounded (no compaction job yet); the staleness window is one setting per deployment.
+- KPIs are computed on request without caching; the date range is capped at three years. Response time uses the first
+  submitted quote per RFQ; processing time the first approval per quote.
+- FX rates are manually maintained reporting rates per tenant; no rate feed is consulted. Converted figures use the
+  latest rate on or before the quote date (pending value: today's date).
+- Product CSV *import* is the Stage 1 catalog import (versioned, mapped, reported); the Stage 3 import endpoint covers
+  customers and orders. Imported orders are always `proposed` and need confirmation.
+- Repeat-order proposals use a median-interval heuristic (≥2 confirmed orders of a SKU; next date within 14 days);
+  cross-sell proposals are not implemented. Prices come from the active catalog or, explicitly labelled, the last order.
+- Deletion requests cover customers (with their contacts, drafts and RFQ text). Quotes and orders are kept with a
+  pseudonymised customer for commercial record-keeping. The purge also redacts the subject in the connector conflict
+  queue, in import-run failed rows and in connector run rejection reasons, pseudonymises the customer block of stored quote document snapshots, blanks subject, body
+  snippet and provider headers of `communication_events` linked to the customer's quotes or contacts (rows kept for
+  timeline integrity) and deletes the stored PDFs (they are re-rendered from the pseudonymised snapshot, so the PDF hash of an erased customer's
+  document changes — erasure takes precedence over byte identity for that one field). **Not covered yet**: uploaded
+  RFQ source files in object storage, `rfq_items.raw_text` (the purge only nulls `rfqs.pasted_text`),
+  free-text fields that mention the customer elsewhere (quote notes, audit
+  summaries, order notes), and backups.
+- A purge job that keeps failing is re-queued up to 10 times and then marked `purge_stalled` for an operator; there
+  is no alerting on that state. A purge job left `running` by a crashed worker is reclaimed after the job
+  visibility timeout (`queue.reclaim_abandoned`, called from `retention.enqueue_due_purges`; SEC3-14 fixed, test passes).
+- Purge redaction of copies matches the subject's reference, e-mail and name by substring in CSV import failed rows and
+  in connector run rejection reasons; it can over-redact, and a copy that spells the subject differently is not found.
+  Orders keep their `customer_id`, `external_ref` and notes after erasure (commercial record; human decision pending,
+  release review 1 condition C1).
+- Between approval of an erasure and the purge, the PDF of an approved quote still prints the customer name for every
+  role that can open the quote (SEC3-C3-1, Low; the JSON routes withhold it from roles without `manage_retention`).
+  After the purge the PDF is re-rendered from the pseudonymised snapshot. Measured after a purge on synthetic data:
+  `orders.external_ref`, `rfq_items.raw_text` and `quote_versions.notes` keep whatever identifiers they contained.
+- Order numbers are per tenant (`SO-YYYY-NNNNN`); there is no year roll-over reset of the sequence.
+
+## Stage 4
 Not implemented; designs and backlogs exist (ROADMAP.md, PRD.md, LLD.md).

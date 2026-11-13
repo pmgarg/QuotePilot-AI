@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError, describeError } from "@/lib/api";
 import { date, dateTime, money, pct, qty } from "@/lib/format";
@@ -17,6 +17,7 @@ function toDraft(l: QuoteLine): Draft {
 
 export default function QuotePage() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
   const { can, session } = useSession();
   const [quote, setQuote] = useState<Quote | null>(null);
   const [history, setHistory] = useState<History | null>(null);
@@ -228,6 +229,7 @@ export default function QuotePage() {
               {version.status === "pending_approval" && can("approve_quote") && isSubmitter && !session?.organization.allow_self_approval && <Alert kind="info" testId="self-approval-blocked">You submitted this version, so another approver must decide (separation of duties).</Alert>}
               {version.status === "pending_approval" && !can("approve_quote") && <Alert kind="info">Waiting for an approver.</Alert>}
               {(quote.status === "approved" || quote.effective_status === "expired") && can("edit_quotes") && <Button variant="secondary" onClick={() => void action("/versions", {}, "New draft version created; the approved version remains in history.")} disabled={busy} testId="new-version">Create new version</Button>}
+              {quote.status === "approved" && quote.effective_status !== "expired" && can("edit_quotes") && <Button onClick={() => void (async () => { setBusy(true); try { const o = await api<{ id: string; number: string }>(`/quotes/${quote.id}/orders`, { method: "POST", json: {} }); router.push(`/orders/${o.id}`); } catch (e) { setError(describeError(e)); } finally { setBusy(false); } })()} disabled={busy} testId="convert-to-order">Convert to order</Button>}
               {canWithdraw && can("withdraw_quote") && (
                 <>
                   <Field label="Withdrawal reason" htmlFor="withdraw-reason"><input id="withdraw-reason" className={inputClass} value={reason} onChange={(e) => setReason(e.target.value)} /></Field>

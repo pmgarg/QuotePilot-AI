@@ -40,6 +40,16 @@ Gmail / Microsoft Graph: register an OAuth app with the minimal scopes (`gmail.s
 `Mail.Send`, `Mail.Read`), store client credentials only in the environment, and implement the adapter against the
 `MailProvider` protocol in `app/services/comms/providers.py`; no real credentials are used in this repository.
 
+### Stage 3 worker duties, connectors and retention
+The same worker process (`python -m app.workers.runner`) also queues one `purge_customer` job per approved deletion
+request whose `purge_after` has passed (`RETENTION_GRACE_DAYS`, default 30; `legal_hold` blocks it). Purge is
+irreversible: contacts and drafts are deleted, the customer is pseudonymised, RFQ pasted text is cleared; quotes and
+orders stay for record-keeping. `STOCK_STALE_AFTER_HOURS` (default 24) labels older snapshots `stale`.
+Connectors are push-model: an integration pushes `{entity, idempotency_key, records}` to `POST /connectors/{id}/sync`
+with an owner/admin session (or a future service token); the same key is replayed safely. Review open items under
+Data & connectors → Sync conflicts before trusting master data; nothing is overwritten without a human decision.
+Bulk CSV exports require owner/admin/approver and are audited (`export.*`, denials as `export.denied`).
+
 ### Migrations
 `alembic upgrade head` as `DATABASE_ADMIN_URL` before deploying new API images; migrations are additive within a
 release; destructive changes in a follow-up release after backfill. Rollback: `alembic downgrade -1` + previous image.

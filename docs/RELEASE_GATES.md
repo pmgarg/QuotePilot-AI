@@ -453,3 +453,155 @@ CI on 7d5cf4a: push event — api, web, e2e success (`53 passed`, `1 skipped` in
 the api job failed in the `setup-uv` step with a GitHub "Server Error" before any test ran (infrastructure, not code),
 so its e2e job was skipped. The next push re-runs both.
 
+---
+
+# Stage 3 gate log (branch `claude/stage3-customer-order-intelligence`, PR #3) — status: release review 1 = PASS WITH CONDITIONS (conditions open; not VERIFIED)
+
+Stage 3 has its own gate. Release review 1 (2026-11-12) returned PASS WITH CONDITIONS — see the end of this section.
+The earlier entries are kept as written at the time.
+
+## Independent verification of the first implementation (2026-11-02 / 2026-11-10)
+- **QA** (`docs/evidence/qa-stage3-2026-11-02.md`; 46 API + 5 browser tests derived from the PRD): S3-A02, A04, A05,
+  A06, A08, A09 pass. **Defects: D1 (Medium)** order totals differ from the approved quote when a line has a discount;
+  **D2 (Medium)** pending-value KPI ignores sent/acknowledged quotes; **D3 (Medium)** over-long CSV cell → HTTP 500;
+  **D4 (Low)** a customer whose deletion was approved still accepts new processing; **D5 (Medium, cross-stage)**
+  responses were sent before the transaction committed (Stage 1 code; fixed there in fix round 8). The first full
+  browser runs were not green (intermittent failures in Stage 1/2 specs, attributed by QA to D5 by symptom).
+- **Security audit** (`docs/evidence/security-stage3-2026-11-02.md`): **SEC3-01, 02, 03, 04, 09, 10, 11 Medium**
+  (stalled erasure, soft delete only a list filter, PII copies surviving the purge, unbounded import fields, superseded
+  approved version convertible, in-place catalog price change vs open quotes, scientific notation misparsed), SEC3-06,
+  07, 08 Low, SEC3-05 withdrawn. No Critical or High.
+
+## Fix round 1 (`docs/evidence/implementer-fixes1-stage3-2026-11-12.md`)
+All QA defects and security findings above are addressed (SEC3-11 and D5 through the Stage 1 merge). Edits to verifier
+tests are declared there: removed xfail markers, and four QA tests whose expectations contradicted a security fix
+(idempotency replay with a different payload → 409; a customer pending erasure is readable only with
+`manage_retention`). Migration `0007b` added; `0007` now follows Stage 2's `0006b`.
+
+## Independent re-verification of fix round 1 (2026-11-12, at ee865da)
+Two fresh verifier agents with fixed checklists; QA additionally made one full independent API and browser run, the
+security verifier a time-boxed adversarial pass of 12 probes.
+- QA (`docs/evidence/qa-stage3-reverify-2026-11-12.md`): D1–D5 CONFIRMED fixed; the five edits to QA's own tests
+  judged legitimate (the property QA cared about is still asserted in each; both decisions — 409 for a replayed key
+  with a different payload, 404 for sales on a customer pending erasure — acceptable and documented); S3-A01..A09
+  PASS; order totals equal the approved document for AED, JPY, KWD, BHD; retention confirmed. Full runs: API exit 1
+  with `1646 passed, 1 failed, 2 skipped, 3 xfailed, 1 xpassed` (the failure is its new defect test), browser exit 0
+  with `62 passed, 1 skipped`, 0 flaky. **New: D6 (Low)** — an import error text kept an erased customer's reference.
+- Security (`docs/evidence/security-stage3-reverify-2026-11-12.md`): SEC3-04, 06, 07, 08, 09, 10 CLOSED, tenant
+  isolation and role gates CLOSED, SEC3-01/02/03 MITIGATED, test edits ACCEPTED. **New:** SEC3-12 (Medium: an existing
+  approved quote or open proposal of a customer pending erasure could still become an order), SEC3-14 (Medium: a
+  purge job left `running` by a crashed worker stalls the erasure), SEC3-15 (Medium: the purge left message subject
+  and snippet in `communication_events`), SEC3-13, SEC3-16, SEC3-17 (Low). No Critical or High.
+
+## Fix round 2 (same day)
+All six security findings and D6 fixed (details, declared edits and runs in `implementer-fixes1-stage3-2026-11-12.md`,
+sections "Fix round 2" and the two orchestrator addenda). The verifiers' own reproduction tests — written before the
+fixes — now pass with their xfail decorators removed (151 passed across the Stage 3 QA and security files). One
+earlier security test was reordered (declared). These fixes have **not** been re-checked by a verifier agent; the
+evidence is the pre-written tests plus CI.
+
+### CI evidence for e2e6c3f — the gated Stage 3 head: all 15 checks green on both events
+Details in `docs/evidence/ci-stage3-e2e6c3f-2026-11-12.md`: pytest `1682 passed, 5 skipped, 4 xfailed, 1 xpassed`;
+Playwright `62 passed`, `1 skipped`, no flaky or failed line; CodeQL check success. No Stage 3 test is an expected
+failure. Earlier red runs of this PR (inherited Stage 1 timing test, browser click failures on the customers page,
+`py/polynomial-redos` alerts) are described in the Stage 2 and Stage 3 evidence files; one CI run of the previous
+green head had one flaky browser test (the accessibility scan, passed on retry; not reproduced by QA).
+
+### Open for Stage 3 (single list for the reviewer)
+| Item | Severity | State |
+|---|---|---|
+| Purge does not cover `rfq_items.raw_text`, uploaded RFQ files, audit summaries, order/quote notes, backups | Medium (privacy, documented) | limitation in KNOWN_LIMITATIONS / PRIVACY_AND_RETENTION |
+| CSV imports have the same concurrent-replay pattern that SEC3-16 fixed for connector syncs | Low | not changed (reported by the implementer) |
+| Control characters other than NUL are stored; purge/decide/conflict resolution take no row lock; failed-row redaction matches by substring and can over-redact | Low / observations | backlog |
+| A worker that dies after the provider accepted a message but before the draft is committed can redeliver on reclaim; the visibility timeout must exceed the longest handler run | Low (Stage 2 queue) | documented |
+| The erased-customer 404 was not exercised in the web UI; the real worker loop was driven in-process only | — | not tested |
+| No real ERP/CRM pull adapter exists (push-model stubs only) | — | limitation |
+
+## Still required before any Stage 3 verdict (list as written before review 1 — superseded)
+Items 1–5 of the earlier list (green run on the merged tree, QA and security re-verification, CI on the gated head,
+release review) have all happened and are recorded above and below. What is open now is the condition list of review 1.
+
+## Release review 1 (2026-11-12) — verdict: PASS WITH CONDITIONS
+Invoked by the orchestrator as the read-only `release-reviewer` subagent with a fresh context on HEAD 9f63da8 (gated
+code head e2e6c3f). The report is saved verbatim in `docs/evidence/release-review-1-stage3-2026-11-12.md`. The
+reviewer ran no tests; it read the evidence and the source. No Critical and no High finding. Stage 3 stays
+IMPLEMENTED, **not VERIFIED**.
+
+| Condition | Owner | State |
+|---|---|---|
+| C1 named decision on the erasure scope the purge does not cover (`rfq_items.raw_text`, uploaded RFQ files, audit summaries, order and quote notes, backups; also order `external_ref`/notes — S3-RR1-1, S3-RR1-3) | human | **open** |
+| C2 ratify two product decisions taken by an agent: replayed idempotency key with a different payload → 409; customer pending erasure → 404 for roles without `manage_retention` | human | **open** |
+| C3 targeted verifier re-check of fix round 2 at the final head, with a fresh full API + browser run and a scan with counts for that head | QA + security verifiers | re-checks and green CI on 30a226c recorded below; not yet seen by the reviewer |
+| C4 correct the stale documents (S3-RR1-5..7) | implementing side | done in this commit (KNOWN_LIMITATIONS, LLD, ROADMAP, traceability rewritten from the reviewer's table) — not yet looked at by the reviewer |
+| C5 Stage 1 and Stage 2 conditions closed (Stage 3 cannot be VERIFIED before they are) | human | **open** |
+
+Findings (full text in the report): S3-RR1-1 Medium privacy (purge scope → C1); S3-RR1-2 Medium process (fix round 2
+not verifier-checked → C3); S3-RR1-3 Medium data (connector run reports / order refs not covered by a purge test);
+S3-RR1-4 Low (CSV same-key race); S3-RR1-5..7 Low docs; S3-RR1-8 Low (CI ran on the PR merge commit, scan counts not
+read, one flaky a11y spec on an earlier head not investigated); S3-RR1-9 Low (single-round race test); S3-RR1-10
+Low/observations (backlog).
+
+Decisions the reviewer lists as made by an agent and needing human ratification: the 409 and 404 rules (C2), the
+re-queue cap of 10 for purge jobs, name/notes truncation on customer import, and the judgement that SEC3-13/14/15/17
+were not blocking.
+
+### After review 1 — fix round 3 (implementing side; small, each with a regression test)
+| Finding | Change | Test |
+|---|---|---|
+| S3-RR1-4 | `data_io._start_run` inserts the run inside a savepoint; a lost same-key race raises `ReplayedRun` and the endpoint answers exactly as a sequential replay (same payload → the winner's run, different payload → 409) | `test_stage3_fixes2.py::test_csv_import_replayed_concurrently_is_applied_once_without_a_500` (8 rounds) |
+| S3-RR1-3 (part) | `_redact_copies` also redacts connector run rejection reasons that quote the subject's reference, e-mail or name; counted as `sync_rejections_redacted` in the request summary and audit row | `test_stage3_fixes2.py::test_purge_redacts_connector_rejection_reasons_that_quote_the_subject` |
+| S3-RR1-9 | the implementing side's confirm-race test now runs 6 rounds (the auditor's own SEC3-16/17 tests in `tests/security/test_stage3_confirm.py` already ran 8 rounds each) | `test_concurrent_confirm_loser_gets_409_with_one_event_and_one_audit_row` |
+| S3-RR1-5..7 | documents corrected | — |
+Not changed: order `external_ref` and notes are kept after erasure (part of C1, a human decision); S3-RR1-10 items
+stay in the backlog. Commands, exit codes and counts: `docs/evidence/implementer-fixes1-stage3-2026-11-12.md`
+("Fix round 3"). These changes are **not** independently verified until the C3 re-check is recorded.
+
+### C3 re-check by fresh verifier agents (2026-11-12, at 096d9d4)
+- **Security** (`docs/evidence/security-stage3-c3-2026-11-12.md`, tests `tests/security/test_stage3_c3.py`):
+  SEC3-12..17 MITIGATED (file `12 passed`, three times; git shows only xfail decorators were removed and the reordered
+  audit test keeps every assertion). Purge reclaim: a stale job is re-queued once and executed once, a rerun on an
+  executed request is quiet, an unrelated follow-up job is untouched, legal hold still blocks. Cross-tenant: tenant B
+  cannot move tenant A's jobs. Fix round 3: CSV same-key race (8 rounds, three racers) all 201 and applied once,
+  different payloads → one 201 and one 409, a non-replay integrity error is not swallowed; connector and CSV run
+  reports carry no identifier after a purge. 17 GET routes checked for a customer pending erasure: no name or e-mail for
+  roles without `manage_retention`. **New finding SEC3-C3-1 (Low, privacy):** the PDF of an approved quote still
+  prints the name until the purge runs — kept as a strict-xfail test, documented in KNOWN_LIMITATIONS, not fixed
+  (belongs to the human decision C1). Scan at this head (`make security-scan`, exit 0, `scan-20261112-221628.md`):
+  pip-audit 0, bandit (medium and above) 0, ruff S rules pass, `npm audit --omit=dev` 0, full `npm audit` 8 moderate
+  dev-only; gitleaks and semgrep not available locally (they run in CI).
+- **QA** (`docs/evidence/qa-stage3-c3-2026-11-12.md`, tests `tests/qa/test_qa_stage3_c3.py`,
+  `tests/e2e/specs/qa-stage3-c3.spec.ts`): declared edits CONFIRMED legitimate (the audit-test reordering was judged
+  from the diff); D6 fixed; Stage 3 set `158 passed`; new tests `5 passed` — order refusal per role, name visibility per
+  role in quote list/search/detail, 6-round concurrent confirm, 6-round CSV replay; browser path for a sales user and a
+  customer pending erasure passes. Full API run: exit 0, `1703 passed, 2 skipped, 6 xfailed` (the sixth expected
+  failure is SEC3-C3-1). Full browser run: exit 1, `1 failed, 1 skipped, 62 passed` — the failure was QA's own new
+  spec (it expected search-as-you-type; the page searches on submit), corrected by QA and green in isolation
+  (`1 passed`). **No complete browser run has been green locally after that correction**; CI on the pushed head is the
+  remaining evidence for that (see the CI entry when recorded).
+- Observations for the human decision C1, measured after a purge on synthetic data: `orders.external_ref`,
+  `rfq_items.raw_text` and `quote_versions.notes` keep the identifiers they contained; redaction of copies is by
+  substring, so spelling variants are missed; `/customers` hides a customer pending erasure from every role, owner and
+  admin included (they reach it through the retention screens and the quote list).
+- Not checked by either verifier: the real worker loop, the real LLM/SMTP/storage adapters, backups, audit summaries
+  of `customer.create`, the legal-hold race (no row lock, unchanged), the flaky accessibility spec noted in S3-RR1-8
+  (it did not fail in this run).
+
+State of C3: both re-checks are recorded; what remained was a green CI run on the pushed head — see the next entry.
+The reviewer asked to be re-invoked after the human decisions C1 and C2 — not before.
+
+### CI evidence for 30a226c (final Stage 3 head with fix round 3 and the C3 tests)
+`docs/evidence/ci-stage3-30a226c-2026-11-12.md`: 8 check runs listed, all success (api, web, e2e, CodeQL python and
+javascript, gitleaks, dependency/static scans, code-scanning check). pytest `1700 passed, 5 skipped, 5 xfailed,
+1 xpassed`; Playwright `63 passed`, `1 skipped`, no flaky or failed line — the first complete browser run that is
+green after QA corrected its new spec. Earlier heads listed 15 check runs (two events); only one set is listed for
+this head and the reason was not investigated. Scan finding counts inside the CI job were not read (the local scan at
+096d9d4 has them).
+
+**C3 as the implementing side sees it: satisfied, pending the reviewer's own judgement at re-invocation.** Open
+conditions that only a human can close: C1, C2, C5.
+
+Note on the 8 check runs (added 2026-11-13): the pull request was in a conflicted state against its base branch
+(Stage 2 had received a gate-log commit, 0ce6524, that this branch did not contain), and GitHub creates no
+`pull_request`-event runs for a pull request it cannot merge — the likely reason only the `push`-event set was listed.
+Stage 2's head is merged into this branch in the commit that adds this note (documents only: the Stage 2 gate-log
+entry "After review 1 — fix round 3"). CI on that merge commit is not recorded here.

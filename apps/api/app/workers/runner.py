@@ -8,6 +8,7 @@ import time
 
 from app.core.logging import configure_logging
 from app.db.session import get_sessionmaker
+from app.services.intelligence.retention import enqueue_due_purges
 from app.services.jobs.queue import enqueue_due_schedules, run_once
 
 
@@ -20,6 +21,7 @@ def main() -> int:
     while True:
         with get_sessionmaker()() as db:
             enqueue_due_schedules(db)
+            enqueue_due_purges(db)
             n = run_once(db)
         if args.once:
             print(f"processed {n} job(s)")
