@@ -180,6 +180,6 @@ HTTP 409
   approved action fails ends the run as `failed` (HTTP 200 with the run). Request bodies containing a NUL character
   anywhere (strings, keys, nested args) return 422. `GET /workflows` is 403 for roles without manage_workflows.
   **Plan & ops** `GET /platform/plan`, `POST /platform/plan` (owner; test-mode adapter), `GET /platform/usage`,
-  `GET /platform/support-export` (owner/admin; configuration and counts only, audited), `GET/POST/DELETE
+  `GET /platform/support-export` (owner/admin; configuration, counts and for failed runs the id, status and a system-written explanation head — no user-typed text; audited), `GET/POST/DELETE
   /platform/kill-switch` (owner/admin). Limits enforced server-side: seats on `POST /org/members`, RFQs per month on
   `POST /rfqs`, AI calls per day on assistant messages, workflow runs per day, active workflows on activation.

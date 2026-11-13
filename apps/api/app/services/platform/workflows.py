@@ -301,15 +301,23 @@ def start_run(
 REJECTED_MARKER = "rejected: "
 
 
+_EXPORTABLE = (
+    re.compile(r"^step '[^']{1,64}' (?:failed|rejected)"),
+    re.compile(r"^kill switch engaged"),
+    re.compile(r"^step budget \d{1,6} exhausted"),
+)
+
+
 def explanation_without_user_text(explanation: str | None) -> str:
-    """S4-SEC-09: the run explanation shown to the tenant quotes the approver's rejection reason; copies that leave
-    the tenant's own screens (the support export) keep only the system-written part."""
+    """S4-SEC-09 / S4-RR1-4: the run explanation shown to the tenant can quote the approver's rejection reason, the
+    owner's kill-switch reason or a service error message. Copies that leave the tenant's own screens (the support
+    export) keep only the system-written head — an allowlist, so an unknown shape is exported as "other"."""
     text = explanation or ""
-    for marker in (REJECTED_MARKER, "kill switch engaged: "):  # the second quotes the reason typed by the owner
-        head, sep, _ = text.partition(marker)
-        if sep:
-            return head + marker.removesuffix(": ")
-    return text
+    for pattern in _EXPORTABLE:
+        m = pattern.match(text)
+        if m:
+            return m.group(0)
+    return "other" if text else ""
 
 
 def _finish(run: WorkflowRun, status: str, explanation: str | None = None) -> None:
@@ -423,7 +431,8 @@ def advance(db: Session, *, org: Organization, actor: Actor, run: WorkflowRun) -
                 full = getattr(inv, "_last_result", None) or inv.result
                 step.output = {k: v for k, v in full.items() if k not in ("content_b64", "_full")}
                 if "quote_id" in full and "quote_id" not in run.context:
-                    run.context["quote_id"] = str(full["quote_id"])
+                    # reassigned, not mutated in place: a JSONB column only notices a new object (S4-RR1-7)
+                    run.context = {**run.context, "quote_id": str(full["quote_id"])}
                 if "draft_id" in full:
                     run.context = {**run.context, "draft_id": str(full["draft_id"])}
                 if "order_id" in full:

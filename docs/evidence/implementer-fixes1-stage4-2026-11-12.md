@@ -123,3 +123,23 @@ Runs (database `quotepilot_s4`, `APP_ENV=test`, working tree on top of ffe24c5):
 Not run by the implementing side in this round: the whole API suite and the browser suite on the final tree (the QA
 re-verification and CI do). The final version of the fix was not re-run against the complete 256-test Stage 4 set, only
 against the four files above.
+
+## Fix round 3 (after release review 1; orchestrator, 2026-11-12/13)
+Scope: S4-RR1-4 (allowlisted support-export explanations), S4-RR1-5 (planner exception → reply; only null `args`
+becomes `{}`), S4-RR1-7 (`run.context` reassigned), S4-RR1-9 and the documentation parts of S4-RR1-6/7/8. No verifier
+test was edited. Files: `app/services/platform/assistant.py`, `app/services/platform/workflows.py`,
+`tests/integration/test_stage4_fixes2.py` (new), documents.
+
+Tried and reverted (not in the branch): enforcing approver ≠ proposer in `invocations.decide` (S4-RR1-1). With it the
+Stage 4 set gave exit 1, `32 failed, 234 passed` — 26 failing tests are verifier tests that approve with the proposing
+user. Left for the human decision C2.
+
+Runs (database `quotepilot_s4`, `APP_ENV=test`, working tree on top of b904fab):
+
+| Command | Exit | Result |
+|---|---|---|
+| `uv run ruff check app tests && uv run ruff format --check app tests && uv run mypy app` | 0 | `All checks passed!`, `178 files already formatted`, `Success: no issues found in 97 source files` |
+| `uv run pytest -q -p no:cacheprovider tests/integration/test_stage4_fixes2.py` | 0 | `16 passed` |
+| `uv run pytest -q -p no:cacheprovider tests/security/test_stage4_reverify.py tests/security/test_stage4_audit.py tests/qa/test_qa_stage4*.py tests/integration/test_stage4*.py` (complete Stage 4 set, final tree) | 0 | `282 passed in 302.48s (0:05:02)` |
+
+Not run by the implementing side in this round: the whole API suite and the browser suite (CI on the pushed head does).

@@ -158,9 +158,11 @@ class AnthropicPlanner:
         actions = data.get("actions")
         for a in (actions if isinstance(actions, list) else [])[:8]:
             if isinstance(a, dict) and isinstance(a.get("tool"), str):
-                # args of the wrong type are passed on unchanged so that the policy gate rejects them (never coerced)
+                # only a missing/null "args" becomes {}; any other value is passed on unchanged so that the policy
+                # gate rejects a wrong type (never coerced)
+                args = a.get("args")
                 plan.actions.append(
-                    PlannedAction(a["tool"][:64], a.get("args") or {}, str(a.get("rationale") or "")[:300])
+                    PlannedAction(a["tool"][:64], {} if args is None else args, str(a.get("rationale") or "")[:300])
                 )
         return plan
 
@@ -252,8 +254,14 @@ def handle_message(
     )
     plan_scopes = entitlements.entitlements_for(db, org.id).limits.get("tool_scopes", [])
     tools = allowed_tools(actor.role, plan_scopes)
-    plan = planner_for(org).plan(text, tools)
-    _record_usage(db, org, actor, plan, "ok", trace_id)
+    planner = planner_for(org)
+    try:
+        plan = planner.plan(text, tools)
+        outcome = "ok"
+    except Exception:  # noqa: BLE001 - S4-RR1-5: a provider failure (timeout, auth, API error) must not become a 500
+        plan = Plan(provider=planner.name, reply="The assistant is temporarily unavailable. Nothing was done.")
+        outcome = "error"
+    _record_usage(db, org, actor, plan, outcome, trace_id)
 
     performed: list[dict[str, Any]] = []
     citations: list[dict[str, Any]] = []
