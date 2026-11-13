@@ -63,3 +63,15 @@ class UnsupportedMedia(AppError):
 class RateLimited(AppError):
     status_code = 429
     code = "rate_limited"
+
+
+class LimitExceeded(AppError):
+    """Plan entitlement or runtime budget exhausted (S4-F04 / S4-A06); enforced server-side."""
+
+    status_code = 429
+    code = "limit_exceeded"
+
+
+class KillSwitchEngaged(AppError):
+    status_code = 503
+    code = "kill_switch_engaged"

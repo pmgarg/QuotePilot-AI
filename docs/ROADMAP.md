@@ -8,7 +8,7 @@ independent reviewer PASS) / BLOCKED.
 | 1 RFQ-to-Quotation | IMPLEMENTED — release review 5: PASS WITH CONDITIONS (human conditions open); not VERIFIED | RELEASE_GATES.md § Stage 1 | PR #1 |
 | 2 Follow-up Assistant | IMPLEMENTED — release review 1: PASS WITH CONDITIONS; not VERIFIED | RELEASE_GATES.md § Stage 2 | PR #2 (`claude/stage2-followup-assistant`) |
 | 3 Customer & Order Intelligence | IMPLEMENTED — release review 1: PASS WITH CONDITIONS; not VERIFIED | RELEASE_GATES.md § Stage 3 | PR #3 (`claude/stage3-customer-order-intelligence`) |
-| 4 Governed AI Sales Ops | Not on this branch (implemented on `claude/stage4-governed-platform`, gate open) | — | PR #4 |
+| 4 Governed AI Sales Ops | IMPLEMENTED (branch `claude/stage4-governed-platform`) — gate OPEN, no release review yet; not VERIFIED | RELEASE_GATES.md § Stage 4 | PR #4; onboarding wizard, help pages and demo reset not built |
 
 ## Stage 1 milestone plan (vertical slices)
 | # | Slice | Exact verification |
@@ -40,3 +40,7 @@ tests + 4 browser tests); 3.8: independent QA, security audit, two fix rounds, r
 4.1 policy engine + entitlements; 4.2 tool registry + bounded assistant; 4.3 workflow definitions/runner/dry-run;
 4.4 budgets/circuit breakers/kill switch; 4.5 command center UI; 4.6 billing adapter (test mode) + onboarding +
 help; 4.7 red-team suite + gate.
+
+Status: 4.1–4.5 and the test-mode billing part of 4.6 implemented on `claude/stage4-governed-platform` (16 integration
+tests, 2 browser tests); onboarding wizard and in-app help pages are not built; 4.7 (independent QA, security
+red-team, release review) pending.

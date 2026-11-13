@@ -50,6 +50,14 @@ with an owner/admin session (or a future service token); the same key is replaye
 Data & connectors → Sync conflicts before trusting master data; nothing is overwritten without a human decision.
 Bulk CSV exports require owner/admin/approver and are audited (`export.*`, denials as `export.denied`).
 
+### Stage 4 controls
+- Tenant kill switch: owner/admin, `Plan & controls` page or `POST /api/v1/platform/kill-switch {reason}`; it marks running
+  and awaiting-approval workflow runs `killed` and refuses assistant turns and live runs until released (audited).
+- Platform kill switch: set `PLATFORM_KILL_SWITCH=true` and restart the API/worker; every tenant is stopped.
+- Circuit breaker: after `CIRCUIT_BREAKER_FAILURES` consecutive failed live runs within `CIRCUIT_BREAKER_COOLDOWN_SECONDS`
+  new live runs return 429 until the window passes. Inspect `GET /workflow-runs?status=failed` (failure explanations).
+- Support export (`GET /platform/support-export`) contains configuration, counts and failed-run explanations only.
+
 ### Migrations
 `alembic upgrade head` as `DATABASE_ADMIN_URL` before deploying new API images; migrations are additive within a
 release; destructive changes in a follow-up release after backfill. Rollback: `alembic downgrade -1` + previous image.

@@ -161,5 +161,25 @@ HTTP 409
   price was changed in place by an applied connector conflict); it blocks submit/approve until the line is re-priced
   or explicitly overridden. `pending_value` counts approved quotes in lifecycle `approved`, `sent`, `acknowledged`
   and `awaiting_customer` (not won/lost/withdrawn/expired).
-- Stage 4: `/assistant/sessions{,/{id}/messages}`, `/tools` (allowed list), `/workflows{,/{id}/versions,/{id}/dry-run,/{id}/runs}`,
-  `/admin/kill-switch`, `/billing/plan`, `/admin/usage`.
+- Stage 4 (implemented): **Command center** `GET /command-center` (queues filtered by role, kill-switch state, plan).
+  **Assistant** `GET /assistant/tools` (catalogue = role permission ∩ plan scopes), `GET/POST /assistant/sessions`,
+  `GET /assistant/sessions/{id}` (own sessions only; others 404), `POST /assistant/sessions/{id}/messages` `{text ≤ 4000}`
+  → assistant message with `proposed_actions` (each `executed | proposed (needs approval) | rejected`) and `citations`;
+  429 on plan/turn limits, 503 `kill_switch_engaged`. **Actions** `GET /actions?status` (own; owner/admin see all),
+  `POST /actions` `{tool, args, dry_run}`, `POST /actions/{id}/approve|reject` `{reason?}` (requester or owner/admin;
+  re-checks policy and kill switch at execution; an approved export returns `download.content_b64` once and never
+  stores it). **Workflows** (owner/admin) `GET/POST /workflows` `{key, definition}` (each POST = new draft version with
+  a validation report), `POST /workflows/validate`, `POST /workflows/{id}/activate?version_no=`, `/disable`,
+  `POST /workflows/{id}/runs` `{mode: dry_run|live, context, version_no?}` (live needs the active version, kill switch
+  off, breaker closed, daily run allowance; a workflow `dry_run` stays possible while the kill switch is engaged, `POST
+  /actions` with `dry_run` does not), `GET /workflow-runs`, `GET /workflow-runs/{id}`,
+  `POST /workflow-runs/{id}/approve|reject` (continues or stops a run paused at a side-effect step). Triggers:
+  `manual`, `quote.approved`, `order.confirmed` (dispatched after the business action; never undo it); any other trigger fails validation.
+  Concurrent approvals of one action or workflow step: exactly one wins, the others get 409. A failed approved action
+  is persisted as `failed` (with a `tool.failed` audit row) and cannot be approved again; a workflow step whose
+  approved action fails ends the run as `failed` (HTTP 200 with the run). Request bodies containing a NUL character
+  anywhere (strings, keys, nested args) return 422. `GET /workflows` is 403 for roles without manage_workflows.
+  **Plan & ops** `GET /platform/plan`, `POST /platform/plan` (owner; test-mode adapter), `GET /platform/usage`,
+  `GET /platform/support-export` (owner/admin; configuration, counts and for failed runs the id, status and a system-written explanation head — no user-typed text; audited), `GET/POST/DELETE
+  /platform/kill-switch` (owner/admin). Limits enforced server-side: seats on `POST /org/members`, RFQs per month on
+  `POST /rfqs`, AI calls per day on assistant messages, workflow runs per day, active workflows on activation.

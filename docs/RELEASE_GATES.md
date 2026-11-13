@@ -605,3 +605,168 @@ Note on the 8 check runs (added 2026-11-13): the pull request was in a conflicte
 `pull_request`-event runs for a pull request it cannot merge — the likely reason only the `push`-event set was listed.
 Stage 2's head is merged into this branch in the commit that adds this note (documents only: the Stage 2 gate-log
 entry "After review 1 — fix round 3"). CI on that merge commit is not recorded here.
+
+---
+
+# Stage 4 gate log (branch `claude/stage4-governed-platform`, PR #4) — status: release review 1 = PASS WITH CONDITIONS (conditions open; S4-F06 partial; not VERIFIED)
+
+Stage 4 has its own gate. Release review 1 (2026-11-12) returned PASS WITH CONDITIONS — see the end of this section.
+The earlier entries are kept as written at the time.
+Scope note: the onboarding wizard, in-app help pages and a demo-reset action (parts of S4-F06) are **not built**.
+
+## Independent verification of the first implementation (2026-11-10 / 2026-11-12)
+- **Security audit** (`docs/evidence/security-stage4-2026-11-10.md`; 83 adversarial tests over S4-A01..A09):
+  **S4-SEC-01 (Medium)** approval of a tool invocation had no row lock → double execution; **S4-SEC-02 (Medium)**
+  seat limit bypass by reactivating a member; S4-SEC-03..07 (Low): seat race, no durable record of a failed approved
+  action, NUL byte → HTTP 500, unaudited compensation, subscription get-or-create race. No Critical or High.
+- **QA** (`docs/evidence/qa-stage4-2026-11-10.md`; 115 API + 11 browser tests): S4-F01..F03, S4-A01..A03, A05, A06,
+  A09 pass. **Defects: D-QA4-01 (Medium)** kill switch also blocked workflow dry runs; **D-QA4-02 (Medium)**
+  `GET /workflows` readable by every role; **D-QA4-05 (Medium)** validation errors carried customer text into the
+  support export that claims to contain none; D-QA4-03 (Low–Medium) NUL byte → 500; D-QA4-04 (Low) trigger
+  `quote.won` accepted but never fired. Three full browser runs each had one failing pre-existing Stage 1/2 spec
+  (passing in isolation; machine under load; the commit-before-response defect D5 was still present then).
+
+## Fix round 1 (`docs/evidence/implementer-fixes1-stage4-2026-11-12.md`, implementer agent)
+All seven security findings and all five QA defects addressed; self-reported targeted runs green (security audit file
+91 passed with no xfail left, QA files 115 passed, fixes file 22 passed, Stage 4 integration 16 passed). Declared edits
+to verifier files: seven xfail markers removed; lint/format fixes without assertion changes.
+Orchestrator decisions recorded here:
+- Dry runs under the kill switch: only **workflow** dry runs are exempt; a manual `POST /actions` with `dry_run` stays
+  blocked (503) while the switch is engaged, as the security audit's kill-switch test requires. QA's defect test
+  covers the workflow path and passes. The narrower exemption is deliberate (fail closed) and must be judged by QA.
+- `quote.won` was removed from the accepted workflow triggers instead of being dispatched (documented in the API
+  contract and KNOWN_LIMITATIONS).
+Known gaps stated by the implementer: compensation does not run when an approved step fails at approval time; a
+failure on the propose path of non-approval tools is rolled back with the request and leaves no failure record.
+
+## Independent security re-verification of fix round 1 (2026-11-12, at 6511c69)
+Fresh `security-auditor` agent, fixed checklist plus 12 adversarial probes
+(`docs/evidence/security-stage4-reverify-2026-11-12.md`, tests `tests/security/test_stage4_reverify.py`):
+- S4-SEC-01..07 MITIGATED for the tested set (audit file `91 passed`, race tests three times green; the verifier notes
+  that green runs of timing-dependent tests do not prove the races are gone). Declared test edits verified from git:
+  only the seven xfail markers were removed, no assertion changed.
+- Both orchestrator decisions hold: under the kill switch only workflow dry runs proceed and they create nothing;
+  `quote.won` cannot be activated.
+- 9 of 12 probes held (tool matrix per role, client-supplied policy fields, other-tenant ids on 10 routes, hostile
+  planner output, breaker/step cap/kill-switch bypass, entitlement counter under concurrency, billing test-mode only,
+  CSRF, RLS on all 11 Stage 4 tables — the migration was read, the earlier RLS test passes).
+- **New findings, all Low:** S4-SEC-08 (malformed hosted-planner answer → 500), S4-SEC-09 (approver's rejection reason
+  copied into the support export), S4-SEC-10 (no audit row for a new session / a chat turn without actions).
+- Implementer's known gaps rated Low, acceptable as documented.
+- Scan (`make security-scan`, exit 0): pip-audit 0, bandit (medium and above) 0, ruff S rules pass, `npm audit
+  --omit=dev` 0, full `npm audit` 8 moderate dev-only; gitleaks and semgrep not available locally (they run in CI).
+- Not checked: browser-level checks (CSP, XSS), a real hosted model, real e-mail/SMS/S3 adapters, a kill-switch race
+  against an in-flight approval, migration up/down.
+
+## Fix round 2 (implementing side, 2026-11-12)
+S4-SEC-08, 09 and 10 fixed; the verifier's three strict-xfail tests now pass with the markers removed (declared in
+`docs/evidence/implementer-fixes1-stage4-2026-11-12.md`, "Fix round 2", with commands, exit codes and counts). These
+three fixes have **not** been re-checked by a verifier agent; the evidence is the verifier's own pre-written tests.
+
+## Independent QA re-verification of fix rounds 1–2 (2026-11-12, at da27047)
+Fresh `qa-engineer` agent, fixed checklist (`docs/evidence/qa-stage4-reverify-2026-11-12.md`, tests
+`tests/qa/test_qa_stage4_reverify.py`, 10 tests):
+- D-QA4-01..05 CONFIRMED fixed. Both orchestrator decisions judged acceptable against the PRD (only workflow dry runs
+  exempt from the kill switch; `quote.won` not an accepted trigger — such a definition can still be saved as an
+  inactive draft, validation reports it and activation is refused).
+- Declared edits to QA's tests CONFIRMED: line wrapping, one unused import, one f-prefix; no assertion changed.
+- Stage 4 QA and integration files: `153 passed` (exit code of that detached run not captured; no failure in the
+  summary line).
+- S4-F01, F02, F03, F05, F07 and S4-A01..A09: tested and passing. S4-F04: passing with gaps (runtime
+  `budget_exceeded`, retry cap and per-step timeout are not reachable through the API). **S4-F06 partial as declared**:
+  plans, seats, limits, support export, usage metrics and the `/platform` page exist; onboarding wizard, help pages and
+  demo reset are not built.
+- Fix round 2 behaviour CONFIRMED by QA's own tests (support export without rejection or kill-switch reason; audit
+  rows for a new session and a plain chat turn, no text). Approval-required tool: executed only after approval by a
+  different permitted user, exactly once. Plan limits: 429 without side effects.
+- Full runs, one attempt each: API exit 0, `1953 passed, 2 skipped, 5 xfailed` (the five expected failures are Stage 1
+  and 2 items); browser exit 0, `75 passed`, `1 skipped`, no flaky or failed line.
+- No new defect. Observations: dry runs under the kill switch still write run, invocation and audit rows (no business
+  data); an invalid-trigger draft is accepted with 201.
+- Not checked: hosted planner, runtime budget/timeout paths, compensation after a failed approved step, mobile and
+  accessibility checks on the Stage 4 pages, `mypy`, the race tests for flakiness beyond the single full run.
+
+### Open for Stage 4 (single list for the reviewer)
+| Item | Severity | State |
+|---|---|---|
+| S4-F06: onboarding wizard, in-app help pages and demo reset are not built | scope gap | declared; needs a human decision (build, or accept the reduced scope) |
+| Fix round 2 (S4-SEC-08/09/10) not re-checked by a security verifier; evidence is the verifier's pre-written tests, plus QA's tests for 09 and 10 | process | open |
+| Compensation does not run when an approved step fails at approval time; a propose-path failure of a non-approval tool reaching the HTTP layer leaves no failure record | Low | documented limitation (rated by the security verifier) |
+| S4-F04 runtime `budget_exceeded`, retry cap, per-step timeout have no API-level test | — | not tested |
+| S4-SEC-03 / S4-SEC-07 race tests are timing-dependent (green runs do not prove absence) | Low | noted |
+| Hosted planner path exercised only with a fake client; no real model, e-mail/SMS/S3 provider was called (no paid resources) | — | by design; not tested |
+| Billing is test-mode only; no payment provider integration exists | — | limitation |
+| Browser-level checks (CSP, XSS, mobile, accessibility) on the Stage 4 pages | — | not checked |
+| Stages 1–3 are PASS WITH CONDITIONS with human conditions open; none is VERIFIED | dependency | open |
+
+### CI evidence for 5c8c992 (gated Stage 4 head)
+`docs/evidence/ci-stage4-5c8c992-2026-11-12.md`: 15 check runs listed; 14 success and one e2e job (second event) still
+in progress when read. pytest `1966 passed, 5 skipped, 5 xfailed, 1 xpassed`; Playwright `76 passed`, `1 skipped`, no
+flaky or failed line; CodeQL check success. No Stage 4 test is an expected failure.
+
+## Still required before any Stage 4 verdict (list as written before review 1 — superseded)
+The four items of the earlier list (full runs on the merged tree, QA and security re-verification, CI on the gated
+head, release review) have happened and are recorded above and below. What is open now is the condition list of
+review 1.
+
+## Release review 1 (2026-11-12) — verdict: PASS WITH CONDITIONS
+Invoked by the orchestrator as the read-only `release-reviewer` subagent with a fresh context on HEAD b904fab (gated
+code head 5c8c992). The report is saved verbatim in `docs/evidence/release-review-1-stage4-2026-11-12.md`. The
+reviewer ran no tests and no git commands; it read the evidence and the source. No Critical and no High finding.
+Stage 4 stays IMPLEMENTED (S4-F06 PARTIAL), **not VERIFIED**. The reviewer does not recommend releasing Stage 4 as
+"complete" before C1 and C2 are decided by a named human.
+
+| Condition | Owner | State |
+|---|---|---|
+| C1 decide the S4-F06 scope: build the onboarding wizard, help pages and demo reset, or accept the reduced scope in writing | human | **open** |
+| C2 decide separation of duties for tool/workflow approvals (S4-RR1-1): enforce proposer ≠ approver honouring `allow_self_approval`, or sign an explicit risk acceptance | human | **open** — see the note below |
+| C3 fresh security re-check of S4-SEC-08/09/10 plus the probes listed in the report (provider exception, falsy `args`, support-export canary through a service error, kill-switch race with an in-flight approval, browser-level checks of the four Stage 4 pages) | security verifier | **open** (not run; see "After review 1") |
+| C4 record the second e2e and api jobs of 5c8c992, identify the `xpassed` test, reconcile skip counts | orchestrator | recorded for the superseding head 7ee64c4 (see "CI evidence for 7ee64c4"): all listed checks green, skips/xfails/xpass named; the two unread jobs of 5c8c992 stay unread; not yet seen by the reviewer |
+| C5 fix or document S4-RR1-4..8, correct the stale documents (S4-RR1-9), rewrite the traceability rows | implementing side, then QA | fix round 3 and document corrections done in this commit; QA has not looked at them |
+| C6 conditions of the Stage 1, 2 and 3 reviews | human | **open** |
+
+Findings (full text in the report): **S4-RR1-1 Medium** — tool invocations and workflow steps can be approved by the
+user who proposed them; `allow_self_approval` is ignored; SECURITY_POLICY and THREAT_MODEL state submitter ≠ approver
+as a principle. S4-RR1-2 Medium (scope) — S4-F06 partial. S4-RR1-3 Low — fix round 2 not re-checked by a security
+verifier. S4-RR1-4 Low — support export explanation filtered by a denylist. S4-RR1-5 Low — hosted-planner provider
+exception → 500; falsy non-dict `args` coerced. S4-RR1-6 Low — runtime budget/retry/timeout untested, timeout measured
+after execution. S4-RR1-7 Low — in-place mutation of `run.context`; S4-OBS-01/02/04 not listed as limitations.
+S4-RR1-8 Low — timing-dependent race tests. S4-RR1-9 Low — stale documents. S4-RR1-10 Low — CI evidence gaps.
+S4-RR1-11 Info — test-mode billing.
+
+Decisions the reviewer lists as made by an agent, not a human: only workflow dry runs exempt from the kill switch;
+`quote.won` removed from the triggers; the two known gaps accepted as Low; **self-approval "accepted by design"**; the
+S4-F06 scope reduction. The last two need a named human.
+
+**Note on C2 (orchestrator).** The enforcement recommended by the reviewer was tried on 2026-11-12 in
+`invocations.decide` (refuse approval when `inv.requested_by` is the approver and `allow_self_approval` is off). The
+Stage 4 test set then showed `32 failed, 234 passed`: 26 of the failing tests were written by the QA and security
+verifiers and approve an action with the user who proposed it. The change was reverted and is **not** in this branch;
+enforcing it means editing those verifier tests, which should follow a human decision, not precede it. The gate-log
+sentence "executed only after approval by a different, permitted user" in the QA entry above describes what that test
+did, not an enforced rule.
+
+### After review 1 — fix round 3 (implementing side; small, each with a regression test)
+| Finding | Change | Test (`tests/integration/test_stage4_fixes2.py`) |
+|---|---|---|
+| S4-RR1-4 | support export explanations go through an allowlist (`step '<id>' failed|rejected`, `kill switch engaged`, `step budget N exhausted`); any other shape is exported as `other` | `test_support_export_explanations_are_allowlisted` (9 cases) |
+| S4-RR1-5 | a planner exception becomes a reply ("temporarily unavailable"), no tool is proposed, `ai_usage.outcome = error`; only a missing/null `args` becomes `{}` | `test_provider_failure_is_a_reply_not_a_500_and_is_recorded`, `test_hosted_planner_passes_wrong_typed_args_on_for_rejection` (5 cases), `test_hosted_planner_treats_missing_or_null_args_as_empty` |
+| S4-RR1-7 | `run.context` is reassigned, not mutated in place; S4-OBS-01/02/04 listed in KNOWN_LIMITATIONS | covered by the existing workflow tests only (no new test) |
+| S4-RR1-6, S4-RR1-8 | documented in KNOWN_LIMITATIONS (untested runtime paths, timeout after execution, timing-dependent race tests) | — |
+| S4-RR1-9 | LLD Stage 4 rewritten as implemented; THREAT_MODEL, KNOWN_LIMITATIONS, PRD S4-F06, API_CONTRACT corrected; traceability rows replaced by the reviewer's table | — |
+Not done: S4-RR1-1 (C2, human), S4-RR1-2 (C1, human), the C3 security re-check, and the QA items of the reviewer's
+retest list (unit tests for runtime budget/retry/timeout/compensation; mobile and accessibility checks of the Stage 4
+pages). Fix round 3 is **not** independently verified. Commands, exit codes and counts:
+`docs/evidence/implementer-fixes1-stage4-2026-11-12.md` ("Fix round 3").
+
+### CI evidence for 7ee64c4 (Stage 4 head with fix round 3) — condition C4
+`docs/evidence/ci-stage4-7ee64c4-2026-11-13.md`: 8 check runs listed, all success (api, web, e2e, CodeQL python and
+javascript, gitleaks, dependency/static scans, code-scanning check). pytest `1982 passed, 5 skipped, 5 xfailed,
+1 xpassed`; Playwright `76 passed`, `1 skipped`, no flaky or failed line. The skips, expected failures and the
+unexpected pass are identified by name in the evidence file: none is a Stage 4 test; the unexpected pass is the
+non-strict Stage 1 timing test SEC7-1. Only the `push`-event set of jobs exists for this head because the pull request
+was in conflict with its base at the time (Stage 3 had received a later gate-log commit); the commit that adds this
+entry merges the Stage 3 head (documents only) to clear that. The second e2e and api jobs of the previous head 5c8c992
+were not read afterwards; that head is superseded.
+
+State of C4: recorded for 7ee64c4. CI on the documents-only merge commit that follows is not recorded in this file.

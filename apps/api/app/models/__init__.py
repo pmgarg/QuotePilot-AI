@@ -26,10 +26,34 @@ from app.models.intelligence import (
     SyncRun,
 )
 from app.models.org import Membership, Organization, User, UserSession
+from app.models.platform import (
+    AIUsage,
+    AssistantMessage,
+    AssistantSession,
+    KillSwitch,
+    Subscription,
+    ToolInvocation,
+    UsageCounter,
+    WorkflowDefinition,
+    WorkflowRun,
+    WorkflowStep,
+    WorkflowVersion,
+)
 from app.models.quote import ApprovalDecision, Quote, QuoteLine, QuoteVersion
 from app.models.rfq import RFQ, MatchCandidate, RFQItem
 
 __all__ = [
+    "AIUsage",
+    "AssistantMessage",
+    "AssistantSession",
+    "KillSwitch",
+    "Subscription",
+    "ToolInvocation",
+    "UsageCounter",
+    "WorkflowDefinition",
+    "WorkflowRun",
+    "WorkflowStep",
+    "WorkflowVersion",
     "RFQ",
     "CommunicationDraft",
     "ConnectorConnection",

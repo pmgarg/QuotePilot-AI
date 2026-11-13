@@ -220,7 +220,22 @@ def approve(quote_id: uuid.UUID, payload: LockedAction, principal: PrincipalDep,
         expected_lock_version=payload.expected_lock_version,
         reason=payload.reason,
     )
+    _dispatch(db, principal, "quote.approved", {"quote_id": str(quote.id), "quote_number": quote.number})
     return quote_out(db, principal, quote)
+
+
+def _dispatch(db: DB, principal: Principal, event: str, context: dict[str, str]) -> None:
+    """Stage 4: start enabled workflows bound to this event. Failures never undo the business action."""
+    from app.services.platform import workflows
+    from app.services.platform.tools import Actor
+
+    workflows.dispatch_event(
+        db,
+        org=principal.organization,
+        actor=Actor(user=principal.user, role=principal.role, ip=principal.ip),
+        event=event,
+        context=context,
+    )
 
 
 @router.post("/{quote_id}/reject", response_model=QuoteOut)

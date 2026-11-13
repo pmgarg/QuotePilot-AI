@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.api.deps import DB, PrincipalDep
 from app.core.errors import ConflictError, ForbiddenError, NotFoundError, ValidationFailed
@@ -91,6 +91,14 @@ def create_member(payload: MemberCreate, principal: PrincipalDep, db: DB) -> Mem
     principal.require(Permission.MANAGE_MEMBERS)
     if payload.role == "owner" and principal.role != "owner":
         raise ForbiddenError("Only an owner can create another owner", action="grant_owner")
+    from app.services.platform import entitlements  # S4-A06: seats are a plan limit enforced server-side
+
+    # S4-SEC-03: same org-row lock as update_member, so count-then-insert is serialised per organisation
+    db.execute(select(Organization.id).where(Organization.id == principal.org_id).with_for_update())
+    seats = db.scalar(
+        select(func.count()).where(Membership.organization_id == principal.org_id, Membership.is_active.is_(True))
+    )
+    entitlements.require_capacity(db, principal.org_id, "seats", int(seats or 0) + 1)
     email = payload.email.strip().lower()
     if "@" not in email:
         raise ValidationFailed("Invalid email", field="email")
@@ -156,6 +164,15 @@ def update_member(member_id: uuid.UUID, payload: MemberUpdate, principal: Princi
             raise ForbiddenError("Only an owner can activate or deactivate an owner", action="change_owner")
         if membership.user_id == principal.user.id and not payload.is_active:
             raise ConflictError("You cannot deactivate yourself")
+        if payload.is_active:  # S4-SEC-02: reactivation consumes a seat (org row is already locked above)
+            from app.services.platform import entitlements
+
+            seats = db.scalar(
+                select(func.count()).where(
+                    Membership.organization_id == principal.org_id, Membership.is_active.is_(True)
+                )
+            )
+            entitlements.require_capacity(db, principal.org_id, "seats", int(seats or 0) + 1)
         membership.is_active = payload.is_active
         changes["is_active"] = payload.is_active
         if not payload.is_active:

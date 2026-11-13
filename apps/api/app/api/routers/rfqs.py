@@ -140,7 +140,11 @@ async def create_rfq(
     currency: str | None = Form(default=None),
 ) -> RFQOut:
     principal.require(Permission.EDIT_QUOTES)
+    # the per-user rate limit comes first, so that a refused call does not consume the plan's monthly allowance
     limit_rfq_parse(principal.user.id)
+    from app.services.platform import entitlements  # S4-A06: monthly RFQ allowance enforced server-side
+
+    entitlements.consume(db, principal.org_id, "rfqs_per_month")
     content_type = request.headers.get("content-type", "")
     if content_type.startswith("application/json"):
         try:

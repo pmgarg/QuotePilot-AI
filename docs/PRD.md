@@ -103,7 +103,7 @@ Priority: **C** = critical for the stage gate, **H** = high, **M** = medium.
 | S4-F03 | C | Action scopes and approval checkpoints for sending, order/price changes, deletion, bulk export. |
 | S4-F04 | C | Budgets: token/call limits, rate limits, timeouts, max workflow depth, retry caps, circuit breakers, kill switch, compensation hooks. |
 | S4-F05 | H | Workflow definitions validated, versioned, dry-run capable, with history and failure explanations. |
-| S4-F06 | H | Commercial packaging: plan entitlements (test-mode billing adapter), onboarding, demo workspace, help, support export, tenant admin, ops metrics. |
+| S4-F06 | H | Commercial packaging: plan entitlements (test-mode billing adapter), onboarding, demo workspace, help, support export, tenant admin, ops metrics. **Status: PARTIAL** — onboarding wizard, in-app help pages and demo-workspace reset are not built (human decision open, release review 1 C1). |
 | S4-F07 | C | Model traces and logs contain no secrets or raw confidential content by default. |
 | Acceptance | | S4-A01 prompt injection in RFQ/email cannot trigger unauthorized tool; S4-A02 tenant context isolation in retrieval; S4-A03 unapproved message/order never executes; S4-A04 malformed/adversarial tool output rejected; S4-A05 loops/oversized requests stopped; S4-A06 billing/limits enforced server-side; S4-A07 kill switch terminates workflows; S4-A08 logs/traces free of secrets and raw content; S4-A09 workflow dry-run produces no side effects. |
 

@@ -176,10 +176,22 @@ All Stage 3 services live in `app/services/intelligence/`; the router is `app/ap
 - Cost/margin visibility: there is no generic `strip_sensitive` serializer; each response and export adds cost
   columns only when the principal has `view_costs`.
 
-## Stage 4 LLD sketch
-- `services/policy.py`: `allowed_tools(user, org, plan)`; `services/tools/registry.py` with JSON-schema args, scope
-  (`read:quotes`, `write:drafts`, `send:email` …), `requires_approval` flag; `services/agent/runner.py` loop with
-  max turns 8, token budget per org/day, per-call timeout, circuit breaker on provider errors, kill switch check per step.
-- `services/workflows/{schema,validator,runner}.py`: versioned JSON definitions, dry-run executor that records intended
-  effects without side effects, compensation hooks.
-- `services/billing/{adapter,test_mode}.py`: entitlements enforced in dependencies (`require_entitlement("rfqs_per_month")`).
+## Stage 4 LLD (as implemented)
+All Stage 4 services live in `app/services/platform/`; the router is `app/api/routers/platform.py`.
+- `tools.py`: registry of 9 tools with scope, required permission, `requires_approval` and a strict Pydantic argument
+  model (`extra="forbid"`); `allowed_tools(role, plan_scopes)` is the backend policy. No SQL, shell or HTTP tool.
+- `invocations.py`: propose → (approval) → execute. Policy is checked at proposal and again at execution; approval
+  takes a row lock; a failed approved action is persisted. Approval checks the approver's permission; it does **not**
+  require approver ≠ proposer (release review 1, S4-RR1-1 — human decision open).
+- `assistant.py`: one planning pass per message. Default `RulePlanner` (deterministic, no network); optional hosted
+  planner only with `AI_PROVIDER`, a server-side key and owner consent. Planner output is untrusted: unknown tools,
+  wrong argument types and extra keys are rejected by the gate; a provider failure becomes a reply, not an error.
+  Limits: 8 tool steps per message, 50 messages per session, 4000 characters per message, AI calls per day by plan.
+  Messages are redacted before storage; `ai_usage` holds counts only.
+- `workflows.py`: versioned JSON definitions, validation at save and again at activation, dry run (handlers receive
+  `dry_run=True`), live run with approval pause, bounded retry, step budget, compensation for `propose_order` and
+  `draft_follow_up`, circuit breaker per tenant.
+- `killswitch.py`: tenant switch (owner/admin, audited) plus a platform-wide environment flag; checked before every
+  step. Only workflow dry runs proceed while it is engaged.
+- `entitlements.py`: plans, limits and counters enforced in the service layer; billing is a test-mode adapter (no
+  payment provider). There is no `services/billing/` package and no agent runner loop.

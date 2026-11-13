@@ -219,5 +219,36 @@
   `orders.external_ref`, `rfq_items.raw_text` and `quote_versions.notes` keep whatever identifiers they contained.
 - Order numbers are per tenant (`SO-YYYY-NNNNN`); there is no year roll-over reset of the sequence.
 
-## Stage 4
-Not implemented; designs and backlogs exist (ROADMAP.md, PRD.md, LLD.md).
+## Stage 4 (implemented on `claude/stage4-governed-platform`; release review 1: PASS WITH CONDITIONS, not VERIFIED)
+- The assistant's default planner is a deterministic intent parser (no network, no cost). The optional hosted planner
+  (`AI_PROVIDER=anthropic`, server key, owner consent) is implemented but was never called in this repository (no paid
+  calls); its output passes the same policy gate, so it can only propose registered tools.
+- The assistant plans from the user's message only (single pass); tool results are never fed back into planning. This
+  limits multi-step reasoning by design (prompt-injection surface) — multi-step automation is what workflows are for.
+- Approval of an assistant-proposed action is a human-in-the-loop checkpoint by the requester (or an owner/admin):
+  **a user can approve an action they proposed themselves**, and `allow_self_approval` is not consulted. Separation of
+  duties for orders, deletions and quotes stays with their downstream gates; sending an approved follow-up and a bulk
+  export have no second person behind them. Release review 1 rates this Medium (S4-RR1-1) and requires a human decision
+  (enforce approver ≠ proposer, or accept the risk in writing). An attempt to enforce it on 2026-11-12 broke 32 existing
+  tests (26 written by the verifiers) that rely on self-approval, so it was not changed without that decision.
+- Compensation hooks exist for `propose_order` (cancel the proposed order) and `draft_follow_up` (cancel the draft);
+  other side effects stop the run with an explanation.
+- Billing is a test-mode adapter only (synthetic references, no payment provider, no invoices); plan limits are
+  enforced server-side. Onboarding wizard, in-app help pages and a demo-workspace reset are not built.
+- The circuit breaker looks at the last N live runs of the tenant in the cooldown window; it is per tenant, not per
+  workflow. There are two kill switches: a tenant switch (owner/admin, takes effect at once) and a platform-wide
+  environment flag (process restart to change).
+- Workflow compensation after a failed *approved* step is not run (the run ends `failed`; earlier executed steps are not
+  undone). A failed approved manual action is persisted, but the handler's partial work is rolled back to a savepoint.
+- Workflow trigger `quote.won` is not supported (no dispatch exists); validation rejects it.
+- Step timeouts are measured after the step returns (no pre-emptive cancellation of a running handler): a step that
+  ran too long has already executed when it is recorded `failed`, and it is not compensated.
+- Not tested at API level: runtime `budget_exceeded`, the retry cap and the per-step timeout of workflows. The race
+  tests for seats and subscription creation are timing-dependent. No browser-level security, mobile or accessibility
+  check was made on the Stage 4 pages.
+- Tool proposals do not resolve their targets at proposal time (a wrong id fails at execution); `tool_invocations.args`
+  are stored as given (business data, not redacted); manual dry runs, proposals and assistant sessions are not metered
+  or rate limited beyond the daily AI-call limit.
+- The support export contains run ids, statuses and a system-written explanation head only (allowlist; anything else
+  is exported as "other"). It is not otherwise proven free of free text: plan and settings values are configuration.
+
